@@ -6,9 +6,9 @@ set -euo pipefail
 ############################
 MINIFORGE_DIR="$HOME/conda"
 CONDA_BIN="$MINIFORGE_DIR/bin/conda"
-DATA_ROOT="$HOME/data/datasets/av2"
+DATA_ROOT="/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/Avrgoverse2_sensor_data"
 AV2_ENV="av2"
-DATASET_NAME="${1:-sensor}"  # 默认 sensor，可通过参数覆盖
+DATASET_NAME="sensor"  # 固定下载 sensor
 MAX_RETRIES=5
 
 ############################
@@ -85,13 +85,35 @@ fi
 ############################
 # 6. 下载数据集（可中断恢复）
 ############################
-TARGET_DIR="$DATA_ROOT/$DATASET_NAME"
+TARGET_DIR="$DATA_ROOT"
 mkdir -p "$TARGET_DIR"
 
-log "Downloading AV2 dataset: $DATASET_NAME"
+log "Downloading AV2 dataset: $DATASET_NAME (train parts 1-14 only)"
 log "Target dir: $TARGET_DIR"
 
-retry s5cmd --no-sign-request \
-  cp "s3://argoverse/datasets/av2/$DATASET_NAME/*" "$TARGET_DIR"
+# 仅下载 Train Part 1-14
+PARTS=(
+  "train/part_1"
+  "train/part_2"
+  "train/part_3"
+  "train/part_4"
+  "train/part_5"
+  "train/part_6"
+  "train/part_7"
+  "train/part_8"
+  "train/part_9"
+  "train/part_10"
+  "train/part_11"
+  "train/part_12"
+  "train/part_13"
+  "train/part_14"
+)
+
+for part in "${PARTS[@]}"; do
+  log "Downloading $part ..."
+  mkdir -p "$TARGET_DIR/$part"
+  retry s5cmd --no-sign-request \
+    cp "s3://argoverse/datasets/av2/$DATASET_NAME/$part/*" "$TARGET_DIR/$part"
+done
 
 log "Download completed successfully."
