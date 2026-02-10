@@ -34,32 +34,14 @@ retry() {
 TARGET_DIR="$DATA_ROOT"
 mkdir -p "$TARGET_DIR"
 
-log "Downloading AV2 dataset: $DATASET_NAME (train parts 1-14 only)"
+BASE_URI="s3://argoverse/datasets/av2/$DATASET_NAME"
+
+log "Downloading AV2 dataset: $DATASET_NAME (train only)"
 log "Target dir: $TARGET_DIR"
 
-# 仅下载 Train Part 1-14
-PARTS=(
-  "train/part_1"
-  "train/part_2"
-  "train/part_3"
-  "train/part_4"
-  "train/part_5"
-  "train/part_6"
-  "train/part_7"
-  "train/part_8"
-  "train/part_9"
-  "train/part_10"
-  "train/part_11"
-  "train/part_12"
-  "train/part_13"
-  "train/part_14"
-)
-
-for part in "${PARTS[@]}"; do
-  log "Downloading $part ..."
-  mkdir -p "$TARGET_DIR/$part"
-  retry s5cmd --no-sign-request \
-    cp "s3://argoverse/datasets/av2/$DATASET_NAME/$part/*" "$TARGET_DIR/$part"
-done
+log "Downloading train ..."
+mkdir -p "$TARGET_DIR/train"
+retry s5cmd --no-sign-request \
+  cp "$BASE_URI/train/*" "$TARGET_DIR/train"
 
 log "Download completed successfully."
