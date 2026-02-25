@@ -1,0 +1,5 @@
+# 忽略克隆的 OpenDWM 仓库（整目录忽略）
+/OpenDWM/
+
+# 忽略 waymo_link 符号链接（无论指向文件还是目录）
+/waymo_link
