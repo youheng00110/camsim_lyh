@@ -1,2 +1,0 @@
-根目录地址/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh
-编译后的地址/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/externals/waymo-open-dataset/src/waymo_open_dataset
