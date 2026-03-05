@@ -10,22 +10,31 @@ from nuscenes import NuScenes
 from nuscenes.utils.splits import create_splits_scenes
 
 # ==============================
-# 1️⃣ 路径配置（⚠️ 改成你的）
+# 1️⃣ 路径配置
 # ==============================
 DATAROOT = "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_link"
-SAVE_DIR = "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_balanced"
+
+# ⚠️ 使用 12Hz 插值版本
+VERSION = "interp_12Hz_trainval"
+
+SAVE_DIR = "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_train_balanced"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-WINDOW_SIZE = 8      # 4秒 (2Hz × 4)
-STEP_SIZE = 4        # 2秒
-NUM_BINS = 36        # 每10°
+WINDOW_SIZE = 48      # 4秒 (12Hz × 4)
+STEP_SIZE = 24        # 2秒
+NUM_BINS = 36         # 每10°
 SAMPLES_PER_BIN = 150
 
 # ==============================
 # 2️⃣ 加载 nuScenes
 # ==============================
 print("Loading nuScenes...")
-nusc = NuScenes(version='v1.0-trainval', dataroot=DATAROOT, verbose=False)
+
+nusc = NuScenes(
+    version=VERSION,
+    dataroot=DATAROOT,
+    verbose=False
+)
 
 train_scene_names = set(create_splits_scenes()['train'])
 
@@ -34,8 +43,8 @@ train_scenes = [
     if scene['name'] in train_scene_names
 ]
 
-print("Total scenes in dataset:", len(nusc.scene))      # 850
-print("Train scenes used:", len(train_scenes))          # 应该是700
+print("Total scenes in dataset:", len(nusc.scene))
+print("Train scenes used:", len(train_scenes))
 
 # ==============================
 # 3️⃣ 生成 windows
@@ -45,8 +54,6 @@ windows = []
 print("Generating windows and calculating motion angles...")
 
 for scene in tqdm(train_scenes, desc="Processing train scenes"):
-    if scene['name'] not in train_scene_names:
-        continue
 
     samples = []
     token = scene['first_sample_token']
@@ -81,12 +88,11 @@ for scene in tqdm(train_scenes, desc="Processing train scenes"):
         dy = y1 - y0
         dist = np.sqrt(dx**2 + dy**2)
 
-        if dist < 1.0:  # 过滤几乎静止
+        # 过滤几乎静止
+        if dist < 1.0:
             continue
 
         # ===== 计算运动角 =====
-        # Forward = +Y
-        # angle = atan2(dx, dy)
         angle = np.arctan2(dx, dy)
 
         windows.append({
@@ -109,6 +115,7 @@ bins = defaultdict(list)
 bin_width = (2 * np.pi) / NUM_BINS
 
 print("Binning windows...")
+
 for w in tqdm(windows):
     theta = (w['angle'] + np.pi) % (2 * np.pi)
     bin_idx = int(theta // bin_width) % NUM_BINS
@@ -122,6 +129,7 @@ balanced_windows = []
 print(f"Sampling {SAMPLES_PER_BIN} per bin...")
 
 for b_idx in tqdm(range(NUM_BINS)):
+
     curr_bin_windows = bins[b_idx]
     count = len(curr_bin_windows)
 
@@ -131,11 +139,13 @@ for b_idx in tqdm(range(NUM_BINS)):
 
     num_to_sample = min(count, SAMPLES_PER_BIN)
     sampled = random.sample(curr_bin_windows, num_to_sample)
+
     balanced_windows.extend(sampled)
 
     print(f"Bin {b_idx}: Found {count}, Sampled {num_to_sample}")
 
 output_path = os.path.join(SAVE_DIR, "balanced_windows_metadata.json")
+
 with open(output_path, "w") as f:
     json.dump(balanced_windows, f, indent=2)
 
@@ -149,9 +159,11 @@ sampled_angles = [w['angle'] for w in balanced_windows]
 
 plt.figure(figsize=(10,5))
 plt.hist(sampled_angles, bins=NUM_BINS, range=(-np.pi, np.pi), rwidth=0.8)
+
 plt.title("nuScenes Balanced Motion Angle Distribution")
 plt.xlabel("Angle (rad)")
 plt.ylabel("Window Count")
+
 plt.savefig(os.path.join(SAVE_DIR, "balanced_distribution_check.png"))
 
 # ==============================
@@ -172,18 +184,36 @@ balanced_counts, _ = np.histogram(balanced_angles, bins=bin_edges)
 fig = plt.figure(figsize=(8,8))
 ax = fig.add_subplot(111, polar=True)
 
-ax.bar(bin_centers, all_counts, width=width,
-       color="lightgray", alpha=0.6, label="Before balancing")
+ax.bar(
+    bin_centers,
+    all_counts,
+    width=width,
+    color="lightgray",
+    alpha=0.6,
+    label="Before balancing"
+)
 
-ax.bar(bin_centers, balanced_counts, width=width,
-       color="red", alpha=0.7, label="After balancing")
+ax.bar(
+    bin_centers,
+    balanced_counts,
+    width=width,
+    color="red",
+    alpha=0.7,
+    label="After balancing"
+)
+
 ax.set_ylim(0, 200)
 ax.set_theta_zero_location("N")
 ax.set_theta_direction(-1)
+
 ax.set_title("nuScenes Motion Angle Distribution (Polar)")
 ax.legend(loc="upper right")
 
 plt.tight_layout()
-plt.savefig(os.path.join(SAVE_DIR, "polar_distribution_comparison.png"), dpi=300)
+
+plt.savefig(
+    os.path.join(SAVE_DIR, "polar_distribution_comparison.png"),
+    dpi=300
+)
 
 print("Done.")
