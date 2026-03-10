@@ -1,8 +1,14 @@
 # 忽略克隆的 OpenDWM 仓库（整目录忽略）
-/OpenDWM/
+
 
 # 忽略 waymo_link 符号链接（无论指向文件还是目录）
 /waymo_link
 #忽略pkl文件
 *.pkl          
 !utils/valid.pkl  
+# 只忽略特定目录下的大 json 文件（示例，根据你的实际路径改）
+waymo_balanced/*.json
+waymo_caption_v2/*.json
+nuscenes_train_balanced/*.json
+nuscenes_val_sort/*.json
+waymo_prepo/*.json
