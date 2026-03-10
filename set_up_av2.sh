@@ -5,7 +5,7 @@ set -euo pipefail
 # 全局配置
 ############################
 DATA_ROOT="/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/Avrgoverse2_sensor_data"
-DATASET_NAME="sensor"  # 固定下载 sensor
+DATASET_NAME="sensor"
 MAX_RETRIES=5
 
 ############################
@@ -23,25 +23,27 @@ retry() {
       return 1
     fi
     log "Retrying ($n/$MAX_RETRIES)..."
-    sleep 3
+    sleep 5
     ((n++))
   done
 }
 
 ############################
-# 下载数据集（可中断恢复）
+# 下载 val
 ############################
 TARGET_DIR="$DATA_ROOT"
 mkdir -p "$TARGET_DIR"
 
 BASE_URI="s3://argoverse/datasets/av2/$DATASET_NAME"
 
-log "Downloading AV2 dataset: $DATASET_NAME (train only)"
-log "Target dir: $TARGET_DIR"
+log "Downloading AV2 dataset: $DATASET_NAME (val only)"
+log "Target directory: $TARGET_DIR"
 
-log "Downloading train ..."
-mkdir -p "$TARGET_DIR/train"
-retry s5cmd --no-sign-request \
-  cp "$BASE_URI/train/*" "$TARGET_DIR/train"
+log "Downloading val split ..."
+mkdir -p "$TARGET_DIR/val"
+
+retry s5cmd --no-sign-request cp \
+  "$BASE_URI/val/*" \
+  "$TARGET_DIR/val/"
 
 log "Download completed successfully."
