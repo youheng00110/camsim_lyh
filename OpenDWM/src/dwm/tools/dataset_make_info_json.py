@@ -115,34 +115,55 @@ if __name__ == "__main__":
             json.dump(info_dict, f)
 
     elif args.dataset_type == "argoverse":
-        files = [
+        # 适配已解压的Argoverse数据集（不再筛选.tar文件）
+        import glob
+
+
+        # 遍历已解压的train/val/test目录下的场景文件夹
+        # 先确定目标拆分目录（train/val/test），默认用train
+        split_dir = args.split if args.split else "train"
+        split_path = os.path.join(args.input_path, split_dir)
+        
+        # 检查拆分目录是否存在
+        assert os.path.exists(split_path), f"拆分目录不存在: {split_path}"
+        
+        # 获取所有场景文件夹（Argoverse解压后每个场景是一个独立文件夹）
+        scene_folders = [
             os.path.relpath(i, args.input_path)
-            for i in fs.ls(args.input_path, detail=False)
+            for i in glob.glob(os.path.join(split_path, "*"))
+            if os.path.isdir(i)
         ]
-        filtered_files = [
-            i for i in files
-            if (
-                (args.split is None or i.startswith(args.split)) and
-                i.endswith(".tar")
-            )
-        ]
-        assert len(files) > 0, (
-            "No files detected, please check the split (one of \"train\", "
+        
+        # 检查是否有场景文件夹
+        assert len(scene_folders) > 0, (
+            "No scene folders detected, please check the input path or split (one of \"train\", "
             "\"val\", \"test\") is correct."
         )
 
+        # 创建输出目录
         os.makedirs(args.output_path, exist_ok=True)
-        for i in tqdm.tqdm(files):
-            with fs.open("{}/{}".format(args.input_path, i)) as f:
-                items = dwm.tools.fs_make_info_json.make_info_dict(
-                    os.path.splitext(i)[-1], f, enable_tqdm=False)
-
+        
+        # 为每个场景文件夹生成info.json（模拟原tar包的info逻辑）
+        for scene_folder in tqdm.tqdm(scene_folders):
+            scene_path = os.path.join(args.input_path, scene_folder)
+            # 构建该场景的信息字典（核心：适配Argoverse解压后的数据结构）
+            items = {
+                "scene_name": os.path.basename(scene_folder),
+                "split": split_dir,
+                "path": scene_path,
+                "files": [
+                    os.path.join(scene_folder, f)
+                    for f in glob.glob(os.path.join(scene_path, "**/*"), recursive=True)
+                    if os.path.isfile(f)
+                ]
+            }
+            
+            # 保存info.json文件（命名规则：场景名.info.json）
+            info_filename = f"{os.path.basename(scene_folder)}.info.json"
             with open(
-                os.path.join(
-                    args.output_path, i.replace(".tar", ".info.json")),
+                os.path.join(args.output_path, info_filename),
                 "w", encoding="utf-8"
             ) as f:
-                json.dump(items, f)
-
+                json.dump(items, f, indent=2)  # indent=2让JSON更易读
     else:
         raise Exception("Unknown dataset type {}.".format(args.dataset_type))

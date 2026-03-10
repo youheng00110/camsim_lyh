@@ -21,7 +21,7 @@ SAVE_DIR = "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-dat
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 WINDOW_SIZE = 48
-STEP_SIZE = 24
+STEP_SIZE = 12
 
 NUM_BINS = 36
 SAMPLES_PER_BIN = 150

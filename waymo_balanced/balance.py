@@ -7,10 +7,10 @@ from collections import defaultdict
 from tqdm import tqdm
 
 # 1. 配置
-METADATA_PATH = "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/prepro_waymo/waymo_ego_metadata.json"
+METADATA_PATH = "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_prepo/waymo_ego_metadata.json"
 SAVE_DIR = "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_balanced"
 WINDOW_SIZE = 40 # 假设 10Hz，2秒即20帧
-STEP_SIZE = 20    # 步长，设为 WINDOW_SIZE 表示无重叠
+STEP_SIZE = 10  # 步长，设为 WINDOW_SIZE 表示无重叠
 NUM_BINS = 36     # 36个扇区，每个10度
 SAMPLES_PER_BIN = 150 # 每个扇区期望采样的窗口数（根据你的数据量调整）
 
