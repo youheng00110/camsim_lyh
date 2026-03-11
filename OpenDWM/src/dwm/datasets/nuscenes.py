@@ -5,6 +5,7 @@ import einops
 import fsspec
 import json
 import os
+import time
 import numpy as np
 from PIL import Image, ImageDraw
 import torch
@@ -392,6 +393,7 @@ class MotionDataset(torch.utils.data.Dataset):
         for i in sample_data_list:
             if MotionDataset.check_sensor(
                     tables, indices, i, modality="camera"):
+                print("DEBUG:", i["filename"], "keyframe:", i["is_key_frame"])
                 with fs.open(i["filename"]) as f:
                     image = Image.open(f)
                     image.load()
@@ -821,7 +823,10 @@ class MotionDataset(torch.utils.data.Dataset):
         hdmap_bev_settings=None, image_description_settings=None,
         stub_key_data_dict=None,
         balanced_json_path=None, # 新增参数
+        
         **kwargs
+    
+        
     ):
         self.fs = fs
         tables, self.indices = MotionDataset.load_tables(
@@ -850,8 +855,9 @@ class MotionDataset(torch.utils.data.Dataset):
         self.hdmap_bev_settings = hdmap_bev_settings
         self.image_description_settings = image_description_settings
         self.stub_key_data_dict = stub_key_data_dict
+        
         self.items = [] 
-        self.balanced_data_lookup = {}
+        self.motion_intervals = []
         # cache the map data
         if (
             self.hdmap_image_settings is not None or
@@ -884,96 +890,261 @@ class MotionDataset(torch.utils.data.Dataset):
             tables.pop("ego_pose")
             self.indices.pop("ego_pose.token")
 
+            
 
-        # ===============================
-        # 构建 scene_channel_sample_data
-        # ===============================
+            t_dataset_total = time.time()
 
-        scene_channel_sample_data = [
-            (scene, [
-                sorted([
-                    sample_data
-                    for sample in MotionDataset.get_scene_samples(
-                        tables, self.indices, scene)
-                    for sample_data in MotionDataset.query_range(
-                        tables, self.indices, "sample_data", sample["token"],
-                        column_name="sample_token")
-                    if MotionDataset.check_sensor(
-                        tables, self.indices, sample_data, channel) and
-                    key_filter(sample_data)
-                ], key=lambda x: x["timestamp"])
-                for channel in sensor_channels
-            ])
-            for scene in tables["scene"]
-        ]
+            # ===============================
+            # 加载 balanced_json motion intervals
+            # ===============================
+
+            t_json = time.time()
+
+            if not self.fs.exists(balanced_json_path):
+                raise RuntimeError(
+                    f"[Dataset ERROR] balanced_json_path not found: {balanced_json_path}"
+                )
+
+            with self.fs.open(balanced_json_path, 'r') as f:
+                raw_entries = json.load(f)
+
+            print(f"[Dataset DEBUG] Loading motion intervals from JSON: {len(raw_entries)} entries")
+            print(f"[TIME] JSON load: {time.time() - t_json:.3f}s")
+
+            # ===============================
+            # 构建 motion_intervals
+            # ===============================
+
+            t_interval_build = time.time()
+
+            for entry in raw_entries:
+
+                if entry["scene_name"] not in self.scene_name_to_token:
+                    raise RuntimeError(
+                        f"[Dataset ERROR] scene_name not found in dataset: {entry['scene_name']}"
+                    )
+
+                scene_token = self.scene_name_to_token[entry["scene_name"]]
+
+                self.motion_intervals.append({
+                    "scene": scene_token,
+                    "start_ts": entry["start_timestamp"],
+                    "end_ts": entry["end_timestamp"],
+                    "angle": entry["angle"],
+                    "dist": entry["dist"]
+                })
+
+            print(f"[Dataset DEBUG] Motion intervals loaded: {len(self.motion_intervals)}")
+            print(f"[TIME] interval build: {time.time() - t_interval_build:.3f}s")
+
+            if len(self.motion_intervals) == 0:
+                raise RuntimeError(
+                    "[Dataset ERROR] No motion intervals loaded. Dataset will be empty."
+                )
 
 
-        # ===============================
-        # 构建 dataset items
-        # ===============================
+            # ===============================
+            # build scene -> interval bucket
+            # ===============================
 
-        if balanced_json_path is not None:
-            import json
-            if os.path.exists(balanced_json_path):
-                with open(balanced_json_path, 'r') as f:
-                    raw_entries = json.load(f)
-                
-                print(f"[Dataset] Loading from JSON: {len(raw_entries)} entries found.")
+            t_bucket = time.time()
 
-                for entry in raw_entries:
+            self.motion_intervals_by_scene = {}
 
-                    token = entry["start_sample_token"]
+            for interval in self.motion_intervals:
+                s = interval["scene"]
+                if s not in self.motion_intervals_by_scene:
+                    self.motion_intervals_by_scene[s] = []
+                self.motion_intervals_by_scene[s].append(interval)
 
-                    segment = entry["segment_tokens"]
+            print("[Dataset DEBUG] Interval scenes:", len(self.motion_intervals_by_scene))
+            print(f"[TIME] interval bucket build: {time.time() - t_bucket:.3f}s")
 
-                    if len(segment) > 0:
 
-                        scene_token = self.scene_name_to_token[entry["scene_name"]]
+            # ===============================
+            # 构建 scene_channel_sample_data
+            # ===============================
+
+            t_scene_data = time.time()
+
+            scene_channel_sample_data = [
+                (scene, [
+                    sorted([
+                        sample_data
+                        for sample in MotionDataset.get_scene_samples(
+                            tables, self.indices, scene)
+                        for sample_data in MotionDataset.query_range(
+                            tables, self.indices, "sample_data", sample["token"],
+                            column_name="sample_token")
+                        if MotionDataset.check_sensor(
+                            tables, self.indices, sample_data, channel) and
+                        key_filter(sample_data)
+                    ], key=lambda x: x["timestamp"])
+                    for channel in sensor_channels
+                ])
+                for scene in tables["scene"]
+            ]
+
+            print("[Dataset DEBUG] Scene channel sample data prepared")
+            print(f"[TIME] scene_channel_sample_data build: {time.time() - t_scene_data:.3f}s")
+
+
+            for i in range(min(3, len(scene_channel_sample_data))):
+                scene_i, channels_i = scene_channel_sample_data[i]
+                print(f"[Dataset DEBUG] Scene {scene_i['name']} channel frame counts:")
+
+                for ch, frames in zip(sensor_channels, channels_i):
+                    print(f"   {ch}: {len(frames)} frames")
+
+
+            # ===============================
+            # enumerate_segments
+            # ===============================
+
+            print("[Dataset DEBUG] sequence_length:", self.sequence_length)
+            print("[Dataset DEBUG] sensor_channels:", self.sensor_channels)
+            print("[Dataset DEBUG] fps_stride_tuples:", self.fps_stride_tuples)
+            print("[Dataset DEBUG] number of scenes:", len(tables["scene"]))
+            print("[Dataset] Enumerating segments...")
+
+            t_enumerate = time.time()
+            t_interval_match = 0
+
+            total_windows = 0
+            matched_windows = 0
+            scene_window_counter = {}
+
+            for scene, channel_sample_data_list in scene_channel_sample_data:
+
+                for fps, stride in fps_stride_tuples:
+
+                    for segment_tokens in MotionDataset.enumerate_segments(
+                        channel_sample_data_list,
+                        sequence_length,
+                        fps,
+                        stride,
+                        enable_synchronization_check
+                    ):
+
+                        total_windows += 1
+
+                        # 获取window timestamp
+                        first_token = segment_tokens[0][0]
+                        last_token = segment_tokens[-1][0]
+
+                        first_sd = MotionDataset.query(
+                            tables, self.indices, "sample_data", first_token)
+
+                        last_sd = MotionDataset.query(
+                            tables, self.indices, "sample_data", last_token)
+
+                        window_start = first_sd["timestamp"]
+                        window_end = last_sd["timestamp"]
+
+                        # ===============================
+                        # interval matching
+                        # ===============================
+
+                        t_match_start = time.time()
+
+                        scene_intervals = self.motion_intervals_by_scene.get(scene["token"], [])
+                        matched_interval = None
+
+                        for interval in scene_intervals:
+
+                            if not (
+                                window_end < interval["start_ts"] or
+                                window_start > interval["end_ts"]
+                            ):
+                                matched_interval = interval
+                                break
+
+                        t_interval_match += time.time() - t_match_start
+
+                        if matched_interval is None:
+                            continue
+
+                        matched_windows += 1
+
+                        scene_name = scene["name"]
+                        if scene_name not in scene_window_counter:
+                            scene_window_counter[scene_name] = 0
+                        scene_window_counter[scene_name] += 1
 
                         self.items.append({
-                            "scene": scene_token,
-                            "start_token": token,
-                            "fps": 12,
-                            "segment": segment
+                            "scene": scene["token"],
+                            "segment": segment_tokens,
+                            "fps": fps,
+                            "angle": matched_interval["angle"],
+                            "dist": matched_interval["dist"]
                         })
 
-                        self.balanced_data_lookup[token] = {
-                            "angle": entry["angle"],
-                            "dist": entry["dist"]
-                        }
-                print(f"[Dataset] Final valid items: {len(self.items)}")
-            else:
-                print(f"Warning: JSON path {balanced_json_path} does not exist!")
 
-        if image_description_settings is not None:
-            with open(
-                image_description_settings["path"], "r", encoding="utf-8"
-            ) as f:
-                self.image_descriptions = json.load(f)
+            print("[Dataset DEBUG] Window generation finished")
 
-            self.image_desc_rs = np.random.RandomState(
-                image_description_settings["seed"]
-                if "seed" in image_description_settings else None)
+            print(f"[Dataset DEBUG] Total windows generated: {total_windows}")
+            print(f"[Dataset DEBUG] Windows matched with intervals: {matched_windows}")
+            print(f"[Dataset DEBUG] Final dataset size: {len(self.items)}")
 
-            with open(
-                image_description_settings["time_list_dict_path"], "r",
-                encoding="utf-8"
-            ) as f:
-                self.time_list_dict = json.load(f)
+            print(f"[TIME] enumerate_segments total: {time.time() - t_enumerate:.3f}s")
+            print(f"[TIME] interval matching total: {t_interval_match:.3f}s")
+            print(f"[TIME] Dataset init total: {time.time() - t_dataset_total:.3f}s")
 
-        self.tables = {
-            k: (
-                dwm.common.SerializedReadonlyList(v)
-                if k in MotionDataset.serialized_table_names else v
-            )
-            for k, v in tables.items()
-        }
+
+            if total_windows == 0:
+                raise RuntimeError(
+                    "[Dataset ERROR] enumerate_segments generated 0 windows."
+                )
+
+            if matched_windows == 0:
+                raise RuntimeError(
+                    "[Dataset ERROR] No windows matched motion intervals."
+                )
+
+            print("[Dataset DEBUG] Windows per scene (first 10):")
+            for i, (k, v) in enumerate(scene_window_counter.items()):
+                if i > 10:
+                    break
+                print(f"   {k}: {v}")
+            
+        
+            if image_description_settings is not None:
+                with open(
+                    image_description_settings["path"], "r", encoding="utf-8"
+                ) as f:
+                    self.image_descriptions = json.load(f)
+
+                self.image_desc_rs = np.random.RandomState(
+                    image_description_settings["seed"]
+                    if "seed" in image_description_settings else None)
+
+                with open(
+                    image_description_settings["time_list_dict_path"], "r",
+                    encoding="utf-8"
+                ) as f:
+                    self.time_list_dict = json.load(f)
+
+            self.tables = {
+                k: (
+                    dwm.common.SerializedReadonlyList(v)
+                    if k in MotionDataset.serialized_table_names else v
+                )
+                for k, v in tables.items()
+            }
 
     def __len__(self):
         return len(self.items)
 
     def __getitem__(self, index: int):
         item = self.items[index]
+        if index < 3:
+            print("[Dataset DEBUG] __getitem__ sample")
+            print("   index:", index)
+            print("   scene:", item["scene"])
+            print("   fps:", item["fps"])
+            print("   angle:", item["angle"])
+            print("   dist:", item["dist"])
+            print("   segment length:", len(item["segment"]))
         scene = MotionDataset.query(
             self.tables, self.indices, "scene", item["scene"])
         segment = [
@@ -991,18 +1162,9 @@ class MotionDataset(torch.utils.data.Dataset):
 
         # ======= 新增：注入 JSON 里的 angle 和 dist =======
         # 获取当前样本的标识符（通常是 start_sample_token）
-        current_token = item.get("start_token") 
+        result["angle"] = torch.tensor(item["angle"], dtype=torch.float32)
+        result["dist"] = torch.tensor(item["dist"], dtype=torch.float32)
         
-        if current_token in self.balanced_data_lookup:
-            metadata = self.balanced_data_lookup[current_token]
-            result["angle"] = torch.tensor(metadata["angle"], dtype=torch.float32)
-            result["dist"] = torch.tensor(metadata["dist"], dtype=torch.float32)
-            result["scene_name"] = item["scene"] # 方便调试
-        else:
-            # 如果没找到，可以给默认值或者不填
-            result["angle"] = torch.tensor(0.0)
-            result["dist"] = torch.tensor(0.0)
-        # ===============================================
         
         if self.enable_scene_description:
             result["scene_description"] = scene["description"]

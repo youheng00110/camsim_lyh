@@ -169,6 +169,9 @@ for scene in tqdm(train_scenes, desc="Processing train scenes"):
         if len(segment_tokens) != WINDOW_SIZE:
             continue
 
+        # =====================
+        # 保存窗口信息 (新增了 timestamp 字段)
+        # =====================
         windows.append({
 
             "scene_name": scene['name'],
@@ -176,6 +179,10 @@ for scene in tqdm(train_scenes, desc="Processing train scenes"):
             "start_sample_token": start_sample['token'],
 
             "end_sample_token": end_sample['token'],
+            
+            "start_timestamp": start_sample['timestamp'],  # 新增
+
+            "end_timestamp": end_sample['timestamp'],      # 新增
 
             "segment_tokens": segment_tokens,
 

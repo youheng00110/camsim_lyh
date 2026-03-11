@@ -69,12 +69,12 @@ def make_base_ds():
         # 如果长度不固定，底层需要处理 padding，或者在这里设为 None/最大值。
         sequence_length=48, 
         
-        fps_stride_tuples=[(2, 0.5)],
+        fps_stride_tuples=[(12, 1)],
         
         # 【修改点2】：NuScenes 只有 6 个相机！(之前 NuPlan 是 8 个)
         sensor_channels=['CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_BACK_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_FRONT_LEFT'],
         
-        enable_synchronization_check=True,
+        enable_synchronization_check=False,
         
         # 【修改点3】：crossview_mask 的矩阵大小。
         # 因为现在是 6 个相机，mask 必须是 6x6 的（表示相机视野是否重叠）。我给你改成了 6x6。
