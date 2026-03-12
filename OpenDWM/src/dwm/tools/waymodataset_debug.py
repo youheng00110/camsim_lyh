@@ -102,7 +102,7 @@ def make_base_ds():
 
         sequence_length=40,   # Waymo 4s = 40 frames
 
-        fps_stride_tuples=[(1,1.0)],
+        fps_stride_tuples=[(10,1)],
 
         sensor_channels=[
             "CAM_FRONT",

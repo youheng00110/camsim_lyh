@@ -531,90 +531,170 @@ class MotionDataset(torch.utils.data.Dataset):
         return image_descriptions[key]
     ###增加筛选平衡后的json########
     def __init__(
-        self, fs: fsspec.AbstractFileSystem, info_dict_path: str,
-        sequence_length: int, fps_stride_tuples: list,
-        sensor_channels: list = ["CAM_FRONT"],
-        enable_camera_transforms: bool = False,
-        enable_ego_transforms: bool = False,
-        _3dbox_image_settings: dict = None, hdmap_image_settings: dict = None,
-        _3dbox_bev_settings: dict = None, hdmap_bev_settings: dict = None,
-        image_description_settings: dict = None,
-        stub_key_data_dict: dict = None,
+        self,
+        fs,
+        info_dict_path,
+        sequence_length,
+        fps_stride_tuples,
+        sensor_channels=["CAM_FRONT"],
+        enable_camera_transforms=False,
+        enable_ego_transforms=False,
+        _3dbox_image_settings=None,
+        hdmap_image_settings=None,
+        _3dbox_bev_settings=None,
+        hdmap_bev_settings=None,
+        image_description_settings=None,
+        stub_key_data_dict=None,
         balanced_json_path=None,
         dataset_root=None
-        
     ):
 
-            self.fs = fs
-            self.sequence_length = sequence_length
-            self.fps_stride_tuples = fps_stride_tuples
-            self.sensor_channels = sensor_channels
-            self.enable_camera_transforms = enable_camera_transforms
-            self.enable_ego_transforms = enable_ego_transforms
-            self._3dbox_image_settings = _3dbox_image_settings
-            self.hdmap_image_settings = hdmap_image_settings
-            self._3dbox_bev_settings = _3dbox_bev_settings
-            self.hdmap_bev_settings = hdmap_bev_settings
-            self.image_description_settings = image_description_settings
-            self.balanced_json_path = balanced_json_path
-            self.dataset_root = dataset_root
-            self.stub_key_data_dict = {} if stub_key_data_dict is None else stub_key_data_dict
-            print("dataset_root =", self.dataset_root)
+        self.fs = fs
+        self.sequence_length = sequence_length
+        self.fps_stride_tuples = fps_stride_tuples
+        self.sensor_channels = sensor_channels
+        self.dataset_root = dataset_root
 
-            # ========= 原始 sample info =========
-                # 1. 加载原始的 info 字典
-            with open(info_dict_path, 'r') as f:
-                scene_sample_info = json.load(f)
-            
-            # 【关键】：直接存储这个字典，方便按 scene_id 查询
-            # 我们起名为 sample_info_dict，确保 __getitem__ 能找到它
-            self.sample_info_dict = scene_sample_info 
+        self.items = []
 
-            # 2. 处理 Balanced JSON
-            if balanced_json_path is not None:
-                with open(balanced_json_path, "r") as f:
-                    entries = json.load(f)
-                
-                items = []
-                for e in entries:
-                    items.append({
-                        "scene": e["seq_id"],
-                        "start_idx": e["start_idx"],
-                        "end_idx": e["end_idx"],
-                        "fps": fps_stride_tuples[0][0],
-                        "angle": e.get("angle", 0),
-                        "dist": e.get("dist", 0)
+        # ===============================
+        # 1️⃣ 读取 info_dict
+        # ===============================
+
+        with open(info_dict_path, 'r') as f:
+            self.sample_info_dict = json.load(f)
+
+        # ===============================
+        # 2️⃣ 读取 balanced_json
+        # ===============================
+        # ===== [NEW] =====
+
+        if balanced_json_path is None:
+            raise RuntimeError("balanced_json_path required")
+
+        with open(balanced_json_path, 'r') as f:
+            raw_entries = json.load(f)
+
+        print(f"[Dataset] Motion intervals loaded: {len(raw_entries)}")
+
+        # interval list
+        self.motion_intervals = []
+
+        for e in raw_entries:
+
+            self.motion_intervals.append({
+                "scene": e["seq_id"],
+
+                "start_idx": e["start_idx"],
+                "end_idx": e["end_idx"],
+
+                "start_ts": e["start_timestamp"],
+                "end_ts": e["end_timestamp"],
+
+                "angle": e["angle"],
+                "dist": e["dist"]
+            })
+
+        # ===============================
+        # 3️⃣ scene -> interval bucket
+        # ===============================
+        # ===== [NEW] =====
+
+        self.motion_intervals_by_scene = {}
+
+        for interval in self.motion_intervals:
+
+            scene = interval["scene"]
+
+            if scene not in self.motion_intervals_by_scene:
+                self.motion_intervals_by_scene[scene] = []
+
+            self.motion_intervals_by_scene[scene].append(interval)
+
+        print("[Dataset] Interval scenes:", len(self.motion_intervals_by_scene))
+
+        # ===============================
+        # 4️⃣ enumerate windows and compare
+        # ===============================
+
+        total_windows = 0
+        matched_windows = 0
+
+        # 控制 overlap 比例
+        OVERLAP_RATIO = 0.9
+
+        for scene_id, sample_list in self.sample_info_dict.items():
+
+            if scene_id not in self.motion_intervals_by_scene:
+                continue
+
+            scene_intervals = self.motion_intervals_by_scene[scene_id]
+
+            # 提取 timestamp
+            timestamps = [i[0] for i in sample_list]
+
+            for fps, stride_sec in self.fps_stride_tuples:
+
+                # stride 是秒 → 转换为 frame
+                stride = int(stride_sec * fps)
+
+                if stride <= 0:
+                    stride = 1
+
+                for start_idx in range(
+                    0,
+                    len(sample_list) - self.sequence_length + 1,
+                    stride
+                ):
+
+                    end_idx = start_idx + self.sequence_length
+
+                    window_ts_start = timestamps[start_idx]
+                    window_ts_end = timestamps[end_idx - 1]
+
+                    window_duration = window_ts_end - window_ts_start
+
+                    total_windows += 1
+
+                    matched_interval = None
+
+                    for interval in scene_intervals:
+
+                        overlap_start = max(window_ts_start, interval["start_ts"])
+                        overlap_end = min(window_ts_end, interval["end_ts"])
+
+                        overlap = overlap_end - overlap_start
+
+                        if overlap <= 0:
+                            continue
+
+                        if overlap >= OVERLAP_RATIO * window_duration:
+                            matched_interval = interval
+                            break
+
+                    if matched_interval is None:
+                        continue
+
+                    matched_windows += 1
+
+                    self.items.append({
+                        "scene": scene_id,
+                        "start_idx": start_idx,
+                        "end_idx": end_idx,
+                        "fps": fps,
+                        "angle": matched_interval["angle"],
+                        "dist": matched_interval["dist"]
                     })
-                self.items = items
 
-            else:
+        print("[Dataset] Window enumeration finished")
+        print("Total windows:", total_windows)
+        print("Matched windows:", matched_windows)
+        print("Final dataset size:", len(self.items))
+        if len(self.items) > 0:
+            print("[Dataset DEBUG] Example item:")
+            print(self.items[0])
+            
 
-                # ===== 原始 enumerate_segments 逻辑 =====
-                self.items = dwm.common.SerializedReadonlyList([
-                    {"segment": segment, "fps": fps, "scene": scene}
-                    for scene, sample_info_list in scene_sample_info.items()
-                    for fps, stride in self.fps_stride_tuples
-                    for segment in MotionDataset.enumerate_segments(
-                        sample_info_list, self.sequence_length, fps, stride)
-                ])
-
-            # ========= image caption =========
-            if image_description_settings is not None:
-
-                with open(
-                    image_description_settings["path"], "r", encoding="utf-8"
-                ) as f:
-                    self.image_descriptions = json.load(f)
-
-                self.image_desc_rs = np.random.RandomState(
-                    image_description_settings["seed"]
-                    if "seed" in image_description_settings else None)
-
-                with open(
-                    image_description_settings["time_list_dict_path"], "r",
-                    encoding="utf-8"
-                ) as f:
-                    self.time_list_dict = json.load(f)
 
     def __len__(self):
         return len(self.items)
@@ -640,12 +720,10 @@ class MotionDataset(torch.utils.data.Dataset):
         # Waymo 时间戳是微秒，/ 1e6 换算成秒
         result = {
             "fps": torch.tensor(item["fps"]).float(),
-            "pts": torch.tensor([
-                [(f[0] - segment[0][0]) / 1e6] * len(self.sensor_channels)
-                for f in segment
-            ], dtype=torch.float32)
+            "angle": torch.tensor(item["angle"]).float(),
+            "dist": torch.tensor(item["dist"]).float(),
+            "scene_name": scene_id
         }
-
        # 5. 读取 TFRecord
         # 构造文件名
         scene_filename = f"segment-{scene_id}_with_camera_labels.tfrecord"

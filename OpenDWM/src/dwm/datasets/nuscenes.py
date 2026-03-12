@@ -1050,12 +1050,25 @@ class MotionDataset(torch.utils.data.Dataset):
                         scene_intervals = self.motion_intervals_by_scene.get(scene["token"], [])
                         matched_interval = None
 
+                        window_duration = window_end - window_start
+                        # ===== debug (只打印前5次) =====
+                        if total_windows < 5:
+                            print("window duration:", window_duration)
+
                         for interval in scene_intervals:
 
-                            if not (
-                                window_end < interval["start_ts"] or
-                                window_start > interval["end_ts"]
-                            ):
+                            overlap_start = max(window_start, interval["start_ts"])
+                            overlap_end = min(window_end, interval["end_ts"])
+
+                            overlap = overlap_end - overlap_start
+                            if total_windows < 5:
+                                if overlap > 0:
+                                    print("overlap:", overlap)
+                                    print("overlap ratio:", overlap / window_duration)
+                            if overlap <= 0:
+                                continue
+
+                            if overlap >= 0.9 * window_duration:
                                 matched_interval = interval
                                 break
 
