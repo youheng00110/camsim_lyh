@@ -8,6 +8,9 @@ from PIL import Image, ImageDraw
 import pyarrow.feather
 import re
 import torch
+import os
+import glob
+from tqdm import tqdm
 
 
 class MotionDataset(torch.utils.data.Dataset):
@@ -525,7 +528,12 @@ class MotionDataset(torch.utils.data.Dataset):
         enable_ego_transforms: bool = False, _3dbox_image_settings=None,
         hdmap_image_settings=None, _3dbox_bev_settings=None,
         hdmap_bev_settings=None, image_description_settings=None,
-        stub_key_data_dict=None
+        stub_key_data_dict=None,
+        balanced_json_path=None,
+        index_json_path=None,
+        dataset_root=None,
+        scene_dirs=None,
+        split: str = "train" 
     ):
         self.fs = fs
         self.sequence_length = sequence_length
@@ -539,72 +547,232 @@ class MotionDataset(torch.utils.data.Dataset):
         self._3dbox_bev_settings = _3dbox_bev_settings
         self.hdmap_bev_settings = hdmap_bev_settings
         self.image_description_settings = image_description_settings
-
+        self.index_json_path = index_json_path
         self.stub_key_data_dict = {} if stub_key_data_dict is None \
             else stub_key_data_dict
+        self.split = split
+        self.dataset_root = dataset_root
+        #if index_json_path is None:
+         #   raise RuntimeError("index_json_path required")
 
+        #with open(index_json_path, "r") as f:
+        #    index_entries = json.load(f)
+
+        #print("[Dataset] Index entries:", len(index_entries))
+        ###从json读取###3
         filename_dict = {}
         scene_channel_sample_data = {}
         scene_map_dict = {}
+        scene_split_dict = {}
+         # 重新定义正则，以适配你 JSON 里的路径格式 (train/scene_id/sensors/cameras/...)
+        # 注意：正则需要匹配你 JSON 中 "files" 列表里的字符串格式
         pattern = re.compile(
-            "^sensor/(?P<split>\\w+)/(?P<scene_id>.*)/sensors/"
+            "^(?P<split>\\w+)/(?P<scene_id>[^/]+)/sensors/cameras/"
             "(?P<sensor_channel>{})/"
-            "(?P<timestamp>\\d+).+$".format("|".join(sensor_channels)))
+            "(?P<timestamp>\\d+).+$".format("|".join([s.split('/')[-1] for s in sensor_channels])))
+        
         map_pattern = re.compile(
-            "^sensor/(?P<split>\\w+)/(?P<scene_id>.*)/map/"
+            "^(?P<split>\\w+)/(?P<scene_id>[^/]+)/map/"
             "log_map_archive_.+.json$")
 
-        sc_id = {}
-        for id, s in enumerate(sensor_channels):
-            if s not in sc_id:
-                sc_id[s] = [id]
-            else:
-                sc_id[s].append(id)
+        # 获取所有 JSON 文件
+        json_files = glob.glob(os.path.join(index_json_path, "*.json"))
+        
+        print(f"[Dataset] Loading metadata from {len(json_files)} JSON files...")
 
-        for file_name in fs._belongs_to.keys():
-            match = re.match(pattern, file_name)
-            if match is not None:
-                split = match.group("split")
-                scene_id = match.group("scene_id")
-                sensor_channel = match.group("sensor_channel")
-                timestamp = match.group("timestamp")
-                if scene_id not in scene_channel_sample_data:
-                    scene_channel_sample_data[scene_id] = \
-                        [[] for _ in sensor_channels]
+        for json_path in tqdm(json_files, desc="Loading Scene JSONs"):
+            with open(json_path, 'r') as f:
+                scene_info = json.load(f)
+            
+            # 1. 只读 train 集
+            if scene_info.get("split") != "train":
+                continue
+                
+            scene_id = scene_info["scene_name"]
+            files = scene_info.get("files", [])
 
-                channel_sample_data = scene_channel_sample_data[scene_id]
-                filename_dict[
-                    "{}/{}/{}".format(scene_id, sensor_channel, timestamp)
-                ] = file_name
-                sample_data = {
-                    "timestamp": int(timestamp),  # ns
-                    "sensor": sensor_channel
-                }
-                for i in sc_id[sensor_channel]:
-                    channel_sample_data[i].append(sample_data)
+            for rel_file_path in files:
+                # rel_file_path 类似于 "train/00a6.../sensors/cameras/ring_rear_left/315967.jpg"
+                
+                # --- 匹配传感器 ---
+                match = re.match(pattern, rel_file_path)
+                if match is not None:
+                    split = match.group("split")
+                    sensor_channel = match.group("sensor_channel")
+                    # 这里补充前缀以匹配原始代码的 sensor_channels 列表名 (如 "cameras/ring_front_left")
+                    full_sensor_name = f"cameras/{sensor_channel}" 
+                    timestamp = match.group("timestamp")
 
-            map_match = re.match(map_pattern, file_name)
-            if map_match is not None:
-                scene_map_dict[map_match.group("scene_id")] = {
-                    "split": map_match.group("split"),
-                    "filename": file_name
-                }
+                    scene_split_dict[scene_id] = split
+                    
+                    if scene_id not in scene_channel_sample_data:
+                        scene_channel_sample_data[scene_id] = [[] for _ in sensor_channels]
+
+                    # 建立索引并确保存储的是磁盘上的绝对路径
+                    full_disk_path = os.path.join(self.dataset_root, rel_file_path)
+                    filename_dict["{}/{}/{}".format(scene_id, full_sensor_name, timestamp)] = full_disk_path
+
+                    sample_data = {
+                        "timestamp": int(timestamp),
+                        "sensor": full_sensor_name
+                    }
+                    
+                    # 找到该 channel 在 sensor_channels 列表中的位置
+                    for i, s_name in enumerate(sensor_channels):
+                        if s_name == full_sensor_name:
+                            scene_channel_sample_data[scene_id][i].append(sample_data)
+
+                # --- 匹配地图 ---
+                map_match = re.match(map_pattern, rel_file_path)
+                if map_match is not None:
+                    scene_map_dict[scene_id] = {
+                        "split": map_match.group("split"),
+                        "filename": os.path.join(self.dataset_root, rel_file_path)
+                    }
 
         self.filename_dict = dwm.common.SerializedReadonlyDict(filename_dict)
         self.scene_map_dict = dwm.common.SerializedReadonlyDict(scene_map_dict)
-        self.items = dwm.common.SerializedReadonlyList([
-            {
-                "segment": segment,
-                "fps": fps,
-                "scene_id": scene_id,
-                "split": split
-            }
-            for scene_id, csd in scene_channel_sample_data.items()
-            for fps, stride in self.fps_stride_tuples
-            for segment in MotionDataset.enumerate_segments(
-                csd, self.sequence_length, fps, stride,
-                enable_synchronization_check)
-        ])
+       
+        
+        # ===============================
+        # 读取 motion intervals
+        # ===============================
+
+        if balanced_json_path is None:
+            raise RuntimeError("balanced_json_path required")
+
+        with open(balanced_json_path, "r") as f:
+            raw_entries = json.load(f)
+
+        print(f"[Dataset] Motion intervals loaded: {len(raw_entries)}")
+
+        self.motion_intervals = []
+
+        for e in raw_entries:
+            self.motion_intervals.append({
+                "scene": e["scene_name"],
+                "start_ts": e["start_timestamp"],
+                "end_ts": e["end_timestamp"],
+                "angle": e["angle"],
+                "dist": e["dist"]
+            })        
+        self.motion_intervals_by_scene = {}
+
+        for interval in self.motion_intervals:
+
+            scene = interval["scene"]
+
+            if scene not in self.motion_intervals_by_scene:
+                self.motion_intervals_by_scene[scene] = []
+
+            self.motion_intervals_by_scene[scene].append(interval)
+
+        print("\n========== SENSOR DATA DEBUG ==========")
+
+        print(f"[Dataset] Total scenes: {len(scene_channel_sample_data)}")
+
+        example_scene = list(scene_channel_sample_data.keys())[0]
+        print(f"[Dataset] Example scene: {example_scene}")
+
+        for i, ch in enumerate(self.sensor_channels):
+            print(
+                f"Channel {ch} frame count:",
+                len(scene_channel_sample_data[example_scene][i])
+            )
+
+        print("=======================================\n")
+        print("\n========== BALANCED JSON DEBUG ==========")
+        print(f"[Dataset] Motion intervals loaded: {len(raw_entries)}")
+
+        if len(raw_entries) > 0:
+            print("[Dataset] Example interval:")
+            for k, v in raw_entries[0].items():
+                print(f"  {k}: {v}")
+        print("[Dataset] Interval scenes:", len(self.motion_intervals_by_scene))
+        print("=========================================\n")      
+        #######新的item########      
+        items = []
+
+        total_windows = 0
+        matched_windows = 0
+
+        OVERLAP_RATIO = 0.9
+
+        for scene_id, csd in scene_channel_sample_data.items():
+
+            if scene_id not in self.motion_intervals_by_scene:
+                continue
+            # --- 新增：必须排序 ---
+            for i in range(len(csd)):
+                csd[i].sort(key=lambda x: x["timestamp"])
+            # --------------------
+            scene_intervals = self.motion_intervals_by_scene[scene_id]
+
+            for fps, stride in self.fps_stride_tuples:
+
+                for segment in MotionDataset.enumerate_segments(
+                    csd,
+                    self.sequence_length,
+                    fps,
+                    stride,
+                    enable_synchronization_check
+                ):
+
+                    total_windows += 1
+
+                    ts_start = segment[0][0]["timestamp"]
+                    ts_end = segment[-1][0]["timestamp"]
+
+                    window_duration = ts_end - ts_start
+
+                    matched_interval = None
+
+                    for interval in scene_intervals:
+
+                        overlap_start = max(ts_start, interval["start_ts"])
+                        overlap_end = min(ts_end, interval["end_ts"])
+
+                        overlap = overlap_end - overlap_start
+
+                        if overlap <= 0:
+                            continue
+
+                        if overlap >= OVERLAP_RATIO * window_duration:
+                            matched_interval = interval
+                            break
+
+                    if matched_interval is None:
+                        continue
+
+                    matched_windows += 1
+
+                    items.append({
+                        "segment": segment,
+                        "fps": fps,
+                        "scene_id": scene_id,
+                        "split": scene_split_dict[scene_id],
+                        "angle": matched_interval["angle"],
+                        "dist": matched_interval["dist"]
+                    })
+        print("\n========== WINDOW ENUM DEBUG ==========")
+
+        print("Total windows generated:", total_windows)
+        print("Matched windows:", matched_windows)
+        print("Final dataset size:", len(items))
+
+        if len(items) > 0:
+            print("\nExample dataset item:")
+            for k, v in items[0].items():
+                if k == "segment":
+                    print("segment length:", len(v))
+                    print("segment first timestamp:", v[0][0]["timestamp"])
+                else:
+                    print(k, ":", v)
+
+        print("=======================================\n")
+        
+
+        self.items = dwm.common.SerializedReadonlyList(items)
 
         if image_description_settings is not None:
             with open(
@@ -627,9 +795,19 @@ class MotionDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index: int):
         item = self.items[index]
-
+        if index == 0:
+            print("\n========== GETITEM DEBUG ==========")
+            print("Scene:", item["scene_id"])
+            print("Segment length:", len(item["segment"]))
+            print("FPS:", item["fps"])
+            print("Angle:", item["angle"])
+            print("Dist:", item["dist"])
         result = {
             "fps": torch.tensor(item["fps"], dtype=torch.float32),
+            "angle": torch.tensor(item["angle"], dtype=torch.float32),
+            "dist": torch.tensor(item["dist"], dtype=torch.float32),
+            "scene_id": item["scene_id"], 
+            "name": item["scene_id"],
             "pts": torch.tensor([
                 [
                     (j["timestamp"] - item["segment"][0][0]["timestamp"])
@@ -684,8 +862,9 @@ class MotionDataset(torch.utils.data.Dataset):
         if self.enable_camera_transforms:
             if "images" in result:
                 extrinsic_path = \
-                    "sensor/{}/{}/calibration/egovehicle_SE3_sensor.feather"\
+                    "{}/{}/calibration/egovehicle_SE3_sensor.feather"\
                     .format(item["split"], item["scene_id"])
+                extrinsic_path = os.path.join(self.dataset_root, extrinsic_path)
                 with self.fs.open(extrinsic_path) as f:
                     extrinsics = pyarrow.feather.read_table(f).to_pydict()
 
@@ -699,8 +878,9 @@ class MotionDataset(torch.utils.data.Dataset):
                     for i in item["segment"]
                 ])
 
-                intrinsic_path = "sensor/{}/{}/calibration/intrinsics.feather"\
+                intrinsic_path = "{}/{}/calibration/intrinsics.feather"\
                     .format(item["split"], item["scene_id"])
+                intrinsic_path = os.path.join(self.dataset_root, intrinsic_path)
                 with self.fs.open(intrinsic_path) as f:
                     intrinsics = pyarrow.feather.read_table(f).to_pydict()
 
@@ -896,5 +1076,8 @@ class MotionDataset(torch.utils.data.Dataset):
             ]
 
         dwm.datasets.common.add_stub_key_data(self.stub_key_data_dict, result)
-
+        if index == 0:
+            print("Keys in result:")
+            print(result.keys())
+            print("===================================\n")
         return result
