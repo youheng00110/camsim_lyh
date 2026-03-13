@@ -1,4 +1,4 @@
-waymo:
+***waymo:***
 Processing sequences: 100%|██████████████████████████████████████████████████████████| 798/798 [00:00<00:00, 6796.59it/s]
 Total valid windows generated: 10416
 Binning windows: 100%|████████████████████████████████████████████████████████| 10416/10416 [00:00<00:00, 1276452.71it/s]
@@ -43,7 +43,7 @@ Sampling bins: 100%|████████████████████
 
 Final balanced dataset size: 4687 windows.
 
-nuscenes
+***nuscenes***
 
 Train scenes used: 700
 Generating windows and calculating motion angles...
@@ -91,7 +91,8 @@ Bin 35: Found 176, Sampled 150
 100%|█████████████████████████████████████████████████████████████████████████████████| 36/36 [00:00<00:00, 19732.74it/s]
 
 Final balanced dataset size: 4607
-AVrgo2
+
+***AVrgo2***
 
 100%|█████████████████████████████████████████████████████████████████████████████████| 701/701 [00:04<00:00, 170.11it/s]
 Total scenes: 700
@@ -140,6 +141,8 @@ bin 33: 172 -> 150
 bin 34: 80 -> 80
 bin 35: 670 -> 150
 Final windows after balance: 4598
+
+***Nuplan***
 
 Extracting ego metadata...                                                                                                          
 100%|███████████████████████████████████████████████████████████████████████████████████████████████| 64/64 [03:57<00:00,  3.72s/it]
