@@ -4,8 +4,101 @@ import numpy as np
 from PIL import ImageDraw
 import torch
 import transforms3d
+import torch.nn.functional as F
 import random
+import os, time
+import cv2
+
+from PIL import Image
 from torchvision.transforms import Compose, Resize, ToTensor
+from torchvision.transforms import InterpolationMode
+
+INVALID_BIN = 0  # proj_depth 是 bins_u16 时，无效值是 0
+
+
+def rs_bins_u16(x: torch.Tensor, height: int, width: int) -> torch.Tensor:
+    """
+    x:
+      - depth bins: [T,V,H,W] long/int
+      - sem masks : [T,V,C,H,W] long/int/float (一般 0/1)
+    return:
+      - same ndim, resized to target H,W
+    resize rule: nearest (不会引入新类别)
+    """
+    if height <= 0 or width <= 0:
+        raise ValueError(f"[rs_bins_u16] invalid target size: H={height}, W={width}")
+
+    if not torch.is_tensor(x):
+        raise TypeError(f"[rs_bins_u16] expect torch.Tensor, got {type(x)}")
+
+    # case A: [T,V,H,W]
+    if x.ndim == 4:
+        T, V, H0, W0 = x.shape
+        y = F.interpolate(
+            x.reshape(T * V, 1, H0, W0).float(),
+            size=(height, width),
+            mode="nearest"
+        )
+        return y.reshape(T, V, height, width).long()
+
+    # case B: [T,V,C,H,W]
+    if x.ndim == 5:
+        T, V, C, H0, W0 = x.shape
+        y = F.interpolate(
+            x.reshape(T * V, C, H0, W0).float(),
+            size=(height, width),
+            mode="nearest"
+        )
+        # sem 通常你希望保持 float(0/1)，也可以 .long()
+        return y.reshape(T, V, C, height, width)
+
+    raise ValueError(f"[rs_bins_u16] expect [T,V,H,W] or [T,V,C,H,W], got {tuple(x.shape)}")
+
+def resize_clr_keep_invalid(x: torch.Tensor, height: int, width: int) -> torch.Tensor:
+    """
+    x: torch.Tensor [T,V,3,H,W]  float in [0,1] (推荐) 或 uint8
+    return: torch.FloatTensor [T,V,3,height,width] in [0,1]
+    规则：
+      - 下采样：黑色像素(0,0,0)不参与平均（weighted area）
+      - 上采样：nearest
+    """
+    if height <= 0 or width <= 0:
+        raise ValueError(f"[resize_clr_keep_invalid_tvchw] invalid target size: H={height}, W={width}")
+
+    if not torch.is_tensor(x):
+        raise TypeError(f"[resize_clr_keep_invalid_tvchw] expect torch.Tensor, got {type(x)}")
+
+    if x.ndim != 5:
+        raise ValueError(f"[resize_clr_keep_invalid_tvchw] expect [T,V,3,H,W], got {tuple(x.shape)}")
+
+    T, V, C, H0, W0 = x.shape
+    if C != 3:
+        raise ValueError(f"[resize_clr_keep_invalid_tvchw] channel must be 3, got C={C}")
+
+    # to float [0,1]
+    if x.dtype == torch.uint8:
+        x_f = x.float() / 255.0
+    else:
+        x_f = x.float()
+
+    x_f = x_f.reshape(T * V, 3, H0, W0)
+
+    # upsample -> nearest
+    if height >= H0 and width >= W0:
+        y = F.interpolate(x_f, size=(height, width), mode="nearest")
+        return y.reshape(T, V, 3, height, width)
+
+    # downsample -> weighted area (ignore black)
+    valid = (x_f.sum(dim=1, keepdim=True) > 0).float()  # [TV,1,H,W]
+
+    num = F.interpolate(x_f * valid, size=(height, width), mode="area")
+    den = F.interpolate(valid,       size=(height, width), mode="area")
+
+    y = torch.zeros_like(num)
+    m = den > 1e-6
+    y[m.expand_as(y)] = (num / den.clamp_min(1e-6))[m.expand_as(y)]
+
+    return y.reshape(T, V, 3, height, width)
 
 
 class Copy():
@@ -94,11 +187,43 @@ class DatasetAdapter(torch.utils.data.Dataset):
 
             for i in self.transform_list:
 
-                if i['old_key'] in ['images', '3dbox_images', 'hdmap_images']:
-                    i['transform'] = Compose([
-                        Resize(size=[height, width]),
+                old_key = i["old_key"]
+                new_key = i["new_key"]
+                stack = i.get("stack", True)
+
+                if old_key in ["images", "3dbox_images", "hdmap_images"]:
+                    transform = Compose([
+                        Resize(size=[height, width], interpolation=InterpolationMode.BILINEAR),
                         ToTensor()
                     ])
+                    item[new_key] = DatasetAdapter.apply_transform(transform, item[old_key], stack)
+                    continue
+
+                if old_key == "proj_depth":
+                    src = item["proj_depth"]
+                    if isinstance(src, list):
+                        item[new_key] = torch.stack([rs_bins_u16(x, height, width) for x in src])
+                    else:
+                        item[new_key] = rs_bins_u16(src, height, width)
+                    continue
+
+                if old_key == "proj_sem":
+                    src = item["proj_sem"]
+                    if isinstance(src, list):
+                        item[new_key] = torch.stack([rs_bins_u16(x, height, width) for x in src])
+                    else:
+                        item[new_key] = rs_bins_u16(src, height, width)
+                    continue
+
+                # 4) proj_clr：下采样忽略黑色，上采样 nearest
+                if old_key == "proj_clr":
+                    src = item["proj_clr"]
+                    if isinstance(src, list):
+                        out = [resize_clr_keep_invalid(c, height, width) for c in src]
+                        item[new_key] = torch.stack(out) if stack else out
+                    else:
+                        item[new_key] = resize_clr_keep_invalid(src, height, width)
+                    continue
 
                 if getattr(i["transform"], 'is_temporal_transform', False):
                     item[i["new_key"]] = DatasetAdapter.apply_temporal_transform(
@@ -178,22 +303,27 @@ def find_nearest(list: list, value, return_item=False):
     return list[i] if return_item else i
 
 
-def find_sample_data_of_nearest_time(
-    sample_data_list: list, timestamp_list: list, timestamp
-):
-    # deprecated, use find_nearest() instead
-    i = bisect.bisect_left(timestamp_list, timestamp)
-    if i == 0:
-        pass
-    elif i >= len(timestamp_list):
-        i = len(timestamp_list) - 1
-    else:
-        t0 = timestamp - timestamp_list[i - 1]
-        t1 = timestamp_list[i] - timestamp
-        if i > 0 and t0 <= t1:
-            i -= 1
 
-    return i if sample_data_list is None else sample_data_list[i]
+def find_nearest_2hz(timestamps, sdl, value, *, window=2, max_extra_us=0):
+    i = bisect.bisect_left(timestamps, value)
+    cand = [j for j in range(i - window, i + window + 1) if 0 <= j < len(timestamps)]
+
+    best = min(
+        cand,
+        key=lambda j: (abs(timestamps[j] - value), 0 if timestamps[j] <= value else 1)
+    )
+    best_diff = abs(timestamps[best] - value)
+
+    pref = [j for j in cand if len(sdl[j].get("token", "")) == 32]
+    if pref:
+        best_pref = min(
+            pref,
+            key=lambda j: (abs(timestamps[j] - value), 0 if timestamps[j] <= value else 1)
+        )
+        if abs(timestamps[best_pref] - value) <= best_diff + max_extra_us:
+            return best_pref
+
+    return best
 
 
 def get_transform(rotation: list, translation: list, output_type: str = "np"):
@@ -331,6 +461,8 @@ def make_image_description_string(
         ]
 
     result = ". ".join([caption_dict[j] for j in selected_keys])
+    # result = ". ".join([(caption_dict[j].split(",", 1)[0] if j == "weather" else caption_dict[j])
+    #                     for j in selected_keys])
     return result
 
 
@@ -357,3 +489,198 @@ def add_stub_key_data(stub_key_data_dict, result: dict):
                 result[key] = value * torch.ones(shape)
             else:
                 result[key] = data[1]
+
+
+
+# -------------------------------- proj ----------------------------------
+
+
+
+
+
+# ---------- png io ----------
+
+def _safe_save_png(pil_img, p: str):
+    tmp = p + ".tmp"
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    pil_img.save(tmp, format="PNG", compress_level=1, optimize=False)
+    os.replace(tmp, p)
+
+def _try_open_png(p: str):
+    try:
+        with Image.open(p) as im:
+            im.load()
+            return im.convert("RGB")
+    except Exception:
+        return None
+
+
+# ---------- lock ----------
+
+def _acquire_lock(lock: str, timeout=30, stale=120, sleep=0.02):
+    t0 = time.time()
+    while True:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, f"{os.getpid()} {time.time()}".encode())
+            os.close(fd)
+            return
+        except FileExistsError:
+            try:
+                if time.time() - os.path.getmtime(lock) > stale:
+                    os.remove(lock)
+                    continue
+            except FileNotFoundError:
+                continue
+            if time.time() - t0 > timeout:
+                raise TimeoutError(f"Lock timeout: {lock}")
+            time.sleep(sleep)
+
+def _release_lock(lock: str):
+    try:
+        os.remove(lock)
+    except FileNotFoundError:
+        pass
+
+
+# ---------- u16 png io ----------
+
+def _safe_save_u16_png(u16_img: np.ndarray, p: str):
+    tmp = p + ".tmp"
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    Image.fromarray(u16_img.astype(np.uint16), mode="I;16").save(
+        tmp, format="PNG", compress_level=1
+    )
+    os.replace(tmp, p)
+
+def _try_open_u16_png(p: str):
+    try:
+        with Image.open(p) as im:
+            im.load()
+            if im.mode != "I;16":
+                im = im.convert("I;16")
+            return np.array(im, dtype=np.uint16)
+    except Exception:
+        return None
+
+
+# ---------- cache subdir (for method wrapper) ----------
+
+def ensure_cache_subdir(cache_root: str, subdir: str):
+    root = os.path.abspath(cache_root)
+    if not os.path.isdir(root):
+        raise FileNotFoundError(f"cache_root not found (won't create parent): {root}")
+
+    sub = os.path.abspath(os.path.join(root, subdir))
+    if os.path.dirname(sub) != root:
+        raise ValueError(f"refuse to create nested cache dir: {sub}")
+
+    os.makedirs(sub, exist_ok=True)
+    return sub
+
+
+# ---------- depth binning + vis ----------
+
+def depth_to_logbins_u16(depth: np.ndarray, *, invalid=-300.0, n_bins=256, far_m=25.0, gamma=1.0) -> np.ndarray:
+    assert 1 <= n_bins <= 65535
+    out = np.zeros(depth.shape, np.uint16)
+
+    m = depth != invalid
+    if not np.any(m):
+        return out
+
+    far_m = float(far_m)
+    near_m = far_m * 0.6
+    near_frac = 0.85
+
+    nb1 = max(1, int(round(n_bins * near_frac)))
+    nb1 = min(nb1, n_bins - 1)
+    nb2 = n_bins - nb1
+
+    idx = np.flatnonzero(m)
+    d = np.clip(depth[m].astype(np.float32), 0.0, far_m)
+
+    m1 = d <= near_m
+    if np.any(m1):
+        x1 = np.log1p(d[m1]) / (np.log1p(near_m) + 1e-6)
+        x1 = np.clip(x1, 0.0, 1.0)
+        if gamma != 1.0:
+            x1 = x1 ** float(gamma)
+        out.reshape(-1)[idx[m1]] = (x1 * (nb1 - 1)).astype(np.uint16) + 1
+
+    if nb2 > 0:
+        m2 = ~m1
+        if np.any(m2):
+            dd = np.clip(d[m2] - near_m, 0.0, far_m - near_m)
+            x2 = np.log1p(dd) / (np.log1p(far_m - near_m) + 1e-6)
+            x2 = np.clip(x2, 0.0, 1.0)
+            out.reshape(-1)[idx[m2]] = (x2 * (nb2 - 1)).astype(np.uint16) + 1 + nb1
+
+    return out
+
+def depth_to_linbins_u16(depth: np.ndarray, *, invalid=-300.0, n_bins=256, far_m=25.0) -> np.ndarray:
+    assert 1 <= n_bins <= 65535
+    out = np.zeros(depth.shape, np.uint16)
+
+    m = depth != invalid
+    if not np.any(m):
+        return out
+
+    d = np.clip(depth[m].astype(np.float32), 0.0, float(far_m))
+    x = d / (float(far_m) + 1e-6)
+    x = np.clip(x, 0.0, 1.0)
+
+    out[m] = (x * (n_bins - 1)).astype(np.int32).astype(np.uint16) + 1
+    return out
+
+def visualize_bins_u16(bins_u16: np.ndarray, *, n_bins=256, invalid_bin=0, colormap=cv2.COLORMAP_TURBO):
+    b = bins_u16.astype(np.int32)
+    valid = b != int(invalid_bin)
+    gray = np.zeros(b.shape, np.uint8)
+    if np.any(valid):
+        x = (b - 1) / max(1, (int(n_bins) - 1))
+        x = np.clip(x, 0.0, 1.0)
+        gray[valid] = (x[valid] * 255.0).astype(np.uint8)
+    vis = cv2.applyColorMap(gray, colormap)
+    vis[~valid] = (0, 0, 0)
+    return vis
+
+
+# ---------- downsample ----------
+
+def downsample_depth_blockwise(depth_img, target_size, invalid=-300.0):
+    m = (depth_img != invalid)
+    d = cv2.resize(depth_img.astype(np.float32), (target_size[1], target_size[0]), interpolation=cv2.INTER_NEAREST)
+    m2 = cv2.resize(m.astype(np.uint8), (target_size[1], target_size[0]), interpolation=cv2.INTER_NEAREST).astype(bool)
+    out = np.full(d.shape, invalid, np.float32)
+    out[m2] = d[m2]
+    return out
+
+def downsample_clr_blockwise(img, target_size, blur_ksize=1):
+    out = cv2.resize(img, (target_size[1], target_size[0]), interpolation=cv2.INTER_LINEAR)
+    if blur_ksize and blur_ksize > 1:
+        out = cv2.blur(out, (blur_ksize, blur_ksize))
+    return out.astype(np.uint8)
+
+# def downsample_clr_blockwise(img_u8, target_size, ks=5, beta=0.15):
+#     """
+#     img_u8: (H,W,3) uint8
+#     target_size: (H2,W2)
+#     ks: 全局平滑核大小(奇数)，越大越平滑
+#     beta: 稀疏区稳定项，越大越不跳/越暗
+#     """
+#     H2, W2 = int(target_size[0]), int(target_size[1])
+
+#     img = img_u8.astype(np.float32)
+#     valid = (img_u8.sum(axis=2) > 0).astype(np.float32)  # (H,W)
+
+#     num = cv2.resize(img * valid[..., None], (W2, H2), interpolation=cv2.INTER_AREA)
+#     den = cv2.resize(valid, (W2, H2), interpolation=cv2.INTER_AREA)
+
+#     if ks and ks > 1:
+#         num = cv2.boxFilter(num, ddepth=-1, ksize=(ks, ks), normalize=True)
+#         den = cv2.boxFilter(den, ddepth=-1, ksize=(ks, ks), normalize=True)
+        
+#     out = num / (den[..., None] + float(beta))
+
+#     return np.clip(out, 0, 255).astype(np.uint8)

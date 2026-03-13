@@ -899,7 +899,7 @@ class MotionDataset(torch.utils.data.Dataset):
             # ===============================
 
             t_json = time.time()
-
+            self.balanced_json_path = balanced_json_path
             if not self.fs.exists(balanced_json_path):
                 raise RuntimeError(
                     f"[Dataset ERROR] balanced_json_path not found: {balanced_json_path}"

@@ -13,3 +13,5 @@ nuscenes_train_balanced/*.json
 nuscenes_val_sort/*.json
 waymo_prepo/*.json
 avrgo2_json/*.json
+nuplan-devkit-master/
+mini_sensors/
