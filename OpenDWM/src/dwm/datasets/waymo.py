@@ -554,6 +554,14 @@ class MotionDataset(torch.utils.data.Dataset):
         self.fps_stride_tuples = fps_stride_tuples
         self.sensor_channels = sensor_channels
         self.dataset_root = dataset_root
+        self.enable_camera_transforms = enable_camera_transforms
+        self.enable_ego_transforms = enable_ego_transforms
+        self._3dbox_image_settings=_3dbox_image_settings
+        self.hdmap_image_settings=hdmap_image_settings
+        self._3dbox_bev_settings=_3dbox_bev_settings
+        self.hdmap_bev_settings=hdmap_bev_settings
+        self.image_description_settings=image_description_settings
+        self.stub_key_data_dict=stub_key_data_dict
 
         self.items = []
 
@@ -621,7 +629,7 @@ class MotionDataset(torch.utils.data.Dataset):
         matched_windows = 0
 
         # 控制 overlap 比例
-        OVERLAP_RATIO = 0.9
+        OVERLAP_RATIO = 0.8
 
         for scene_id, sample_list in self.sample_info_dict.items():
 
@@ -810,8 +818,141 @@ class MotionDataset(torch.utils.data.Dataset):
         result["camera_intrinsics"] = torch.stack(intrinsics) # [T, 5, 3, 3]
         result["camera_extrinsics"] = torch.stack(extrinsics) # [T, 5, 4, 4]
         result["camera_names"] = self.sensor_channels # 调试用
-            
+        
+        scene_frame = waymo_pb.Frame()
 
+        if self.enable_camera_transforms:
+                if "images" in result:
+                    camera_calibrations = [
+                        [
+                            MotionDataset.find_by_name(
+                                i.context.camera_calibrations,
+                                MotionDataset.sensor_name_id_dict[j])
+                            for j in self.sensor_channels
+                            if j.startswith("CAM")
+                        ]
+                        for i in frames
+                    ]
+
+                    ec_inv = torch.linalg.inv(
+                        torch.tensor(
+                            MotionDataset.extrinsic_correction,
+                            dtype=torch.float32))
+                    result["camera_transforms"] = torch.stack([
+                        torch.stack([
+                            torch.tensor(
+                                j.extrinsic.transform,
+                                dtype=torch.float32).reshape(4, 4) @ ec_inv
+                            for j in i
+                        ])
+                        for i in camera_calibrations
+                    ])
+                    result["camera_intrinsics"] = torch.stack([
+                        torch.stack([
+                            dwm.datasets.common.make_intrinsic_matrix(
+                                j.intrinsic[0:2], j.intrinsic[2:4], "pt")
+                            for j in i
+                        ])
+                        for i in camera_calibrations
+                    ])
+                    result["image_size"] = torch.stack([
+                        torch.stack([
+                            torch.tensor([j.width, j.height], dtype=torch.long)
+                            for j in i
+                        ])
+                        for i in camera_calibrations
+                    ])
+
+                if "lidar_points" in result:
+                    result["lidar_transforms"] = torch.stack([
+                        torch.stack([
+                            torch.eye(4)
+                            for j in self.sensor_channels
+                            if j.startswith("LIDAR")
+                        ])
+                        for _ in frames
+                    ])
+
+                if self.enable_ego_transforms:
+                    result["ego_transforms"] = torch.stack([
+                        torch.stack([
+                            torch.tensor(
+                                i.pose.transform, dtype=torch.float32).reshape(4, 4)
+                            for _ in self.sensor_channels
+                        ])
+                        for i in frames
+                    ])
+
+                if self._3dbox_image_settings is not None:
+                    result["3dbox_images"] = [
+                        [
+                            MotionDataset.get_3dbox_image(
+                                i.laser_labels,
+                                MotionDataset.find_by_name(
+                                    i.context.camera_calibrations,
+                                    MotionDataset.sensor_name_id_dict[j]),
+                                self._3dbox_image_settings)
+                            for j in self.sensor_channels
+                            if j.startswith("CAM")
+                        ]
+                        for i in frames
+                    ]
+
+                if self.hdmap_image_settings is not None:
+                    result["hdmap_images"] = [
+                        [
+                            MotionDataset.get_hdmap_image(
+                                scene_frame.map_features,
+                                MotionDataset.find_by_name(
+                                    i.context.camera_calibrations,
+                                    MotionDataset.sensor_name_id_dict[j]),
+                                i.pose, self.hdmap_image_settings)
+                            for j in self.sensor_channels
+                            if j.startswith("CAM")
+                        ]
+                        for i in frames
+                    ]
+
+                if self._3dbox_bev_settings is not None:
+                    result["3dbox_bev_images"] = [
+                        MotionDataset.get_3dbox_bev_image(
+                            i.laser_labels, self._3dbox_bev_settings)
+                        for i in frames
+                        for j in self.sensor_channels
+                        if j.startswith("LIDAR")
+                    ]
+
+                if self.hdmap_bev_settings is not None:
+                    result["hdmap_bev_images"] = [
+                        MotionDataset.get_hdmap_bev_image(
+                            scene_frame.map_features, i.pose, self.hdmap_bev_settings)
+                        for i in frames
+                        for j in self.sensor_channels
+                        if j.startswith("LIDAR")
+                    ]
+
+                if self.image_description_settings is not None:
+                    image_captions = [
+                        dwm.datasets.common.align_image_description_crossview([
+                            MotionDataset.get_image_description(
+                                self.image_descriptions, self.time_list_dict,
+                                item["scene"], i[3],
+                                MotionDataset.sensor_name_id_dict[j])
+                            for j in self.sensor_channels
+                            if "LIDAR" not in j
+                        ], self.image_description_settings)
+                        for i in segment
+                    ]
+                    result["image_description"] = [
+                        [
+                            dwm.datasets.common.make_image_description_string(
+                                j, self.image_description_settings, self.image_desc_rs)
+                            for j in i
+                        ]
+                        for i in image_captions
+                    ]
+
+                dwm.datasets.common.add_stub_key_data(self.stub_key_data_dict, result)
 
         # 7. 写入元数据
         if "angle" in item:

@@ -1,0 +1,1 @@
+source /inspire/ssd/project/wuliqifa/public/songbur/lyhdwm/bin/activate

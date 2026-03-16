@@ -94,26 +94,76 @@ def make_base_ds():
     BALANCED_JSON_PATH = "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_balanced/balanced_windows_metadata.json"
 
     ds = WaymoDataset(
-
         fs=fs,
 
-        # ⭐ 关键：frame offset 索引
+        # ⭐ frame offset index
         info_dict_path=INFO_DICT_PATH,
 
-        sequence_length=40,   # Waymo 4s = 40 frames
+        dataset_root=WAYMO_ROOT,
 
-        fps_stride_tuples=[(12,1)],
+        sequence_length=40,
+
+        fps_stride_tuples=[(12, 1)],
 
         sensor_channels=[
             "CAM_FRONT",
             "CAM_FRONT_LEFT",
             "CAM_FRONT_RIGHT",
             "CAM_SIDE_LEFT",
-            "CAM_SIDE_RIGHT"
+            "CAM_SIDE_RIGHT",
         ],
-        enable_camera_transforms=True, 
+
+        # ======================
+        # transforms
+        # ======================
+        enable_camera_transforms=True,
+        enable_ego_transforms=True,
+
+        # ======================
+        # 3D box image
+        # ======================
+        _3dbox_image_settings={
+            "image_size": [512, 512],
+            "line_width": 2
+        },
+
+        # ======================
+        # HD map image
+        # ======================
+        hdmap_image_settings={
+            "image_size": [512, 512]
+        },
+
+        # ======================
+        # BEV 3D box
+        # ======================
+        _3dbox_bev_settings={
+            "image_size": [512, 512],
+            "meters_per_pixel": 0.2
+        },
+
+        # ======================
+        # BEV HD map
+        # ======================
+        hdmap_bev_settings={
+            "image_size": [512, 512],
+            "meters_per_pixel": 0.2
+        },
+
+        # ======================
+        # image caption
+        # ======================
+        image_description_settings=None,
+
+        # ======================
+        # stub keys (optional)
+        # ======================
+        stub_key_data_dict=None,
+
+        # ======================
+        # balanced sampling
+        # ======================
         balanced_json_path=BALANCED_JSON_PATH,
-        dataset_root=WAYMO_ROOT 
     )
 
     return ds
