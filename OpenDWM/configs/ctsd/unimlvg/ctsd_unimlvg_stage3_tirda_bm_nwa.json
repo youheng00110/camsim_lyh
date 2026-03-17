@@ -1,44 +1,30 @@
 {
     "device": "cuda",
     "ddp_backend": "nccl",
-    "train_epochs": 6,
+    "train_epochs": 4,
     "generator_seed": 0,
     "data_shuffle": true,
     "fix_training_data_order": true,
     "global_state": {
         "nuscenes_fs": {
-            "_class_name": "dwm.fs.czip.CombinedZipFileSystem",
+            "_class_name": "fsspec.implementations.dirfs.DirFileSystem",
+            "path":"/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/dataset/nuscenes",
             "fs": {
-                "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                "path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan"
-            },
-            "paths": [
-                "workspaces/worldmodels/data/nuscenes/interp_12Hz_trainval.zip",
-                "data/nuscenes/v1.0-trainval01_blobs.zip",
-                "data/nuscenes/v1.0-trainval02_blobs.zip",
-                "data/nuscenes/v1.0-trainval03_blobs.zip",
-                "data/nuscenes/v1.0-trainval04_blobs.zip",
-                "data/nuscenes/v1.0-trainval05_blobs.zip",
-                "data/nuscenes/v1.0-trainval06_blobs.zip",
-                "data/nuscenes/v1.0-trainval07_blobs.zip",
-                "data/nuscenes/v1.0-trainval08_blobs.zip",
-                "data/nuscenes/v1.0-trainval09_blobs.zip",
-                "data/nuscenes/v1.0-trainval10_blobs.zip",
-                "data/nuscenes/nuScenes-map-expansion-v1.3.zip"
-            ]
+                "_class_name": "dwm.fs.dirfs.DirFileSystem"
+            }
         },
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
             "mesh_shape": [
-                2,
-                8
+                1,
+                1
             ]
         }
     },
     "optimizer": {
         "_class_name": "torch.optim.AdamW",
-        "lr": 8e-5
+        "lr": 6e-5
     },
     "pipeline": {
         "_class_name": "dwm.pipelines.ctsd.CrossviewTemporalSD",
@@ -222,11 +208,11 @@
                     },
                     "dataset_name": "interp_12Hz_trainval",
                     "split": "train",
-                    "sequence_length": 19,
+                    "sequence_length": 48,
                     "fps_stride_tuples": [
                         [
-                            10,
-                            0.1
+                            12,
+                            1
                         ]
                     ],
                     "sensor_channels": [
@@ -244,8 +230,8 @@
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
                     "image_description_settings": {
-                        "path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan/workspaces/worldmodels/data/nuscenes_v1.0-trainval_caption_v2_train.json",
-                        "time_list_dict_path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan/workspaces/worldmodels/data/nuscenes_v1.0-trainval_caption_v2_times_train.json",
+                        "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_link/nuscenes_v1.0-trainval_caption_v2_train.json",
+                        "time_list_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_link/nuscenes_v1.0-trainval_caption_v2_times_train.json",
                         "align_keys": [
                             "time",
                             "weather"
@@ -278,14 +264,14 @@
                     "_class_name": "dwm.datasets.waymo.MotionDataset",
                     "fs": {
                         "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                        "path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan/data/waymo/waymo_open_dataset_v_1_4_3/training"
+                        "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link/training"
                     },
-                    "info_dict_path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan/data/waymo/waymo_open_dataset_v_1_4_3/training.info.json",
-                    "sequence_length": 19,
+                    "info_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_balanced/training.info.json",
+                    "sequence_length": 40,
                     "fps_stride_tuples": [
                         [
                             10,
-                            0.1
+                            1
                         ]
                     ],
                     "sensor_channels": [
@@ -302,8 +288,8 @@
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
                     "image_description_settings": {
-                        "path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan/workspaces/worldmodels/data/waymo_caption_v2_train.json",
-                        "time_list_dict_path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan/workspaces/worldmodels/data/waymo_caption_v2_times_train.json",
+                        "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_caption_v2/waymo_caption_v2_train.json",
+                        "time_list_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_caption_v2/waymo_caption_v2_times_train.json",
                         "align_keys": [
                             "time",
                             "weather"
@@ -335,34 +321,19 @@
                 {
                     "_class_name": "dwm.datasets.argoverse.MotionDataset",
                     "fs": {
-                        "_class_name": "dwm.fs.ctar.CombinedTarFileSystem",
+                        "_class_name": "dwm.fs.dirfs.DirFileSystem",
                         "fs": {
                             "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                            "path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan"
+                            "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link/train"
                         },
-                        "paths": [
-                            "data/argoverse/av2/tars/sensor/train-000.tar",
-                            "data/argoverse/av2/tars/sensor/train-001.tar",
-                            "data/argoverse/av2/tars/sensor/train-002.tar",
-                            "data/argoverse/av2/tars/sensor/train-003.tar",
-                            "data/argoverse/av2/tars/sensor/train-004.tar",
-                            "data/argoverse/av2/tars/sensor/train-005.tar",
-                            "data/argoverse/av2/tars/sensor/train-006.tar",
-                            "data/argoverse/av2/tars/sensor/train-007.tar",
-                            "data/argoverse/av2/tars/sensor/train-008.tar",
-                            "data/argoverse/av2/tars/sensor/train-009.tar",
-                            "data/argoverse/av2/tars/sensor/train-010.tar",
-                            "data/argoverse/av2/tars/sensor/train-011.tar",
-                            "data/argoverse/av2/tars/sensor/train-012.tar",
-                            "data/argoverse/av2/tars/sensor/train-013.tar"
-                        ],
+
                         "enable_cached_info": true
                     },
-                    "sequence_length": 19,
+                    "sequence_length": 40,
                     "fps_stride_tuples": [
                         [
                             10,
-                            0.1
+                            1
                         ]
                     ],
                     "sensor_channels": [
@@ -379,8 +350,8 @@
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
                     "image_description_settings": {
-                        "path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan/workspaces/worldmodels/data/av2_sensor_caption_v2_train.json",
-                        "time_list_dict_path": "/cache/aoss.cn-sh-01.sensecoreapi-oss.cn/users/wuzehuan/workspaces/worldmodels/data/av2_sensor_caption_v2_times_train.json",
+                        "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_train.json",
+                        "time_list_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_times_train.json",
                         "align_keys": [
                             "time",
                             "weather"
