@@ -1,3 +1,13 @@
+cd /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/src
+
+export PYTHONPATH=$(pwd):$PYTHONPATH
+
+python -m dwm.preview \
+  -c /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/ctsd_unimlvg_stage3_tirda_bm_nwa.json \
+  -o /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output/debug_stage3
+
+
+
 ***waymo:***
 
 
