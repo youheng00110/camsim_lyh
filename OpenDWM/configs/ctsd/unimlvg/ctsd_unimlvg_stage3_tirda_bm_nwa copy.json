@@ -182,8 +182,18 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/opendwm-models/ctsd_unimlvg_tirda_bm_nwa_60k.pth"
-        
+        "model_checkpoint_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/opendwm-models/ctsd_unimlvg_tirda_bm_nwa_60k.pth",
+        "metrics": {
+            "fid": {
+                "_class_name": "torchmetrics.image.fid.FrechetInceptionDistance",
+                "normalize": true
+            },
+            "fvd": {
+                "_class_name": "dwm.metrics.fvd.FrechetVideoDistance",
+                "inception_3d_checkpoint_path": "/mnt/afs/user/wuzehuan/Documents/DWM/externals/TATS/tats/fvd/i3d_pretrained_400.pt",
+                "sequence_count": 16
+            }
+        }
     },
     "training_dataset": {
         "_class_name": "dwm.datasets.common.DatasetAdapter",
@@ -268,7 +278,6 @@
                             1
                         ]
                     ],
-                    "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_train_balanced/balanced_windows_metadata.json",
                     "sensor_channels": [
                         "LIDAR_TOP",
                         "CAM_FRONT_LEFT",
@@ -322,7 +331,6 @@
                         "_class_name": "dwm.fs.dirfs.DirFileSystem",
                         "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link/training"
                     },
-                    "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_balanced/balanced_windows_metadata.json",
                     "info_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_balanced/training.info.json",
                     "sequence_length": 40,
                     "fps_stride_tuples": [
@@ -388,8 +396,6 @@
 
                         "enable_cached_info": true
                     },
-                    "index_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_json",
-                    "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_balanced/balanced_windows.json",
                     "sequence_length": 40,
                     "fps_stride_tuples": [
                         [
