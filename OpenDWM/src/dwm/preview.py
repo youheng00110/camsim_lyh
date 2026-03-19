@@ -141,7 +141,32 @@ if __name__ == "__main__":
     export_batch_except = ["vae_images"]
     output_path = args.output_path
     global_step = 0
-    for batch in preview_dataloader:
+    
+    
+    for i, batch in enumerate(preview_dataloader):
+        ####调试#####################
+        print("\n========== DEBUG BATCH ==========")
+        print("keys:", batch.keys())
+
+        for k, v in batch.items():
+            if isinstance(v, torch.Tensor):
+                print(f"{k}: shape={v.shape}, dtype={v.dtype}")
+            else:
+                print(f"{k}: type={type(v)}")
+        #############检查crossview#############
+        if "crossview_mask" in batch:
+            print("\n--- crossview_mask sample ---")
+            print(batch["crossview_mask"][0].int())  # 打印第一个
+        #############检查相机数###########
+        if "vae_images" in batch:
+            print("\n--- camera check ---")
+            print("vae_images shape:", batch["vae_images"].shape)
+        ############检查cliptext#######
+        if "clip_text" in batch:
+            print("\n--- clip_text check ---")
+            print(type(batch["clip_text"]))
+            print("example:", batch["clip_text"][0][0])
+        ################################
         if ddp:
             torch.distributed.barrier()
 

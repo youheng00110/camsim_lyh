@@ -1261,7 +1261,14 @@ class Unimlvg:
         collected_names = []
         collected_images = [batch["vae_images"]]
         collected_names.append("image_GT")
+        ##############################################
+        print("\n>>> ENTER preview_pipeline")
 
+        if "crossview_mask" in batch:
+            print("Using crossview_mask:", batch["crossview_mask"].shape)
+        else:
+            print("NO crossview_mask FOUND !!!")
+        ###############################################
         if "3dbox_images_denorm" in batch:
             collected_images.append(
                 batch["3dbox_images_denorm"])
