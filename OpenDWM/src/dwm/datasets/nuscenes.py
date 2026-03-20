@@ -900,227 +900,254 @@ class MotionDataset(torch.utils.data.Dataset):
 
             t_json = time.time()
             self.balanced_json_path = balanced_json_path
-            if not self.fs.exists(balanced_json_path):
-                raise RuntimeError(
-                    f"[Dataset ERROR] balanced_json_path not found: {balanced_json_path}"
-                )
+            use_balanced = balanced_json_path is not None
+            if  use_balanced:
 
-            with self.fs.open(balanced_json_path, 'r') as f:
-                raw_entries = json.load(f)
+                with self.fs.open(balanced_json_path, 'r') as f:
+                    raw_entries = json.load(f)
 
-            print(f"[Dataset DEBUG] Loading motion intervals from JSON: {len(raw_entries)} entries")
-            print(f"[TIME] JSON load: {time.time() - t_json:.3f}s")
+                print(f"[Dataset DEBUG] Loading motion intervals from JSON: {len(raw_entries)} entries")
+                print(f"[TIME] JSON load: {time.time() - t_json:.3f}s")
 
-            # ===============================
-            # 构建 motion_intervals
-            # ===============================
+                # ===============================
+                # 构建 motion_intervals
+                # ===============================
 
-            t_interval_build = time.time()
+                t_interval_build = time.time()
 
-            for entry in raw_entries:
+                for entry in raw_entries:
 
-                if entry["scene_name"] not in self.scene_name_to_token:
+                    if entry["scene_name"] not in self.scene_name_to_token:
+                        raise RuntimeError(
+                            f"[Dataset ERROR] scene_name not found in dataset: {entry['scene_name']}"
+                        )
+
+                    scene_token = self.scene_name_to_token[entry["scene_name"]]
+
+                    self.motion_intervals.append({
+                        "scene": scene_token,
+                        "start_ts": entry["start_timestamp"],
+                        "end_ts": entry["end_timestamp"],
+                        "angle": entry["angle"],
+                        "dist": entry["dist"]
+                    })
+
+                print(f"[Dataset DEBUG] Motion intervals loaded: {len(self.motion_intervals)}")
+                print(f"[TIME] interval build: {time.time() - t_interval_build:.3f}s")
+
+                if len(self.motion_intervals) == 0:
                     raise RuntimeError(
-                        f"[Dataset ERROR] scene_name not found in dataset: {entry['scene_name']}"
+                        "[Dataset ERROR] No motion intervals loaded. Dataset will be empty."
                     )
 
-                scene_token = self.scene_name_to_token[entry["scene_name"]]
 
-                self.motion_intervals.append({
-                    "scene": scene_token,
-                    "start_ts": entry["start_timestamp"],
-                    "end_ts": entry["end_timestamp"],
-                    "angle": entry["angle"],
-                    "dist": entry["dist"]
-                })
+                # ===============================
+                # build scene -> interval bucket
+                # ===============================
 
-            print(f"[Dataset DEBUG] Motion intervals loaded: {len(self.motion_intervals)}")
-            print(f"[TIME] interval build: {time.time() - t_interval_build:.3f}s")
+                t_bucket = time.time()
 
-            if len(self.motion_intervals) == 0:
-                raise RuntimeError(
-                    "[Dataset ERROR] No motion intervals loaded. Dataset will be empty."
-                )
+                self.motion_intervals_by_scene = {}
 
+                for interval in self.motion_intervals:
+                    s = interval["scene"]
+                    if s not in self.motion_intervals_by_scene:
+                        self.motion_intervals_by_scene[s] = []
+                    self.motion_intervals_by_scene[s].append(interval)
 
-            # ===============================
-            # build scene -> interval bucket
-            # ===============================
-
-            t_bucket = time.time()
-
-            self.motion_intervals_by_scene = {}
-
-            for interval in self.motion_intervals:
-                s = interval["scene"]
-                if s not in self.motion_intervals_by_scene:
-                    self.motion_intervals_by_scene[s] = []
-                self.motion_intervals_by_scene[s].append(interval)
-
-            print("[Dataset DEBUG] Interval scenes:", len(self.motion_intervals_by_scene))
-            print(f"[TIME] interval bucket build: {time.time() - t_bucket:.3f}s")
+                print("[Dataset DEBUG] Interval scenes:", len(self.motion_intervals_by_scene))
+                print(f"[TIME] interval bucket build: {time.time() - t_bucket:.3f}s")
 
 
-            # ===============================
-            # 构建 scene_channel_sample_data
-            # ===============================
+                # ===============================
+                # 构建 scene_channel_sample_data
+                # ===============================
 
-            t_scene_data = time.time()
+                t_scene_data = time.time()
 
-            scene_channel_sample_data = [
-                (scene, [
-                    sorted([
-                        sample_data
-                        for sample in MotionDataset.get_scene_samples(
-                            tables, self.indices, scene)
-                        for sample_data in MotionDataset.query_range(
-                            tables, self.indices, "sample_data", sample["token"],
-                            column_name="sample_token")
-                        if MotionDataset.check_sensor(
-                            tables, self.indices, sample_data, channel) and
-                        key_filter(sample_data)
-                    ], key=lambda x: x["timestamp"])
-                    for channel in sensor_channels
-                ])
-                for scene in tables["scene"]
-            ]
+                scene_channel_sample_data = [
+                    (scene, [
+                        sorted([
+                            sample_data
+                            for sample in MotionDataset.get_scene_samples(
+                                tables, self.indices, scene)
+                            for sample_data in MotionDataset.query_range(
+                                tables, self.indices, "sample_data", sample["token"],
+                                column_name="sample_token")
+                            if MotionDataset.check_sensor(
+                                tables, self.indices, sample_data, channel) and
+                            key_filter(sample_data)
+                        ], key=lambda x: x["timestamp"])
+                        for channel in sensor_channels
+                    ])
+                    for scene in tables["scene"]
+                ]
 
-            print("[Dataset DEBUG] Scene channel sample data prepared")
-            print(f"[TIME] scene_channel_sample_data build: {time.time() - t_scene_data:.3f}s")
-
-
-            for i in range(min(3, len(scene_channel_sample_data))):
-                scene_i, channels_i = scene_channel_sample_data[i]
-                print(f"[Dataset DEBUG] Scene {scene_i['name']} channel frame counts:")
-
-                for ch, frames in zip(sensor_channels, channels_i):
-                    print(f"   {ch}: {len(frames)} frames")
+                print("[Dataset DEBUG] Scene channel sample data prepared")
+                print(f"[TIME] scene_channel_sample_data build: {time.time() - t_scene_data:.3f}s")
 
 
-            # ===============================
-            # enumerate_segments
-            # ===============================
+                for i in range(min(3, len(scene_channel_sample_data))):
+                    scene_i, channels_i = scene_channel_sample_data[i]
+                    print(f"[Dataset DEBUG] Scene {scene_i['name']} channel frame counts:")
 
-            print("[Dataset DEBUG] sequence_length:", self.sequence_length)
-            print("[Dataset DEBUG] sensor_channels:", self.sensor_channels)
-            print("[Dataset DEBUG] fps_stride_tuples:", self.fps_stride_tuples)
-            print("[Dataset DEBUG] number of scenes:", len(tables["scene"]))
-            print("[Dataset] Enumerating segments...")
+                    for ch, frames in zip(sensor_channels, channels_i):
+                        print(f"   {ch}: {len(frames)} frames")
 
-            t_enumerate = time.time()
-            t_interval_match = 0
 
-            total_windows = 0
-            matched_windows = 0
-            scene_window_counter = {}
+                # ===============================
+                # enumerate_segments
+                # ===============================
 
-            for scene, channel_sample_data_list in scene_channel_sample_data:
+                print("[Dataset DEBUG] sequence_length:", self.sequence_length)
+                print("[Dataset DEBUG] sensor_channels:", self.sensor_channels)
+                print("[Dataset DEBUG] fps_stride_tuples:", self.fps_stride_tuples)
+                print("[Dataset DEBUG] number of scenes:", len(tables["scene"]))
+                print("[Dataset] Enumerating segments...")
 
-                for fps, stride in fps_stride_tuples:
+                t_enumerate = time.time()
+                t_interval_match = 0
 
-                    for segment_tokens in MotionDataset.enumerate_segments(
-                        channel_sample_data_list,
-                        sequence_length,
-                        fps,
-                        stride,
-                        enable_synchronization_check
-                    ):
+                total_windows = 0
+                matched_windows = 0
+                scene_window_counter = {}
 
-                        total_windows += 1
+                for scene, channel_sample_data_list in scene_channel_sample_data:
 
-                        # 获取window timestamp
-                        first_token = segment_tokens[0][0]
-                        last_token = segment_tokens[-1][0]
+                    for fps, stride in fps_stride_tuples:
 
-                        first_sd = MotionDataset.query(
-                            tables, self.indices, "sample_data", first_token)
+                        for segment_tokens in MotionDataset.enumerate_segments(
+                            channel_sample_data_list,
+                            sequence_length,
+                            fps,
+                            stride,
+                            enable_synchronization_check
+                        ):
 
-                        last_sd = MotionDataset.query(
-                            tables, self.indices, "sample_data", last_token)
+                            total_windows += 1
 
-                        window_start = first_sd["timestamp"]
-                        window_end = last_sd["timestamp"]
+                            # 获取window timestamp
+                            first_token = segment_tokens[0][0]
+                            last_token = segment_tokens[-1][0]
 
-                        # ===============================
-                        # interval matching
-                        # ===============================
+                            first_sd = MotionDataset.query(
+                                tables, self.indices, "sample_data", first_token)
 
-                        t_match_start = time.time()
+                            last_sd = MotionDataset.query(
+                                tables, self.indices, "sample_data", last_token)
 
-                        scene_intervals = self.motion_intervals_by_scene.get(scene["token"], [])
-                        matched_interval = None
+                            window_start = first_sd["timestamp"]
+                            window_end = last_sd["timestamp"]
 
-                        window_duration = window_end - window_start
-                        # ===== debug (只打印前5次) =====
-                        if total_windows < 5:
-                            print("window duration:", window_duration)
+                            # ===============================
+                            # interval matching
+                            # ===============================
 
-                        for interval in scene_intervals:
+                            t_match_start = time.time()
 
-                            overlap_start = max(window_start, interval["start_ts"])
-                            overlap_end = min(window_end, interval["end_ts"])
+                            scene_intervals = self.motion_intervals_by_scene.get(scene["token"], [])
+                            matched_interval = None
 
-                            overlap = overlap_end - overlap_start
+                            window_duration = window_end - window_start
+                            # ===== debug (只打印前5次) =====
                             if total_windows < 5:
-                                if overlap > 0:
-                                    print("overlap:", overlap)
-                                    print("overlap ratio:", overlap / window_duration)
-                            if overlap <= 0:
+                                print("window duration:", window_duration)
+
+                            for interval in scene_intervals:
+
+                                overlap_start = max(window_start, interval["start_ts"])
+                                overlap_end = min(window_end, interval["end_ts"])
+
+                                overlap = overlap_end - overlap_start
+                                if total_windows < 5:
+                                    if overlap > 0:
+                                        print("overlap:", overlap)
+                                        print("overlap ratio:", overlap / window_duration)
+                                if overlap <= 0:
+                                    continue
+
+                                if overlap >= 0.9 * window_duration:
+                                    matched_interval = interval
+                                    break
+
+                            t_interval_match += time.time() - t_match_start
+
+                            if matched_interval is None:
                                 continue
 
-                            if overlap >= 0.9 * window_duration:
-                                matched_interval = interval
-                                break
+                            matched_windows += 1
 
-                        t_interval_match += time.time() - t_match_start
+                            scene_name = scene["name"]
+                            if scene_name not in scene_window_counter:
+                                scene_window_counter[scene_name] = 0
+                            scene_window_counter[scene_name] += 1
 
-                        if matched_interval is None:
-                            continue
-
-                        matched_windows += 1
-
-                        scene_name = scene["name"]
-                        if scene_name not in scene_window_counter:
-                            scene_window_counter[scene_name] = 0
-                        scene_window_counter[scene_name] += 1
-
-                        self.items.append({
-                            "scene": scene["token"],
-                            "segment": segment_tokens,
-                            "fps": fps,
-                            "angle": matched_interval["angle"],
-                            "dist": matched_interval["dist"]
-                        })
+                            self.items.append({
+                                "scene": scene["token"],
+                                "segment": segment_tokens,
+                                "fps": fps,
+                                "angle": matched_interval["angle"],
+                                "dist": matched_interval["dist"]
+                            })
 
 
-            print("[Dataset DEBUG] Window generation finished")
+                print("[Dataset DEBUG] Window generation finished")
 
-            print(f"[Dataset DEBUG] Total windows generated: {total_windows}")
-            print(f"[Dataset DEBUG] Windows matched with intervals: {matched_windows}")
-            print(f"[Dataset DEBUG] Final dataset size: {len(self.items)}")
+                print(f"[Dataset DEBUG] Total windows generated: {total_windows}")
+                print(f"[Dataset DEBUG] Windows matched with intervals: {matched_windows}")
+                print(f"[Dataset DEBUG] Final dataset size: {len(self.items)}")
 
-            print(f"[TIME] enumerate_segments total: {time.time() - t_enumerate:.3f}s")
-            print(f"[TIME] interval matching total: {t_interval_match:.3f}s")
-            print(f"[TIME] Dataset init total: {time.time() - t_dataset_total:.3f}s")
+                print(f"[TIME] enumerate_segments total: {time.time() - t_enumerate:.3f}s")
+                print(f"[TIME] interval matching total: {t_interval_match:.3f}s")
+                print(f"[TIME] Dataset init total: {time.time() - t_dataset_total:.3f}s")
 
 
-            if total_windows == 0:
-                raise RuntimeError(
-                    "[Dataset ERROR] enumerate_segments generated 0 windows."
-                )
+                if total_windows == 0:
+                    raise RuntimeError(
+                        "[Dataset ERROR] enumerate_segments generated 0 windows."
+                    )
 
-            if matched_windows == 0:
-                raise RuntimeError(
-                    "[Dataset ERROR] No windows matched motion intervals."
-                )
+                if matched_windows == 0:
+                    raise RuntimeError(
+                        "[Dataset ERROR] No windows matched motion intervals."
+                    )
 
-            print("[Dataset DEBUG] Windows per scene (first 10):")
-            for i, (k, v) in enumerate(scene_window_counter.items()):
-                if i > 10:
-                    break
-                print(f"   {k}: {v}")
+                print("[Dataset DEBUG] Windows per scene (first 10):")
+                for i, (k, v) in enumerate(scene_window_counter.items()):
+                    if i > 10:
+                        break
+                    print(f"   {k}: {v}")
             
-        
+            else:
+                print("[Dataset INFO] Using default enumerate_segments (no balanced_json_path)")
+
+                scene_channel_sample_data = [
+                    (scene, [
+                        sorted([
+                            sample_data
+                            for sample in MotionDataset.get_scene_samples(
+                                tables, self.indices, scene)
+                            for sample_data in MotionDataset.query_range(
+                                tables, self.indices, "sample_data", sample["token"],
+                                column_name="sample_token")
+                            if MotionDataset.check_sensor(
+                                tables, self.indices, sample_data, channel) and
+                            key_filter(sample_data)
+                        ], key=lambda x: x["timestamp"])
+                        for channel in sensor_channels
+                    ])
+                    for scene in tables["scene"]
+                ]
+
+                self.items = dwm.common.SerializedReadonlyList([
+                    {"segment": segment, "fps": fps, "scene": scene["token"]}
+                    for scene, channel_sample_data in scene_channel_sample_data
+                    for fps, stride in self.fps_stride_tuples
+                    for segment in MotionDataset.enumerate_segments(
+                        channel_sample_data, self.sequence_length, fps, stride,
+                        enable_synchronization_check)
+                ])
+            
             if image_description_settings is not None:
                 with open(
                     image_description_settings["path"], "r", encoding="utf-8"
@@ -1175,8 +1202,9 @@ class MotionDataset(torch.utils.data.Dataset):
 
         # ======= 新增：注入 JSON 里的 angle 和 dist =======
         # 获取当前样本的标识符（通常是 start_sample_token）
-        result["angle"] = torch.tensor(item["angle"], dtype=torch.float32)
-        result["dist"] = torch.tensor(item["dist"], dtype=torch.float32)
+        if "angle" in item:
+            result["angle"] = torch.tensor(item["angle"], dtype=torch.float32)
+            result["dist"] = torch.tensor(item["dist"], dtype=torch.float32)
         
         
         if self.enable_scene_description:
