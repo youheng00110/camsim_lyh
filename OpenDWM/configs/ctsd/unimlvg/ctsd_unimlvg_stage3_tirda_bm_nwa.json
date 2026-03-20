@@ -261,6 +261,7 @@
                     },
                     "dataset_name": "interp_12Hz_trainval",
                     "split": "train",
+                    "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_train_balanced/balanced_windows_metadata.json",
                     "sequence_length": 48,
                     "fps_stride_tuples": [
                         [
@@ -268,7 +269,6 @@
                             1
                         ]
                     ],
-                    "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_train_balanced/balanced_windows_metadata.json",
                     "sensor_channels": [
                         "LIDAR_TOP",
                         "CAM_FRONT_LEFT",
