@@ -638,34 +638,42 @@ class MotionDataset(torch.utils.data.Dataset):
         # 读取 motion intervals
         # ===============================
 
-        if balanced_json_path is None:
-            raise RuntimeError("balanced_json_path required")
+        use_balance = balanced_json_path is not None
 
-        with open(balanced_json_path, "r") as f:
-            raw_entries = json.load(f)
+        if use_balance:
+            with open(balanced_json_path, "r") as f:
+                raw_entries = json.load(f)
 
-        print(f"[Dataset] Motion intervals loaded: {len(raw_entries)}")
+            print(f"[Dataset] Motion intervals loaded: {len(raw_entries)}")
 
-        self.motion_intervals = []
+            self.motion_intervals = []
 
-        for e in raw_entries:
-            self.motion_intervals.append({
-                "scene": e["scene_name"],
-                "start_ts": e["start_timestamp"],
-                "end_ts": e["end_timestamp"],
-                "angle": e["angle"],
-                "dist": e["dist"]
-            })        
-        self.motion_intervals_by_scene = {}
+            for e in raw_entries:
+                self.motion_intervals.append({
+                    "scene": e["scene_name"],
+                    "start_ts": e["start_timestamp"],
+                    "end_ts": e["end_timestamp"],
+                    "angle": e["angle"],
+                    "dist": e["dist"]
+                })
 
-        for interval in self.motion_intervals:
+            self.motion_intervals_by_scene = {}
 
-            scene = interval["scene"]
+            for interval in self.motion_intervals:
+                scene = interval["scene"]
 
-            if scene not in self.motion_intervals_by_scene:
-                self.motion_intervals_by_scene[scene] = []
+                if scene not in self.motion_intervals_by_scene:
+                    self.motion_intervals_by_scene[scene] = []
 
-            self.motion_intervals_by_scene[scene].append(interval)
+                self.motion_intervals_by_scene[scene].append(interval)
+
+        else:
+            print("[Dataset] No balanced_json provided → skip filtering")
+            self.motion_intervals_by_scene = {}
+
+        # ===============================
+        # DEBUG
+        # ===============================
 
         print("\n========== SENSOR DATA DEBUG ==========")
 
@@ -681,16 +689,21 @@ class MotionDataset(torch.utils.data.Dataset):
             )
 
         print("=======================================\n")
-        print("\n========== BALANCED JSON DEBUG ==========")
-        print(f"[Dataset] Motion intervals loaded: {len(raw_entries)}")
 
-        if len(raw_entries) > 0:
-            print("[Dataset] Example interval:")
-            for k, v in raw_entries[0].items():
-                print(f"  {k}: {v}")
-        print("[Dataset] Interval scenes:", len(self.motion_intervals_by_scene))
-        print("=========================================\n")      
-        #######新的item########      
+        if use_balance:
+            print("\n========== BALANCED JSON DEBUG ==========")
+            print(f"[Dataset] Motion intervals loaded: {len(raw_entries)}")
+
+            if len(raw_entries) > 0:
+                print("[Dataset] Example interval:")
+                for k, v in raw_entries[0].items():
+                    print(f"  {k}: {v}")
+
+            print("[Dataset] Interval scenes:", len(self.motion_intervals_by_scene))
+            print("=========================================\n")
+
+        ####### 构建 items ########
+
         items = []
 
         total_windows = 0
@@ -700,13 +713,16 @@ class MotionDataset(torch.utils.data.Dataset):
 
         for scene_id, csd in scene_channel_sample_data.items():
 
-            if scene_id not in self.motion_intervals_by_scene:
+            # 👉 只有在使用 balance 时才过滤 scene
+            if use_balance and scene_id not in self.motion_intervals_by_scene:
                 continue
-            # --- 新增：必须排序 ---
+
+            # --- 必须排序 ---
             for i in range(len(csd)):
                 csd[i].sort(key=lambda x: x["timestamp"])
-            # --------------------
-            scene_intervals = self.motion_intervals_by_scene[scene_id]
+            # ----------------
+
+            scene_intervals = self.motion_intervals_by_scene.get(scene_id, [])
 
             for fps, stride in self.fps_stride_tuples:
 
@@ -727,22 +743,24 @@ class MotionDataset(torch.utils.data.Dataset):
 
                     matched_interval = None
 
-                    for interval in scene_intervals:
+                    # 👉 只有 use_balance 才做匹配
+                    if use_balance:
+                        for interval in scene_intervals:
 
-                        overlap_start = max(ts_start, interval["start_ts"])
-                        overlap_end = min(ts_end, interval["end_ts"])
+                            overlap_start = max(ts_start, interval["start_ts"])
+                            overlap_end = min(ts_end, interval["end_ts"])
 
-                        overlap = overlap_end - overlap_start
+                            overlap = overlap_end - overlap_start
 
-                        if overlap <= 0:
+                            if overlap <= 0:
+                                continue
+
+                            if overlap >= OVERLAP_RATIO * window_duration:
+                                matched_interval = interval
+                                break
+
+                        if matched_interval is None:
                             continue
-
-                        if overlap >= OVERLAP_RATIO * window_duration:
-                            matched_interval = interval
-                            break
-
-                    if matched_interval is None:
-                        continue
 
                     matched_windows += 1
 
@@ -751,25 +769,23 @@ class MotionDataset(torch.utils.data.Dataset):
                         "fps": fps,
                         "scene_id": scene_id,
                         "split": scene_split_dict[scene_id],
-                        "angle": matched_interval["angle"],
-                        "dist": matched_interval["dist"]
+
+                        # 👉 核心：无 balance 给默认值
+                        "angle": matched_interval["angle"] if use_balance else 0.0,
+                        "dist": matched_interval["dist"] if use_balance else 0.0,
                     })
-        print("\n========== WINDOW ENUM DEBUG ==========")
 
-        print("Total windows generated:", total_windows)
-        print("Matched windows:", matched_windows)
-        print("Final dataset size:", len(items))
+        # ===============================
+        # 最终统计
+        # ===============================
 
-        if len(items) > 0:
-            print("\nExample dataset item:")
-            for k, v in items[0].items():
-                if k == "segment":
-                    print("segment length:", len(v))
-                    print("segment first timestamp:", v[0][0]["timestamp"])
-                else:
-                    print(k, ":", v)
+        print(f"[Dataset] Total windows: {total_windows}")
 
-        print("=======================================\n")
+        if use_balance:
+            print(f"[Dataset] Matched windows: {matched_windows}")
+        else:
+            print(f"[Dataset] No filtering → using all windows")
+
         
 
         self.items = dwm.common.SerializedReadonlyList(items)

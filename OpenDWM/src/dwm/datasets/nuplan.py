@@ -589,7 +589,7 @@ class NuPlanDataset(torch.utils.data.Dataset):
         ###对已有window进行匹配
         ####
         
-        if balanced_json_path:
+        if balanced_json_path is not None:
 
             with open(balanced_json_path) as f:
                 raw_intervals = json.load(f)
@@ -1279,13 +1279,16 @@ class NuPlanDataset(torch.utils.data.Dataset):
 
         # 把匹配到的 angle 和 dist 放入 result
         result = {
-            "fps": torch.tensor(float(fps), dtype=torch.float32), 
+            "fps": torch.tensor(float(fps), dtype=torch.float32),
             "pts": pts,
-            "angle": item.get("angle", 0.0),
-            "dist": item.get("dist", 0.0),
             "scene_id": scene,
             "name": scene
         }
+
+        # ✅ 只有在存在时才加入（推荐做法）
+        if "angle" in item:
+            result["angle"] = torch.tensor(item["angle"], dtype=torch.float32)
+            result["dist"]  = torch.tensor(item["dist"], dtype=torch.float32)
 
         if self.enable_sample_data:
             result["sample_data"] = seq
