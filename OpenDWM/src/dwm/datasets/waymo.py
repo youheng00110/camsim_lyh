@@ -747,6 +747,7 @@ class MotionDataset(torch.utils.data.Dataset):
         scene_filename = f"segment-{scene_id}_with_camera_labels.tfrecord"
         split = item["split"]
 
+
                 
         # 拼接完整路径：root / individual_files / training / filename
         if self.dataset_root:
