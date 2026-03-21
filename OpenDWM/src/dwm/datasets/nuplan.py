@@ -462,7 +462,7 @@ def _se3_inv(T):
 
 ############ tools ##################
 
-class NuPlanDataset(torch.utils.data.Dataset):
+class MotionDataset(torch.utils.data.Dataset):
     """
     - 3dbox_images：用 gt_line (7DoF boxes) 投影画线框（颜色严格对齐 MotionDataset）
     - hdmap_images：用 nuplan map 投影（drivable_area/lane/ped_crossing），并按 MotionDataset 颜色表画“轮廓线”
@@ -509,6 +509,11 @@ class NuPlanDataset(torch.utils.data.Dataset):
         image_description_settings=None,
         projected_pc_settings=None, 
         balanced_json_path=None,
+        enable_camera_transforms=None,
+        enable_ego_transforms=None,
+        _3dbox_image_settings= None,
+        hdmap_image_settings=None,
+        
     ):
         self.sensor_root = sensor_root
         self.cache_root = cache_root
@@ -1281,8 +1286,7 @@ class NuPlanDataset(torch.utils.data.Dataset):
         result = {
             "fps": torch.tensor(float(fps), dtype=torch.float32),
             "pts": pts,
-            "scene_id": scene,
-            "name": scene
+            
         }
 
         # ✅ 只有在存在时才加入（推荐做法）

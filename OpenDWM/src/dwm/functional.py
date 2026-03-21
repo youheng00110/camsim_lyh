@@ -170,6 +170,7 @@ def gumbel_sigmoid(
 
 
 def take_sequence_clip(item, start: int, stop: int):
+    print("DEBUG item:", type(item), len(item) if hasattr(item, "__len__") else "no len")
     if isinstance(item, (int, float, bool, str)):
         return item
     elif isinstance(item, torch.Tensor):

@@ -2,6 +2,7 @@ source /inspire/ssd/project/wuliqifa/public/songbur/lyhdwm/bin/activate
 cd /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/src
 
 export PYTHONPATH=$(pwd):$PYTHONPATH
+export PYTHONPATH=$PYTHONPATH:/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/externals/waymo-open-dataset/src
 torchrun \
   --nproc_per_node=1 \
   -m dwm.preview \

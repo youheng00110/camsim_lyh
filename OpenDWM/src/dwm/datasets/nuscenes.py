@@ -393,7 +393,6 @@ class MotionDataset(torch.utils.data.Dataset):
         for i in sample_data_list:
             if MotionDataset.check_sensor(
                     tables, indices, i, modality="camera"):
-                print("DEBUG:", i["filename"], "keyframe:", i["is_key_frame"])
                 with fs.open(i["filename"]) as f:
                     image = Image.open(f)
                     image.load()
@@ -1205,14 +1204,7 @@ class MotionDataset(torch.utils.data.Dataset):
         if "angle" in item:
             result["angle"] = torch.tensor(item["angle"], dtype=torch.float32)
             result["dist"] = torch.tensor(item["dist"], dtype=torch.float32)
-        
-        
-        if self.enable_scene_description:
-            result["scene_description"] = scene["description"]
 
-        if self.enable_sample_data:
-            result["sample_data"] = segment
-            result["scene"] = scene
 
         result["pts"] = torch.tensor([
             [

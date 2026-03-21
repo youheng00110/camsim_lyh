@@ -546,7 +546,8 @@ class MotionDataset(torch.utils.data.Dataset):
         image_description_settings=None,
         stub_key_data_dict=None,
         balanced_json_path=None,
-        dataset_root=None
+        dataset_root=None,
+        split: str = "train" 
     ):
 
         self.fs = fs
@@ -562,7 +563,7 @@ class MotionDataset(torch.utils.data.Dataset):
         self.hdmap_bev_settings = hdmap_bev_settings
         self.image_description_settings = image_description_settings
         self.stub_key_data_dict = stub_key_data_dict
-
+        self.split =split
         self.items = []
 
         # ===============================
@@ -683,6 +684,7 @@ class MotionDataset(torch.utils.data.Dataset):
                         "start_idx": start_idx,
                         "end_idx": end_idx,
                         "fps": fps,
+                        "split": split,   
 
                         # 👉 核心兼容
                         "angle": matched_interval["angle"] if use_balance else 0.0,
@@ -737,18 +739,21 @@ class MotionDataset(torch.utils.data.Dataset):
             "fps": torch.tensor(item["fps"]).float(),
             "angle": torch.tensor(item["angle"]).float(),
             "dist": torch.tensor(item["dist"]).float(),
-            "scene_name": scene_id
+           
         }
+       
        # 5. 读取 TFRecord
         # 构造文件名
         scene_filename = f"segment-{scene_id}_with_camera_labels.tfrecord"
-        
+        split = item["split"]
+
+                
         # 拼接完整路径：root / individual_files / training / filename
         if self.dataset_root:
             scene_path = os.path.join(
                 self.dataset_root, 
                 "individual_files", 
-                "training", 
+                    split,   # ✅ 不再写死
                 scene_filename
             )
         else:
@@ -761,8 +766,8 @@ class MotionDataset(torch.utils.data.Dataset):
         frames = [waymo_pb.Frame() for _ in segment]
 
         # 检查文件是否存在以防闪退
-        if not self.fs.exists(scene_path):
-             raise FileNotFoundError(f"Waymo record not found at: {scene_path}")
+        if not os.path.exists(scene_path):
+            raise FileNotFoundError(f"Waymo record not found at: {scene_path}")
 
         with self.fs.open(scene_path, "rb") as f:
             for i_id, frame_info in enumerate(segment):
