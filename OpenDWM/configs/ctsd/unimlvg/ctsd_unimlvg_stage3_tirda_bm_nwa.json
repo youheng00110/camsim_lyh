@@ -117,6 +117,7 @@
             "reference_frame_count": 3,
             "autoregression_data_exception_for_take_sequence": [
                 "crossview_mask"
+                
             ],
             "evaluation_item_count": 480
         },
@@ -306,7 +307,7 @@
                                 "_class_name": "torch.tensor",
                                 "data": {
                                     "_class_name": "json.loads",
-                                    "s": "[[1,1,0,0,0,1,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[1,0,0,0,1,1,0,0],[0,0,0,0,0,0,1,0][0,0,0,0,0,0,0,1]]"
+                                    "s": "[[1,1,0,0,0,1,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[1,0,0,0,1,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]"
                                 },
                                 "dtype": {
                                     "_class_name": "get_class",
@@ -322,6 +323,8 @@
                         "_class_name": "dwm.fs.dirfs.DirFileSystem",
                         "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link/training"
                     },
+                    "split":"training",
+                    "dataset_root":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link",
                     "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_balanced/balanced_windows_metadata.json",
                     "info_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_balanced/training.info.json",
                     "sequence_length": 40,
@@ -383,11 +386,12 @@
                         "_class_name": "dwm.fs.dirfs.DirFileSystem",
                         "fs": {
                             "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                            "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link/train"
+                            "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link"
                         },
 
                         "enable_cached_info": true
                     },
+                    "split":"train",
                     "index_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_json",
                     "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_balanced/balanced_windows.json",
                     "sequence_length": 40,
@@ -433,7 +437,7 @@
                                 "_class_name": "torch.tensor",
                                 "data": {
                                     "_class_name": "json.loads",
-                                    "s": "[[1,1,0,0,0,1,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[1,0,0,0,1,1,0,0][0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]"
+                                    "s": "[[1,1,0,0,0,1,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[1,0,0,0,1,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]"
                                 },
                                 "dtype": {
                                     "_class_name": "get_class",
@@ -528,7 +532,7 @@
                     "_class_name": "dwm.datasets.nuplan.MotionDataset",
                     "sensor_root": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_prepo/mini_sensorss",
                     "pkl_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_prepo/mini_infos_val.pkl",
-                    "cache_root": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/newpas/ggearth_files/nuplan-test/mini_cache_val",
+                    "cache_root": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/newpas/ggearth_files/nuplan-test/mini_cache",
                     "dataset_root": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_link/plan_data/mini",
                     "map_root": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_link/maps",
                     "sequence_length": 40,
@@ -599,7 +603,7 @@
                                 "_class_name": "torch.tensor",
                                 "data": {
                                     "_class_name": "json.loads",
-                                    "s": "[[1,1,0,0,0,1,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[1,0,0,0,1,1,0,0],[0,0,0,0,0,0,1,0][0,0,0,0,0,0,0,1]]"
+                                    "s": "[[1,1,0,0,0,1,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[1,0,0,0,1,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]"
                                 },
                                 "dtype": {
                                     "_class_name": "get_class",
@@ -615,6 +619,8 @@
                         "_class_name": "dwm.fs.dirfs.DirFileSystem",
                         "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link/individual_files/validation"
                     },
+                    "split":"validation",
+                    "dataset_root":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link",
                     "info_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_balanced/validation.info.json",
                     "sequence_length": 40,
                     "fps_stride_tuples": [
@@ -669,11 +675,13 @@
                         "_class_name": "dwm.fs.dirfs.DirFileSystem",
                         "fs": {
                             "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                            "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link/val"
+                            "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link"
                         },
 
                         "enable_cached_info": true
                     },
+                    "split": "val",
+                    "dataset_root":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link/val",
                     "index_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_json",
                     "sequence_length": 40,
                     "fps_stride_tuples": [
@@ -685,13 +693,14 @@
                     "sensor_channels": [
                         "lidar",
                         "cameras/ring_front_left",
+                        "cameras/ring_front_center",
                         "cameras/ring_front_right",
                         "cameras/ring_side_right",
                         "cameras/ring_rear_right",
                         "cameras/ring_rear_left",
                         "cameras/ring_side_left",
-                        "cameras/ring_front_left",
-                        "cameras/ring_front_right"
+                        "cameras/ring_front_center"
+                        
                     ],
                     "enable_camera_transforms": true,
                     "enable_ego_transforms": true,
@@ -712,7 +721,7 @@
                                 "_class_name": "torch.tensor",
                                 "data": {
                                     "_class_name": "json.loads",
-                                    "s": "[[1,1,0,0,0,1,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[1,0,0,0,1,1,0,0][0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]"
+                                    "s": "[[1,1,0,0,0,0,1,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[0,0,0,0,1,1,1,0],[1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,1]]"
                                 },
                                 "dtype": {
                                     "_class_name": "get_class",

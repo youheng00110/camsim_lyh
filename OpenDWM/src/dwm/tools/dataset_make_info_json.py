@@ -121,7 +121,7 @@ if __name__ == "__main__":
 
         # 遍历已解压的train/val/test目录下的场景文件夹
         # 先确定目标拆分目录（train/val/test），默认用train
-        split_dir = args.split if args.split else "train"
+        split_dir = args.split if args.split else "val"
         split_path = os.path.join(args.input_path, split_dir)
         
         # 检查拆分目录是否存在

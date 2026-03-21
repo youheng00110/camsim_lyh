@@ -3,6 +3,7 @@ import dwm.common
 import json
 import os
 import torch
+import debugpy  # 新增调试库
 
 
 def customize_text(clip_text, preview_config):
@@ -82,7 +83,14 @@ def create_parser():
     return parser
 
 
-if __name__ == "__main__":
+def main():  # ========= 你要的 main 函数 + debug 在这里 =========
+    # ========= 开启远程调试（端口 9876） =========
+    debugpy.listen(("0.0.0.0", 9876))
+    print("[debugpy] listening on 0.0.0.0:9876, waiting for VS Code to attach...")
+    debugpy.wait_for_client()
+    print("[debugpy] attached ✅")
+
+    # ========= 下面是你原来的全部代码，原封不动放进来 =========
     parser = create_parser()
     args = parser.parse_args()
 
@@ -196,3 +204,7 @@ if __name__ == "__main__":
 
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()
+
+
+if __name__ == "__main__":
+    main()  # 统一入口

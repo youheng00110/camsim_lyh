@@ -121,13 +121,22 @@ class MotionDataset(torch.utils.data.Dataset):
         #   * FPS == 0: offset between segment beginings are by index.
         #   * FPS > 0: offset between segment beginings are by second.
 
-        csdl = channel_sample_data_list
+        # ✅ 先过滤空 channel
+        csdl = [sdl for sdl in channel_sample_data_list if len(sdl) > 0]
+
+        if len(csdl) == 0:
+            return
+
+        # ✅ 用第一个非空的作为 reference
+        reference_channel = csdl[0]
+
         channel_timestamp_list = [
             [i["timestamp"] for i in sdl] for sdl in csdl
         ]
+
         if fps == 0:
-            # frames are extracted by the index.
-            for t in range(0, len(csdl[0]), max(1, stride)):
+            for t in range(0, len(reference_channel), max(1, stride)):
+            # frames are extracted by the index
                 # find the indices of the first frame of channels matching the
                 # given timestamp
                 ct0 = [
@@ -157,7 +166,7 @@ class MotionDataset(torch.utils.data.Dataset):
                     t += stride
 
             for t in enumerate_begin_time(
-                csdl[0], sequence_length / fps, stride
+                reference_channel, sequence_length / fps, stride
             ):
                 # find the indices of the first frame of channels matching the
                 # given timestamp
@@ -583,41 +592,42 @@ class MotionDataset(torch.utils.data.Dataset):
         for json_path in tqdm(json_files, desc="Loading Scene JSONs"):
             with open(json_path, 'r') as f:
                 scene_info = json.load(f)
-            
-            # 1. 只读 train 集
-            if scene_info.get("split") != "train":
-                continue
-                
+
             scene_id = scene_info["scene_name"]
             files = scene_info.get("files", [])
 
             for rel_file_path in files:
-                # rel_file_path 类似于 "train/00a6.../sensors/cameras/ring_rear_left/315967.jpg"
-                
+
+                # ✅ 关键：只保留当前 split
+                if not rel_file_path.startswith(self.split):
+                    continue
+
                 # --- 匹配传感器 ---
                 match = re.match(pattern, rel_file_path)
                 if match is not None:
                     split = match.group("split")
                     sensor_channel = match.group("sensor_channel")
-                    # 这里补充前缀以匹配原始代码的 sensor_channels 列表名 (如 "cameras/ring_front_left")
-                    full_sensor_name = f"cameras/{sensor_channel}" 
+
+                    full_sensor_name = f"cameras/{sensor_channel}"
                     timestamp = match.group("timestamp")
 
-                    scene_split_dict[scene_id] = split
-                    
+                    # ✅ 统一 split（避免混乱）
+                    scene_split_dict[scene_id] = self.split
+
                     if scene_id not in scene_channel_sample_data:
                         scene_channel_sample_data[scene_id] = [[] for _ in sensor_channels]
 
-                    # 建立索引并确保存储的是磁盘上的绝对路径
                     full_disk_path = os.path.join(self.dataset_root, rel_file_path)
-                    filename_dict["{}/{}/{}".format(scene_id, full_sensor_name, timestamp)] = full_disk_path
+
+                    filename_dict["{}/{}/{}".format(
+                        scene_id, full_sensor_name, timestamp
+                    )] = full_disk_path
 
                     sample_data = {
                         "timestamp": int(timestamp),
                         "sensor": full_sensor_name
                     }
-                    
-                    # 找到该 channel 在 sensor_channels 列表中的位置
+
                     for i, s_name in enumerate(sensor_channels):
                         if s_name == full_sensor_name:
                             scene_channel_sample_data[scene_id][i].append(sample_data)
@@ -626,7 +636,7 @@ class MotionDataset(torch.utils.data.Dataset):
                 map_match = re.match(map_pattern, rel_file_path)
                 if map_match is not None:
                     scene_map_dict[scene_id] = {
-                        "split": map_match.group("split"),
+                        "split": self.split,  # ✅ 统一
                         "filename": os.path.join(self.dataset_root, rel_file_path)
                     }
 
@@ -822,8 +832,6 @@ class MotionDataset(torch.utils.data.Dataset):
             "fps": torch.tensor(item["fps"], dtype=torch.float32),
             "angle": torch.tensor(item["angle"], dtype=torch.float32),
             "dist": torch.tensor(item["dist"], dtype=torch.float32),
-            "scene_id": item["scene_id"], 
-            "name": item["scene_id"],
             "pts": torch.tensor([
                 [
                     (j["timestamp"] - item["segment"][0][0]["timestamp"])
@@ -848,14 +856,14 @@ class MotionDataset(torch.utils.data.Dataset):
                 ]
 
                 if j["sensor"].startswith("cameras"):
-                    with self.fs.open(path) as f:
+                    with open(path, "rb") as f:
                         image = Image.open(f)
                         image.load()
 
                     images_i.append(image)
 
                 elif j["sensor"] == "lidar":
-                    with self.fs.open(path) as f:
+                    with open(path, "rb") as f:
                         points = pyarrow.feather.read_feather(f)
 
                     np_points = points.to_numpy()[:, :3]
