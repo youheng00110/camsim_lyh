@@ -113,7 +113,7 @@
                 252
             ],
             "generate_frames_for_reference": false,
-            "sequence_length_per_iteration": 19,
+            "sequence_length_per_iteration": 40,
             "reference_frame_count": 3,
             "autoregression_data_exception_for_take_sequence": [
                 "crossview_mask"
@@ -681,7 +681,7 @@
                         "enable_cached_info": true
                     },
                     "split": "val",
-                    "dataset_root":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link/val",
+                    "dataset_root":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link",
                     "index_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_json",
                     "sequence_length": 40,
                     "fps_stride_tuples": [
