@@ -888,7 +888,12 @@ class MotionDataset(torch.utils.data.Dataset):
                 extrinsic_path = \
                     "{}/{}/calibration/egovehicle_SE3_sensor.feather"\
                     .format(item["split"], item["scene_id"])
-                extrinsic_path = os.path.join(self.dataset_root, extrinsic_path)
+                extrinsic_path = os.path.join(
+                    item["split"],
+                    item["scene_id"],
+                    "calibration",
+                    "egovehicle_SE3_sensor.feather"
+                )
                 with self.fs.open(extrinsic_path) as f:
                     extrinsics = pyarrow.feather.read_table(f).to_pydict()
 

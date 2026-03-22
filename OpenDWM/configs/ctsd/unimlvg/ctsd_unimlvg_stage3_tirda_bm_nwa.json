@@ -321,7 +321,7 @@
                     "_class_name": "dwm.datasets.waymo.MotionDataset",
                     "fs": {
                         "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                        "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link/training"
+                        "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link"
                     },
                     "split":"training",
                     "dataset_root":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link",
@@ -617,7 +617,7 @@
                     "_class_name": "dwm.datasets.waymo.MotionDataset",
                     "fs": {
                         "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                        "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link/individual_files/validation"
+                        "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link"
                     },
                     "split":"validation",
                     "dataset_root":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link",
