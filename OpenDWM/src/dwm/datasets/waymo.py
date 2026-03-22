@@ -751,8 +751,7 @@ class MotionDataset(torch.utils.data.Dataset):
                 
         # 拼接完整路径：root / individual_files / training / filename
         if self.dataset_root:
-            scene_path = os.path.join(
-                self.dataset_root, 
+            scene_path = os.path.join( 
                 "individual_files", 
                     split,   # ✅ 不再写死
                 scene_filename
@@ -767,7 +766,7 @@ class MotionDataset(torch.utils.data.Dataset):
         frames = [waymo_pb.Frame() for _ in segment]
 
         # 检查文件是否存在以防闪退
-        if not os.path.exists(scene_path):
+        if not self.fs.exists(scene_path):
             raise FileNotFoundError(f"Waymo record not found at: {scene_path}")
 
         with self.fs.open(scene_path, "rb") as f:
