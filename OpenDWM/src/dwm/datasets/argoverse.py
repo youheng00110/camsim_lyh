@@ -883,33 +883,39 @@ class MotionDataset(torch.utils.data.Dataset):
             result["lidar_points"] = lidar_points  # [sequence_length]
 
         extrinsics, intrinsics = None, None
+
         if self.enable_camera_transforms:
             if "images" in result:
-                extrinsic_path = \
-                    "{}/{}/calibration/egovehicle_SE3_sensor.feather"\
-                    .format(item["split"], item["scene_id"])
+
+                # ===== extrinsics =====
                 extrinsic_path = os.path.join(
                     item["split"],
                     item["scene_id"],
                     "calibration",
                     "egovehicle_SE3_sensor.feather"
                 )
+
                 with self.fs.open(extrinsic_path) as f:
                     extrinsics = pyarrow.feather.read_table(f).to_pydict()
 
                 result["camera_transforms"] = torch.stack([
                     torch.stack([
                         MotionDataset.get_transform(
-                            extrinsics, "sensor_name", j["sensor"][8:], "pt")
-                        for j in i
-                        if j["sensor"].startswith("cameras")
+                            extrinsics, "sensor_name", j["sensor"][8:], "pt"
+                        )
+                        for j in i if j["sensor"].startswith("cameras")
                     ])
                     for i in item["segment"]
                 ])
 
-                intrinsic_path = "{}/{}/calibration/intrinsics.feather"\
-                    .format(item["split"], item["scene_id"])
-                intrinsic_path = os.path.join(self.dataset_root, intrinsic_path)
+                # ===== intrinsics =====
+                intrinsic_path = os.path.join(
+                    item["split"],
+                    item["scene_id"],
+                    "calibration",
+                    "intrinsics.feather"
+                )
+
                 with self.fs.open(intrinsic_path) as f:
                     intrinsics = pyarrow.feather.read_table(f).to_pydict()
 
@@ -918,12 +924,15 @@ class MotionDataset(torch.utils.data.Dataset):
                         dwm.datasets.common.make_intrinsic_matrix(
                             MotionDataset.feather_query(
                                 intrinsics, "sensor_name", j["sensor"][8:],
-                                MotionDataset.intrinsic_focal_keys),
+                                MotionDataset.intrinsic_focal_keys
+                            ),
                             MotionDataset.feather_query(
                                 intrinsics, "sensor_name", j["sensor"][8:],
-                                MotionDataset.intrinsic_center_keys), "pt")
-                        for j in i
-                        if j["sensor"].startswith("cameras")
+                                MotionDataset.intrinsic_center_keys
+                            ),
+                            "pt"
+                        )
+                        for j in i if j["sensor"].startswith("cameras")
                     ])
                     for i in item["segment"]
                 ])
@@ -953,7 +962,7 @@ class MotionDataset(torch.utils.data.Dataset):
 
         poses = None
         if self.enable_ego_transforms:
-            pose_path = "sensor/{}/{}/city_SE3_egovehicle.feather"\
+            pose_path = "{}/{}/city_SE3_egovehicle.feather"\
                 .format(item["split"], item["scene_id"])
             with self.fs.open(pose_path) as f:
                 poses = pyarrow.feather.read_table(f).to_pydict()
@@ -974,20 +983,20 @@ class MotionDataset(torch.utils.data.Dataset):
         annotations = None
         if self._3dbox_image_settings is not None:
             if poses is None:
-                pose_path = "sensor/{}/{}/city_SE3_egovehicle.feather"\
+                pose_path = "{}/{}/city_SE3_egovehicle.feather"\
                     .format(item["split"], item["scene_id"])
                 with self.fs.open(pose_path) as f:
                     poses = pyarrow.feather.read_table(f).to_pydict()
 
             if extrinsics is None:
                 extrinsic_path = \
-                    "sensor/{}/{}/calibration/egovehicle_SE3_sensor.feather"\
+                    "{}/{}/calibration/egovehicle_SE3_sensor.feather"\
                     .format(item["split"], item["scene_id"])
                 with self.fs.open(extrinsic_path) as f:
                     extrinsics = pyarrow.feather.read_table(f).to_pydict()
 
             if intrinsics is None:
-                intrinsic_path = "sensor/{}/{}/calibration/intrinsics.feather"\
+                intrinsic_path = "{}/{}/calibration/intrinsics.feather"\
                     .format(item["split"], item["scene_id"])
                 with self.fs.open(intrinsic_path) as f:
                     intrinsics = pyarrow.feather.read_table(f).to_pydict()
@@ -997,47 +1006,90 @@ class MotionDataset(torch.utils.data.Dataset):
                     "\"lidar\" should be the first item of the sensor channel "
                     "for 3D box image condition.")
 
-            annotation_path = "sensor/{}/{}/annotations.feather"\
+            annotation_path = "{}/{}/annotations.feather"\
                 .format(item["split"], item["scene_id"])
             with self.fs.open(annotation_path) as f:
                 annotations = pyarrow.feather.read_table(f).to_pydict()
 
-            result["3dbox_images"] = [
-                [
-                    MotionDataset.get_3dbox_image(
-                        annotations, i[0]["timestamp"], extrinsics, intrinsics,
-                        poses, j, self._3dbox_image_settings)
-                    for j in i
-                    if j["sensor"].startswith("cameras")
+                # ========== 核心修复：标注时间戳匹配 ==========
+            result["3dbox_images"] = []
+            annotation_timestamps = annotations["timestamp_ns"]
+            max_allowed_error = 100 * 1000000  # 最大允许100ms时间误差（对应LiDAR 10Hz间隔）
+
+            for time_step in item["segment"]:
+                # 拿到当前时间步的参考时间戳（同时间步所有相机共享一个参考时间）
+                current_cam_ts = time_step[0]["timestamp"]
+                
+                # 匹配最近的标注时间戳
+                idx = bisect.bisect_left(annotation_timestamps, current_cam_ts)
+                if idx == 0:
+                    nearest_anno_ts = annotation_timestamps[0]
+                elif idx == len(annotation_timestamps):
+                    nearest_anno_ts = annotation_timestamps[-1]
+                else:
+                    # 选前后更近的时间戳
+                    d_prev = current_cam_ts - annotation_timestamps[idx-1]
+                    d_next = annotation_timestamps[idx] - current_cam_ts
+                    nearest_anno_ts = annotation_timestamps[idx-1] if d_prev < d_next else annotation_timestamps[idx]
+                
+                # 时间误差过大，生成空图避免报错
+                if abs(nearest_anno_ts - current_cam_ts) > max_allowed_error:
+                    empty_cam_images = []
+                    for cam_data in time_step:
+                        if cam_data["sensor"].startswith("cameras"):
+                            # 读取相机对应图像尺寸
+                            sensor_name = cam_data["sensor"][8:]
+                            cam_idx = bisect.bisect_left(intrinsics["sensor_name"], sensor_name)
+                            img_w, img_h = [intrinsics[k][cam_idx] for k in self.intrinsic_size_keys]
+                            empty_cam_images.append(Image.new("RGB", (img_w, img_h)))
+                    result["3dbox_images"].append(empty_cam_images)
+                    continue
+                
+                # 匹配到有效标注，生成3D框图像
+                cam_box_images = [
+                    self.get_3dbox_image(
+                        annotations, nearest_anno_ts, extrinsics, intrinsics,
+                        poses, cam_data, self._3dbox_image_settings
+                    )
+                    for cam_data in time_step
+                    if cam_data["sensor"].startswith("cameras")
                 ]
-                for i in item["segment"]
-            ]
+                result["3dbox_images"].append(cam_box_images)
 
         map = None
         if self.hdmap_image_settings is not None:
             if poses is None:
-                pose_path = "sensor/{}/{}/city_SE3_egovehicle.feather"\
+                pose_path = "{}/{}/city_SE3_egovehicle.feather"\
                     .format(item["split"], item["scene_id"])
                 with self.fs.open(pose_path) as f:
                     poses = pyarrow.feather.read_table(f).to_pydict()
 
             if extrinsics is None:
                 extrinsic_path = \
-                    "sensor/{}/{}/calibration/egovehicle_SE3_sensor.feather"\
+                    "{}/{}/calibration/egovehicle_SE3_sensor.feather"\
                     .format(item["split"], item["scene_id"])
                 with self.fs.open(extrinsic_path) as f:
                     extrinsics = pyarrow.feather.read_table(f).to_pydict()
 
             if intrinsics is None:
-                intrinsic_path = "sensor/{}/{}/calibration/intrinsics.feather"\
+                intrinsic_path = "{}/{}/calibration/intrinsics.feather"\
                     .format(item["split"], item["scene_id"])
                 with self.fs.open(intrinsic_path) as f:
                     intrinsics = pyarrow.feather.read_table(f).to_pydict()
 
-            map_path = self.scene_map_dict[item["scene_id"]]["filename"]
+            abs_path = self.scene_map_dict[item["scene_id"]]["filename"]
+
+            root = self.fs.path.rstrip("/") + "/"
+
+            if abs_path.startswith(root):
+                map_path = abs_path[len(root):]
+            else:
+                raise ValueError(f"path not under fs root:\n{abs_path}\n{root}")
+            
+            
+            # ✅ 补上这一步！！！！
             with self.fs.open(map_path, "r", encoding="utf-8") as f:
                 map = json.load(f)
-
             result["hdmap_images"] = [
                 [
                     MotionDataset.get_hdmap_image(
@@ -1051,7 +1103,7 @@ class MotionDataset(torch.utils.data.Dataset):
 
         if self._3dbox_bev_settings is not None:
             if annotations is None:
-                annotation_path = "sensor/{}/{}/annotations.feather"\
+                annotation_path = "{}/{}/annotations.feather"\
                     .format(item["split"], item["scene_id"])
                 with self.fs.open(annotation_path) as f:
                     annotations = pyarrow.feather.read_table(f).to_pydict()
@@ -1066,7 +1118,7 @@ class MotionDataset(torch.utils.data.Dataset):
 
         if self.hdmap_bev_settings is not None:
             if poses is None:
-                pose_path = "sensor/{}/{}/city_SE3_egovehicle.feather"\
+                pose_path = "{}/{}/city_SE3_egovehicle.feather"\
                     .format(item["split"], item["scene_id"])
                 with self.fs.open(pose_path) as f:
                     poses = pyarrow.feather.read_table(f).to_pydict()

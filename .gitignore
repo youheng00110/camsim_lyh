@@ -15,3 +15,4 @@ waymo_prepo/*.json
 avrgo2_json/*.json
 nuplan-devkit-master/
 mini_sensors/
+output/debug_stage3/log/**

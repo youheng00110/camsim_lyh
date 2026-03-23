@@ -710,15 +710,32 @@ class MotionDataset(torch.utils.data.Dataset):
 
         # 👉 最终封装（只保留这个）
         self.items = dwm.common.SerializedReadonlyList(self.items)
-            
+        if image_description_settings is not None:
+            with open(
+                image_description_settings["path"], "r", encoding="utf-8"
+            ) as f:
+                self.image_descriptions = json.load(f)
+
+            self.image_desc_rs = np.random.RandomState(
+                image_description_settings["seed"]
+                if "seed" in image_description_settings else None)
+
+            with open(
+                image_description_settings["time_list_dict_path"], "r",
+                encoding="utf-8"
+            ) as f:
+                self.time_list_dict = json.load(f)    
 
 
     def __len__(self):
         return len(self.items)
     def __getitem__(self, index: int):
         item = self.items[index]
-        scene_id = item["scene"]
-
+        scene_id = item["scene"]   
+                # ✅ 新增：过滤出只有相机的通道（8个）
+        camera_only_channels = [j for j in self.sensor_channels if "LIDAR" not in j]
+        view_count = len(camera_only_channels) # 这里应该是 8
+        
         # 1. 检查属性是否存在
         if not hasattr(self, 'sample_info_dict'):
             raise AttributeError("sample_info_dict not initialized. Check __init__ logic.")
@@ -737,6 +754,10 @@ class MotionDataset(torch.utils.data.Dataset):
         # Waymo 时间戳是微秒，/ 1e6 换算成秒
         result = {
             "fps": torch.tensor(item["fps"]).float(),
+            "pts": torch.tensor([
+                [(i[0] - segment[0][0]) / 1000] * view_count
+                for i in segment
+            ], dtype=torch.float32),
             "angle": torch.tensor(item["angle"]).float(),
             "dist": torch.tensor(item["dist"]).float(),
            
@@ -794,7 +815,7 @@ class MotionDataset(torch.utils.data.Dataset):
             frame_intr = []
             frame_extr = []
 
-            for cam_name in self.sensor_channels:
+            for cam_name in camera_only_channels:
                 cam_id = MotionDataset.sensor_name_id_dict[cam_name]
                 
                 # --- A. 找图 (容错) ---
@@ -948,7 +969,7 @@ class MotionDataset(torch.utils.data.Dataset):
                         dwm.datasets.common.align_image_description_crossview([
                             MotionDataset.get_image_description(
                                 self.image_descriptions, self.time_list_dict,
-                                item["scene"], i[3],
+                                item["scene"], i[0],
                                 MotionDataset.sensor_name_id_dict[j])
                             for j in self.sensor_channels
                             if "LIDAR" not in j
@@ -971,6 +992,6 @@ class MotionDataset(torch.utils.data.Dataset):
             result["angle"] = torch.tensor(item["angle"]).float()
         if "dist" in item:
             result["dist"] = torch.tensor(item["dist"]).float()
-        result["scene_name"] = scene_id
+        
 
         return result

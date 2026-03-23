@@ -1312,21 +1312,22 @@ class MotionDataset(torch.utils.data.Dataset):
                 if im is None or cam_info is None:
                     W, H = 1920, 1080
                     row_imgs.append(Image.new("RGB", (W, H)))
-                    row_K.append(np.eye(4, dtype=np.float32))
+                    row_K.append(np.eye(3, dtype=np.float32))
                     row_sz.append((W, H))
                     row_dist.append(np.zeros((0,), np.float32))
                 else:
                     row_imgs.append(im)
                     K3 = np.asarray(cam_info["camera_intrinsics"], np.float32).reshape(3, 3)
-                    K_pad = np.eye(4, dtype=np.float32); K_pad[:3, :3] = K3
-                    row_K.append(K_pad)
+                    row_K.append(K3)
                     row_sz.append(im.size)
                     row_dist.append(np.asarray(cam_info.get("distortion", []), np.float32).reshape(-1))
             cam_infos.append(row_infos); images.append(row_imgs); cam_Ks.append(row_K)
             img_sizes.append(row_sz); dists.append(row_dist)
 
         result["images"] = images
-        result["camera_intrinsics"] = torch.tensor(np.asarray(cam_Ks), dtype=torch.float32)
+        camera_intr = torch.tensor(np.asarray(cam_Ks), dtype=torch.float32)
+        assert camera_intr.shape[-2:] == (3, 3), camera_intr.shape
+        result["camera_intrinsics"] = camera_intr
         result["image_size"] = torch.tensor(np.asarray([[[w,h] for (w,h) in row] for row in img_sizes]), dtype=torch.long)
         result["distortion"] = dists
 

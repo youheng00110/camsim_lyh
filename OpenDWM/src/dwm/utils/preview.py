@@ -1,8 +1,28 @@
 import av
 import torch
 import torchvision
+import sys
 
+def _get_preview_view_count_from_batch(batch: dict, default_view_count: int) -> int:
+    """
+    Read dataset_tag (int tensor) from batch and map to the real camera count:
+      0: nuplan -> 8
+      1: nuscenes -> 6
+      2: waymo -> 5
+      3: argoverse -> 7
+    Only used for preview display (do NOT change model inputs).
+    """
+    tag2v = {0: 8, 1: 6, 2: 5, 3: 7}
 
+    t = batch.get("dataset_tag", None)
+    if not torch.is_tensor(t) or t.numel() == 0:
+        return default_view_count
+
+    tag = int(t.reshape(-1)[0].item())
+    return min(default_view_count, int(tag2v.get(tag, default_view_count)))
+        ####
+        ####增加对输出进行对应数据集的筛选流程，改了两个函数（make_ctsd_preview_tensor）###
+        ####
 def make_ctsd_preview_tensor(output_images, batch, inference_config):
 
     # The output image sequece length may be shorter than the input due to the
@@ -12,17 +32,25 @@ def make_ctsd_preview_tensor(output_images, batch, inference_config):
     output_images = output_images\
         .cpu().unflatten(0, (batch_size, -1, view_count))
     sequence_length = output_images.shape[1]
-
-    collected_images = [batch["vae_images"][:, :sequence_length]]
+    preview_v = _get_preview_view_count_from_batch(batch, view_count)
+        # ================= 核心改动：增加筛选退出逻辑 =================
+    # 只有 Nusc(6) 和 Argoverse (7) 被允许
+    if preview_v not in [6, 7]:
+        print(f"\n[ERROR] Unsupported dataset detected!")
+        print(f"Current camera count: {preview_v}")
+        print(f"Only Waymo (5 cameras) and Argoverse (7 cameras) are supported for this preview mode.")
+        print("Terminating program to prevent incorrect visualization...\n")
+        sys.exit(1) # 1 表示异常退出
+    # ==========================================================
+    ####改了collect
+    collected_images = [batch["vae_images"][:, :sequence_length, :preview_v]]
     if "3dbox_images" in batch:
-        collected_images.append(
-            batch["3dbox_images"][:, :sequence_length])
+        collected_images.append(batch["3dbox_images"][:, :sequence_length, :preview_v])
 
     if "hdmap_images" in batch:
-        collected_images.append(
-            batch["hdmap_images"][:, :sequence_length])
+        collected_images.append(batch["hdmap_images"][:, :sequence_length, :preview_v])
 
-    collected_images.append(output_images)
+    collected_images.append(output_images[:, :, :preview_v])
 
     stacked_images = torch.stack(collected_images)
     resized_images = torch.nn.functional.interpolate(

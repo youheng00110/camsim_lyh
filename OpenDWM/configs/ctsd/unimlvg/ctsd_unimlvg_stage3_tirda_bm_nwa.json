@@ -8,7 +8,7 @@
     "global_state": {
         "nuscenes_fs": {
             "_class_name": "fsspec.implementations.dirfs.DirFileSystem",
-            "path":"/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/dataset/nuscenes",
+            "path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_link",
             "fs": {
                 "_class_name": "dwm.fs.dirfs.DirFileSystem"
             }
@@ -116,7 +116,9 @@
             "sequence_length_per_iteration": 40,
             "reference_frame_count": 3,
             "autoregression_data_exception_for_take_sequence": [
-                "crossview_mask"
+                "crossview_mask",
+                "camera_names",
+                "distortion"
                 
             ],
             "evaluation_item_count": 480
@@ -552,133 +554,23 @@
                             "_class_name": "torch.tensor",
                             "data": { "_class_name": "json.loads", "s": "[[1,1,0,0,0,0,0,1],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[0,0,0,0,1,1,1,0],[0,0,0,0,0,1,1,1],[1,0,0,0,0,0,1,1]]" },
                             "dtype": { "_class_name": "get_class", "class_name": "torch.bool" }
-                        }]
-                    }
-                },
-                {
-                    
-                    "_class_name": "dwm.datasets.nuscenes.MotionDataset",
-                    "fs": {
-                        "_class_name": "dwm.common.get_state",
-                        "key": "nuscenes_fs"
-                    },
-                    "dataset_name": "interp_12Hz_trainval",
-                    "split": "val",
-                    "sequence_length": 48,
-                    "fps_stride_tuples": [
-                        [
-                            12,
-                            1
-                        ]
-                    ],
-                    "sensor_channels": [
-                        "LIDAR_TOP",
-                        "CAM_FRONT_LEFT",
-                        "CAM_FRONT",
-                        "CAM_FRONT_RIGHT",
-                        "CAM_BACK_RIGHT",
-                        "CAM_BACK",
-                        "CAM_BACK_LEFT",
-                        "CAM_FRONT",
-                        "CAM_FRONT_LEFT"
-                    ],
-                    "keyframe_only": true,
-                    "enable_synchronization_check": false,
-                    "enable_camera_transforms": true,
-                    "enable_ego_transforms": true,
-                    "_3dbox_image_settings": {},
-                    "hdmap_image_settings": {},
-                    "image_description_settings": {
-                        "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_link/nuscenes_v1.0-trainval_caption_v2_val.json",
-                        "time_list_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_link/nuscenes_v1.0-trainval_caption_v2_times_val.json",
-                        "align_keys": [
-                            "time",
-                            "weather"
-                        ]
-                    },
-                    "stub_key_data_dict": {
-                        "crossview_mask": [
-                            "content",
-                            {
-                                "_class_name": "torch.tensor",
-                                "data": {
-                                    "_class_name": "json.loads",
-                                    "s": "[[1,1,0,0,0,1,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[1,0,0,0,1,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]"
-                                },
-                                "dtype": {
-                                    "_class_name": "get_class",
-                                    "class_name": "torch.bool"
-                                }
-                            }
+                        }],
+                    "dataset_tag": [
+                        "content",
+                        {
+                            "_class_name": "torch.tensor",
+                            "data": 0,
+                            "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
+                        }
                         ]
                     }
                 },
-                {
-                    "_class_name": "dwm.datasets.waymo.MotionDataset",
-                    "fs": {
-                        "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                        "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link"
-                    },
-                    "split":"validation",
-                    "dataset_root":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_link",
-                    "info_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_balanced/validation.info.json",
-                    "sequence_length": 40,
-                    "fps_stride_tuples": [
-                        [
-                            10,
-                            1
-                        ]
-                    ],
-                    "sensor_channels": [
-                        "LIDAR_TOP",
-                        "CAM_SIDE_LEFT",
-                        "CAM_FRONT_LEFT",
-                        "CAM_FRONT",
-                        "CAM_FRONT_RIGHT",
-                        "CAM_SIDE_RIGHT",
-                        "CAM_FRONT",
-                        "CAM_FRONT_LEFT",
-                        "CAM_FRONT_RIGHT"
-                    ],
-                    "enable_camera_transforms": true,
-                    "enable_ego_transforms": true,
-                    "_3dbox_image_settings": {},
-                    "hdmap_image_settings": {},
-                    "image_description_settings": {
-                        "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_caption_v2/waymo_caption_v2_val.json",
-                        "time_list_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_caption_v2/waymo_caption_v2_times_val.json",
-                        "align_keys": [
-                            "time",
-                            "weather"
-                        ]
-                    },
-                    "stub_key_data_dict": {
-                        "crossview_mask": [
-                            "content",
-                            {
-                                "_class_name": "torch.tensor",
-                                "data": {
-                                    "_class_name": "json.loads",
-                                    "s": "[[1,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]"
-                                },
-                                "dtype": {
-                                    "_class_name": "get_class",
-                                    "class_name": "torch.bool"
-                                }
-                            }
-                        ]
-                    }
-                },
+                
                 {
                     "_class_name": "dwm.datasets.argoverse.MotionDataset",
                     "fs": {
-                        "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                        "fs": {
                             "_class_name": "dwm.fs.dirfs.DirFileSystem",
                             "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link"
-                        },
-
-                        "enable_cached_info": true
                     },
                     "split": "val",
                     "dataset_root":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link",
@@ -728,7 +620,15 @@
                                     "class_name": "torch.bool"
                                 }
                             }
-                        ]
+                        ],
+                        "dataset_tag": [
+                            "content",
+                            {
+                                "_class_name": "torch.tensor",
+                                "data": 3,
+                                "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
+                            }
+                            ]
                     }
                 }
             ]
