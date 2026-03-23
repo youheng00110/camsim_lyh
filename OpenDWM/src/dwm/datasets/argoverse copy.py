@@ -1011,50 +1011,16 @@ class MotionDataset(torch.utils.data.Dataset):
             with self.fs.open(annotation_path) as f:
                 annotations = pyarrow.feather.read_table(f).to_pydict()
 
-                # ========== 核心修复：标注时间戳匹配 ==========
-            result["3dbox_images"] = []
-            annotation_timestamps = annotations["timestamp_ns"]
-            max_allowed_error = 100 * 1000000  # 最大允许100ms时间误差（对应LiDAR 10Hz间隔）
-
-            for time_step in item["segment"]:
-                # 拿到当前时间步的参考时间戳（同时间步所有相机共享一个参考时间）
-                current_cam_ts = time_step[0]["timestamp"]
-                
-                # 匹配最近的标注时间戳
-                idx = bisect.bisect_left(annotation_timestamps, current_cam_ts)
-                if idx == 0:
-                    nearest_anno_ts = annotation_timestamps[0]
-                elif idx == len(annotation_timestamps):
-                    nearest_anno_ts = annotation_timestamps[-1]
-                else:
-                    # 选前后更近的时间戳
-                    d_prev = current_cam_ts - annotation_timestamps[idx-1]
-                    d_next = annotation_timestamps[idx] - current_cam_ts
-                    nearest_anno_ts = annotation_timestamps[idx-1] if d_prev < d_next else annotation_timestamps[idx]
-                
-                # 时间误差过大，生成空图避免报错
-                if abs(nearest_anno_ts - current_cam_ts) > max_allowed_error:
-                    empty_cam_images = []
-                    for cam_data in time_step:
-                        if cam_data["sensor"].startswith("cameras"):
-                            # 读取相机对应图像尺寸
-                            sensor_name = cam_data["sensor"][8:]
-                            cam_idx = bisect.bisect_left(intrinsics["sensor_name"], sensor_name)
-                            img_w, img_h = [intrinsics[k][cam_idx] for k in self.intrinsic_size_keys]
-                            empty_cam_images.append(Image.new("RGB", (img_w, img_h)))
-                    result["3dbox_images"].append(empty_cam_images)
-                    continue
-                
-                # 匹配到有效标注，生成3D框图像
-                cam_box_images = [
-                    self.get_3dbox_image(
-                        annotations, nearest_anno_ts, extrinsics, intrinsics,
-                        poses, cam_data, self._3dbox_image_settings
-                    )
-                    for cam_data in time_step
-                    if cam_data["sensor"].startswith("cameras")
+            result["3dbox_images"] = [
+                [
+                    MotionDataset.get_3dbox_image(
+                        annotations, i[0]["timestamp"], extrinsics, intrinsics,
+                        poses, j, self._3dbox_image_settings)
+                    for j in i
+                    if j["sensor"].startswith("cameras")
                 ]
-                result["3dbox_images"].append(cam_box_images)
+                for i in item["segment"]
+            ]
 
         map = None
         if self.hdmap_image_settings is not None:
