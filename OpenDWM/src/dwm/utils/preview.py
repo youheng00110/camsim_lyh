@@ -33,15 +33,6 @@ def make_ctsd_preview_tensor(output_images, batch, inference_config):
         .cpu().unflatten(0, (batch_size, -1, view_count))
     sequence_length = output_images.shape[1]
     preview_v = _get_preview_view_count_from_batch(batch, view_count)
-        # ================= 核心改动：增加筛选退出逻辑 =================
-    # 只有 Nusc(6) 和 Argoverse (7) 被允许
-    if preview_v not in [6, 7]:
-        print(f"\n[ERROR] Unsupported dataset detected!")
-        print(f"Current camera count: {preview_v}")
-        print(f"Only Waymo (5 cameras) and Argoverse (7 cameras) are supported for this preview mode.")
-        print("Terminating program to prevent incorrect visualization...\n")
-        sys.exit(1) # 1 表示异常退出
-    # ==========================================================
     ####改了collect
     collected_images = [batch["vae_images"][:, :sequence_length, :preview_v]]
     if "3dbox_images" in batch:
