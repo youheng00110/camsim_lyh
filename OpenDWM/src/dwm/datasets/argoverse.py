@@ -1079,7 +1079,7 @@ class MotionDataset(torch.utils.data.Dataset):
 
             abs_path = self.scene_map_dict[item["scene_id"]]["filename"]
 
-            root = self.fs.path.rstrip("/") + "/"
+            root = self.dataset_root.rstrip("/") + "/"
 
             if abs_path.startswith(root):
                 map_path = abs_path[len(root):]
