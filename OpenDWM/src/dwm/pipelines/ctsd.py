@@ -443,7 +443,9 @@ class CrossviewTemporalSD():
             if common_config.get("explicit_view_modeling", False) else None,
 
             "added_time_ids": added_time_ids
-            if "added_time_ids" in common_config else None
+            if "added_time_ids" in common_config else None,
+            
+            "valid_mask":valid_mask,
         }
 
         if (
@@ -1358,17 +1360,57 @@ class CrossviewTemporalSD():
             sd_pred_latent = sd_pred[0] * (-sigmas) + noisy_latents \
                 if isinstance(self.model, diffusers.SD3Transformer2DModel) \
                 else sd_pred[0]
+                
+########################改了逻辑##################################
+            loss_mask = None
 
             if self.training_config.get("disable_reference_frame_loss", False):
                 reference_frame_loss_mask = ~reference_frame_indicator.view(
-                    *sd_pred_latent.shape[:3], 1, 1, 1).to(sd_pred_latent.device)
-                sd_pred_latent = sd_pred_latent*(reference_frame_loss_mask)
-                target = target*(reference_frame_loss_mask)
+                    *sd_pred_latent.shape[:3], 1, 1, 1
+                ).to(sd_pred_latent.device)
+                loss_mask = reference_frame_loss_mask.float()
 
-            loss_dict["sd_loss"] = torch.nn.functional.mse_loss(
-                sd_pred_latent.float(), target.float(), reduction="mean"
-            ) * self.get_loss_coef("sd")
+            if "valid_mask" in batch:
+                valid_mask = batch["valid_mask"].to(sd_pred_latent.device).float()
 
+                if valid_mask.ndim == 6:
+                    valid_mask = valid_mask
+                else:
+                    raise ValueError(
+                        f"valid_mask shape is unexpected: {tuple(valid_mask.shape)}"
+                    )
+
+                if valid_mask.shape[-2:] != sd_pred_latent.shape[-2:]:
+                    valid_mask = torch.nn.functional.interpolate(
+                        valid_mask.flatten(0, 3),
+                        size=sd_pred_latent.shape[-2:],
+                        mode="nearest"
+                    ).unflatten(0, valid_mask.shape[:4])
+
+                if loss_mask is None:
+                    loss_mask = valid_mask
+                else:
+                    loss_mask = loss_mask * valid_mask
+
+            if loss_mask is None:
+                loss_dict["sd_loss"] = torch.nn.functional.mse_loss(
+                    sd_pred_latent.float(), target.float(), reduction="mean"
+                ) * self.get_loss_coef("sd")
+            else:
+                sd_loss_map = torch.nn.functional.mse_loss(
+                    sd_pred_latent.float(), target.float(), reduction="none"
+                )
+                sd_loss_map = sd_loss_map * loss_mask
+                denom = (
+                    loss_mask.sum() * sd_pred_latent.shape[3]
+                ).clamp_min(1.0)
+                loss_dict["sd_loss"] = (
+                    sd_loss_map.sum() / denom
+                ) * self.get_loss_coef("sd")
+            if loss_mask is not None:
+                print("loss_mask shape:", loss_mask.shape)
+                print("loss_mask valid ratio:", float(loss_mask.mean()))
+##################################################
         if len(sd_pred) > 1:
             depth_features = sd_pred[1]
             loss_dict["depth_loss"] = \
