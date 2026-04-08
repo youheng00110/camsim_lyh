@@ -109,9 +109,10 @@
             "guidance_scale": 3,
             "inference_steps": 50,
             "preview_image_size": [
-                448,
-                252
+                512,
+                288
             ],
+            "force_preview_resize":false,
             "generate_frames_for_reference": false,
             "sequence_length_per_iteration": 40,
             "reference_frame_count": 3,
@@ -190,6 +191,8 @@
     },
     "training_dataset": {
         "_class_name": "dwm.datasets.common.DatasetAdapter",
+        "default_height": 288,
+        "default_width": 512,
         "base_dataset": {
             "_class_name": "torch.utils.data.ConcatDataset",
             "datasets": [
@@ -472,6 +475,7 @@
                             ]
                     }
                 }
+                
             ]
         },
         "transform_list": [
@@ -484,8 +488,8 @@
                         {
                             "_class_name": "torchvision.transforms.Resize",
                             "size": [
-                                256,
-                                448
+                                288,
+                                512
                             ]
                         },
                         {
@@ -503,8 +507,8 @@
                         {
                             "_class_name": "torchvision.transforms.Resize",
                             "size": [
-                                256,
-                                448
+                                288,
+                                512
                             ]
                         },
                         {
@@ -522,8 +526,8 @@
                         {
                             "_class_name": "torchvision.transforms.Resize",
                             "size": [
-                                256,
-                                448
+                                288,
+                                512
                             ]
                         },
                         {
@@ -548,7 +552,9 @@
         ]
     },
     "validation_dataset": {
-        "_class_name": "dwm.datasets.common.DatasetAdapter",
+        "_class_name": "dwm.datasets.common.DatasetAdapter",   
+        "default_height": 288,
+        "default_width": 512,
         "base_dataset": {
             
             "_class_name": "torch.utils.data.ConcatDataset",
@@ -800,8 +806,8 @@
                         {
                             "_class_name": "torchvision.transforms.Resize",
                             "size": [
-                                256,
-                                448
+                                288,
+                                512
                             ]
                         },
                         {
@@ -819,8 +825,8 @@
                         {
                             "_class_name": "torchvision.transforms.Resize",
                             "size": [
-                                256,
-                                448
+                                288,
+                                512
                             ]
                         },
                         {
@@ -838,8 +844,8 @@
                         {
                             "_class_name": "torchvision.transforms.Resize",
                             "size": [
-                                256,
-                                448
+                                288,
+                                512
                             ]
                         },
                         {
@@ -861,9 +867,7 @@
             "images",
             "lidar_points",
             "image_description"
-        ],
-        "enable_geometry_check" : true
-
+        ]
     },
     "training_dataloader": {
         "batch_size": 2,

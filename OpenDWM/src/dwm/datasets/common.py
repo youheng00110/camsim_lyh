@@ -129,61 +129,261 @@ class TakePoints():
             a = a[indices]
 
         return a
+    
+def flatten_nested_list(x):
+    if isinstance(x, list):
+        out = []
+        for i in x:
+            if isinstance(i, list):
+                out.extend(flatten_nested_list(i))
+            else:
+                out.append(i)
+        return out
+    return [x]
 
-def resize_and_pad_image(img, target_h, target_w, pad_value=0.0):
+
+def to_chw_tensor(img):
+    if torch.is_tensor(img):
+        x = img
+        if x.ndim == 3 and x.shape[0] in [1, 3, 4]:
+            return x.float()
+        if x.ndim == 3 and x.shape[-1] in [1, 3, 4]:
+            return x.permute(2, 0, 1).float()
+        if x.ndim == 2:
+            return x.unsqueeze(0).float()
+        raise ValueError(f"Unsupported tensor image shape: {tuple(x.shape)}")
+
+    if isinstance(img, Image.Image):
+        return ToTensor()(img)
+
+    if isinstance(img, np.ndarray):
+        x = torch.from_numpy(img)
+        if x.ndim == 2:
+            return x.unsqueeze(0).float()
+        if x.ndim == 3 and x.shape[-1] in [1, 3, 4]:
+            if x.dtype == torch.uint8:
+                return x.permute(2, 0, 1).float() / 255.0
+            return x.permute(2, 0, 1).float()
+        if x.ndim == 3 and x.shape[0] in [1, 3, 4]:
+            return x.float()
+        raise ValueError(f"Unsupported numpy image shape: {tuple(x.shape)}")
+
+    raise TypeError(f"Unsupported image type: {type(img)}")
+
+
+def resize_clr_keep_invalid(x: torch.Tensor, height: int, width: int) -> torch.Tensor:
+    if height <= 0 or width <= 0:
+        raise ValueError(f"[resize_clr_keep_invalid_tvchw] invalid target size: H={height}, W={width}")
+
+    if not torch.is_tensor(x):
+        raise TypeError(f"[resize_clr_keep_invalid_tvchw] expect torch.Tensor, got {type(x)}")
+
+    if x.ndim != 5:
+        raise ValueError(f"[resize_clr_keep_invalid_tvchw] expect [T,V,3,H,W], got {tuple(x.shape)}")
+
+    T, V, C, H0, W0 = x.shape
+    if C != 3:
+        raise ValueError(f"[resize_clr_keep_invalid_tvchw] channel must be 3, got C={C}")
+
+    if x.dtype == torch.uint8:
+        x_f = x.float() / 255.0
+    else:
+        x_f = x.float()
+
+    x_f = x_f.reshape(T * V, 3, H0, W0)
+
+    if height >= H0 and width >= W0:
+        y = F.interpolate(x_f, size=(height, width), mode="nearest")
+        return y.reshape(T, V, 3, height, width)
+
+    valid = (x_f.sum(dim=1, keepdim=True) > 0).float()
+
+    num = F.interpolate(x_f * valid, size=(height, width), mode="area")
+    den = F.interpolate(valid, size=(height, width), mode="area")
+
+    y = torch.zeros_like(num)
+    m = den > 1e-6
+    y[m.expand_as(y)] = (num / den.clamp_min(1e-6))[m.expand_as(y)]
+
+    return y.reshape(T, V, 3, height, width)
+
+
+def rs_bins_u16(x: torch.Tensor, height: int, width: int) -> torch.Tensor:
+    if height <= 0 or width <= 0:
+        raise ValueError(f"[rs_bins_u16] invalid target size: H={height}, W={width}")
+
+    if not torch.is_tensor(x):
+        raise TypeError(f"[rs_bins_u16] expect torch.Tensor, got {type(x)}")
+
+    if x.ndim == 4:
+        T, V, H0, W0 = x.shape
+        y = F.interpolate(
+            x.reshape(T * V, 1, H0, W0).float(),
+            size=(height, width),
+            mode="nearest"
+        )
+        return y.reshape(T, V, height, width).long()
+
+    if x.ndim == 5:
+        T, V, C, H0, W0 = x.shape
+        y = F.interpolate(
+            x.reshape(T * V, C, H0, W0).float(),
+            size=(height, width),
+            mode="nearest"
+        )
+        return y.reshape(T, V, C, height, width)
+
+    raise ValueError(f"[rs_bins_u16] expect [T,V,H,W] or [T,V,C,H,W], got {tuple(x.shape)}")
+
+
+def _clamp_int(v: int, lo: int, hi: int) -> int:
+    if v < lo:
+        return lo
+    if v > hi:
+        return hi
+    return v
+
+
+def _extract_principal_point(k):
+    if k is None:
+        return None, None
+
+    if not torch.is_tensor(k):
+        k = torch.tensor(k)
+
+    if k.shape[-2:] != (3, 3):
+        raise ValueError(f"camera_intrinsics must end with (3, 3), got {tuple(k.shape)}")
+
+    cx = float(k[0, 2].item())
+    cy = float(k[1, 2].item())
+    return cx, cy
+
+
+def compute_crop_meta(
+    h0: int,
+    w0: int,
+    target_h: int,
+    target_w: int,
+    k=None,
+    crop_use_intrinsics_center: bool = True,
+    crop_horizontal_anchor: float = 0.5,
+    crop_vertical_anchor: float = 0.5,
+):
+    if h0 <= 0 or w0 <= 0:
+        raise ValueError(f"invalid source size: H={h0}, W={w0}")
+    if target_h <= 0 or target_w <= 0:
+        raise ValueError(f"invalid target size: H={target_h}, W={target_w}")
+
+    target_ratio = float(target_w) / float(target_h)
+    src_ratio = float(w0) / float(h0)
+
+    cx, cy = _extract_principal_point(k)
+
+    if crop_use_intrinsics_center and cx is not None and cy is not None:
+        center_x = cx
+        center_y = cy
+    else:
+        center_x = (w0 - 1) * float(crop_horizontal_anchor)
+        center_y = (h0 - 1) * float(crop_vertical_anchor)
+
+    if abs(src_ratio - target_ratio) < 1e-8:
+        crop_left = 0
+        crop_top = 0
+        crop_w = w0
+        crop_h = h0
+
+    elif src_ratio < target_ratio:
+        # 图偏窄：优先裁上下，去掉天空和车头
+        crop_w = w0
+        crop_h = int(round(float(w0) / target_ratio))
+        crop_h = min(crop_h, h0)
+        crop_left = 0
+        crop_top = int(round(center_y - crop_h * 0.5))
+        crop_top = _clamp_int(crop_top, 0, h0 - crop_h)
+
+    else:
+        # 图偏宽：只能裁左右
+        crop_h = h0
+        crop_w = int(round(float(h0) * target_ratio))
+        crop_w = min(crop_w, w0)
+        crop_top = 0
+        crop_left = int(round(center_x - crop_w * 0.5))
+        crop_left = _clamp_int(crop_left, 0, w0 - crop_w)
+
+    scale_x = float(target_w) / float(crop_w)
+    scale_y = float(target_h) / float(crop_h)
+
+    return {
+        "orig_h": h0,
+        "orig_w": w0,
+        "crop_top": crop_top,
+        "crop_left": crop_left,
+        "crop_h": crop_h,
+        "crop_w": crop_w,
+        "new_h": target_h,
+        "new_w": target_w,
+        "scale_x": scale_x,
+        "scale_y": scale_y,
+    }
+
+
+def apply_crop_resize_to_chw_tensor(x: torch.Tensor, meta: dict, mode: str = "bilinear") -> torch.Tensor:
+    if x.ndim != 3:
+        raise ValueError(f"expect CHW tensor, got {tuple(x.shape)}")
+
+    crop_top = meta["crop_top"]
+    crop_left = meta["crop_left"]
+    crop_h = meta["crop_h"]
+    crop_w = meta["crop_w"]
+    new_h = meta["new_h"]
+    new_w = meta["new_w"]
+
+    x = x[:, crop_top:crop_top + crop_h, crop_left:crop_left + crop_w]
+
+    if mode in ["bilinear", "bicubic"]:
+        x = F.interpolate(
+            x.unsqueeze(0),
+            size=(new_h, new_w),
+            mode=mode,
+            align_corners=False
+        ).squeeze(0)
+    else:
+        x = F.interpolate(
+            x.unsqueeze(0),
+            size=(new_h, new_w),
+            mode=mode
+        ).squeeze(0)
+
+    return x
+
+
+def resize_and_crop_image(
+    img,
+    target_h: int,
+    target_w: int,
+    k=None,
+    crop_use_intrinsics_center: bool = True,
+    crop_horizontal_anchor: float = 0.5,
+    crop_vertical_anchor: float = 0.5,
+):
     x = to_chw_tensor(img)
     c, h0, w0 = x.shape
 
-    scale = min(float(target_w) / float(w0), float(target_h) / float(h0))
-    hs = max(1, int(round(h0 * scale)))
-    ws = max(1, int(round(w0 * scale)))
-
-    x = F.interpolate(
-        x.unsqueeze(0),
-        size=(hs, ws),
-        mode="bilinear",
-        align_corners=False
-    ).squeeze(0)
-
-    pad_top = (target_h - hs) // 2
-    pad_bottom = target_h - hs - pad_top
-    pad_left = (target_w - ws) // 2
-    pad_right = target_w - ws - pad_left
-
-    y = F.pad(
-        x,
-        (pad_left, pad_right, pad_top, pad_bottom),
-        mode="constant",
-        value=pad_value
+    meta = compute_crop_meta(
+        h0=h0,
+        w0=w0,
+        target_h=target_h,
+        target_w=target_w,
+        k=k,
+        crop_use_intrinsics_center=crop_use_intrinsics_center,
+        crop_horizontal_anchor=crop_horizontal_anchor,
+        crop_vertical_anchor=crop_vertical_anchor,
     )
-
-    meta = {
-        "orig_h": h0,
-        "orig_w": w0,
-        "scaled_h": hs,
-        "scaled_w": ws,
-        "new_h": target_h,
-        "new_w": target_w,
-        "scale": scale,
-        "pad_top": pad_top,
-        "pad_bottom": pad_bottom,
-        "pad_left": pad_left,
-        "pad_right": pad_right,
-    }
+    y = apply_crop_resize_to_chw_tensor(x, meta, mode="bilinear")
     return y, meta
 
 
-def make_valid_mask_from_meta(meta):
-    mask = torch.zeros(1, meta["new_h"], meta["new_w"], dtype=torch.float32)
-    top = meta["pad_top"]
-    left = meta["pad_left"]
-    hs = meta["scaled_h"]
-    ws = meta["scaled_w"]
-    mask[:, top:top + hs, left:left + ws] = 1.0
-    return mask
-
-
-def update_intrinsics_for_resize_pad(k, scale, pad_left, pad_top):
+def update_intrinsics_for_resize_crop(k, crop_left, crop_top, scale_x, scale_y):
     if not torch.is_tensor(k):
         k = torch.tensor(k)
 
@@ -191,14 +391,14 @@ def update_intrinsics_for_resize_pad(k, scale, pad_left, pad_top):
     if k.shape[-2:] != (3, 3):
         raise ValueError(f"camera_intrinsics must end with (3, 3), got {tuple(k.shape)}")
 
-    k[..., 0, 0] *= float(scale)
-    k[..., 1, 1] *= float(scale)
-    k[..., 0, 2] = k[..., 0, 2] * float(scale) + float(pad_left)
-    k[..., 1, 2] = k[..., 1, 2] * float(scale) + float(pad_top)
+    k[..., 0, 0] *= float(scale_x)
+    k[..., 1, 1] *= float(scale_y)
+    k[..., 0, 2] = (k[..., 0, 2] - float(crop_left)) * float(scale_x)
+    k[..., 1, 2] = (k[..., 1, 2] - float(crop_top)) * float(scale_y)
     return k
 
 
-def validate_resize_pad_update(k_before, k_after, meta, valid_mask, atol=1e-6):
+def validate_resize_crop_update(k_before, k_after, meta, atol=1e-6):
     fx0 = float(k_before[0, 0].item())
     fy0 = float(k_before[1, 1].item())
     cx0 = float(k_before[0, 2].item())
@@ -209,23 +409,24 @@ def validate_resize_pad_update(k_before, k_after, meta, valid_mask, atol=1e-6):
     cx1 = float(k_after[0, 2].item())
     cy1 = float(k_after[1, 2].item())
 
-    scale = float(meta["scale"])
-    pad_left = float(meta["pad_left"])
-    pad_top = float(meta["pad_top"])
+    crop_left = float(meta["crop_left"])
+    crop_top = float(meta["crop_top"])
+    scale_x = float(meta["scale_x"])
+    scale_y = float(meta["scale_y"])
 
-    if abs(fx1 - scale * fx0) > atol:
-        raise AssertionError(f"fx mismatch: expected {scale * fx0}, got {fx1}")
-    if abs(fy1 - scale * fy0) > atol:
-        raise AssertionError(f"fy mismatch: expected {scale * fy0}, got {fy1}")
-    if abs(cx1 - (scale * cx0 + pad_left)) > atol:
-        raise AssertionError(f"cx mismatch: expected {scale * cx0 + pad_left}, got {cx1}")
-    if abs(cy1 - (scale * cy0 + pad_top)) > atol:
-        raise AssertionError(f"cy mismatch: expected {scale * cy0 + pad_top}, got {cy1}")
+    if abs(fx1 - scale_x * fx0) > atol:
+        raise AssertionError(f"fx mismatch: expected {scale_x * fx0}, got {fx1}")
+    if abs(fy1 - scale_y * fy0) > atol:
+        raise AssertionError(f"fy mismatch: expected {scale_y * fy0}, got {fy1}")
+    if abs(cx1 - ((cx0 - crop_left) * scale_x)) > atol:
+        raise AssertionError(f"cx mismatch: expected {(cx0 - crop_left) * scale_x}, got {cx1}")
+    if abs(cy1 - ((cy0 - crop_top) * scale_y)) > atol:
+        raise AssertionError(f"cy mismatch: expected {(cy0 - crop_top) * scale_y}, got {cy1}")
 
     u0 = cx0
     v0 = cy0
-    u1 = scale * u0 + pad_left
-    v1 = scale * v0 + pad_top
+    u1 = (u0 - crop_left) * scale_x
+    v1 = (v0 - crop_top) * scale_y
 
     x0 = (u0 - cx0) / fx0
     y0 = (v0 - cy0) / fy0
@@ -237,32 +438,79 @@ def validate_resize_pad_update(k_before, k_after, meta, valid_mask, atol=1e-6):
             f"principal ray mismatch: old=({x0}, {y0}), new=({x1}, {y1})"
         )
 
-    expected_area = int(meta["scaled_h"] * meta["scaled_w"])
-    actual_area = int(valid_mask.sum().item())
-    if expected_area != actual_area:
-        raise AssertionError(
-            f"valid_mask area mismatch: expected {expected_area}, got {actual_area}"
-        )
 
-    top = meta["pad_top"]
-    left = meta["pad_left"]
-    hs = meta["scaled_h"]
-    ws = meta["scaled_w"]
+def crop_resize_tv_tensor_nearest(x: torch.Tensor, meta_nested):
+    if not torch.is_tensor(x):
+        x = torch.tensor(x)
 
-    inner = valid_mask[:, top:top + hs, left:left + ws]
-    if not torch.all(inner == 1):
-        raise AssertionError("valid_mask inner valid region is not all ones")
+    if x.ndim == 4:
+        t_count, v_count, _, _ = x.shape
+        out_rows = []
+        for t in range(t_count):
+            out_row = []
+            for v in range(v_count):
+                cur = x[t, v].unsqueeze(0)
+                cur = apply_crop_resize_to_chw_tensor(
+                    cur,
+                    meta_nested[t][v],
+                    mode="nearest"
+                ).squeeze(0)
+                if x.dtype.is_floating_point:
+                    out_row.append(cur.to(dtype=x.dtype))
+                else:
+                    out_row.append(cur.round().to(dtype=x.dtype))
+            out_rows.append(torch.stack(out_row, dim=0))
+        return torch.stack(out_rows, dim=0)
 
-    if top > 0 and not torch.all(valid_mask[:, :top, :] == 0):
-        raise AssertionError("valid_mask top padding region is not zero")
-    if left > 0 and not torch.all(valid_mask[:, :, :left] == 0):
-        raise AssertionError("valid_mask left padding region is not zero")
-    if top + hs < meta["new_h"] and not torch.all(valid_mask[:, top + hs:, :] == 0):
-        raise AssertionError("valid_mask bottom padding region is not zero")
-    if left + ws < meta["new_w"] and not torch.all(valid_mask[:, :, left + ws:] == 0):
-        raise AssertionError("valid_mask right padding region is not zero")
+    if x.ndim == 5:
+        t_count, v_count, _, _, _ = x.shape
+        out_rows = []
+        for t in range(t_count):
+            out_row = []
+            for v in range(v_count):
+                cur = apply_crop_resize_to_chw_tensor(
+                    x[t, v].float(),
+                    meta_nested[t][v],
+                    mode="nearest"
+                )
+                if x.dtype.is_floating_point:
+                    out_row.append(cur.to(dtype=x.dtype))
+                else:
+                    out_row.append(cur.round().to(dtype=x.dtype))
+            out_rows.append(torch.stack(out_row, dim=0))
+        return torch.stack(out_rows, dim=0)
+
+    raise ValueError(f"Unsupported tensor shape for crop_resize_tv_tensor_nearest: {tuple(x.shape)}")
+
+
+def crop_resize_proj_clr_keep_invalid(x: torch.Tensor, meta_nested):
+    if not torch.is_tensor(x):
+        x = torch.tensor(x)
+
+    if x.ndim != 5:
+        raise ValueError(f"proj_clr expect [T,V,3,H,W], got {tuple(x.shape)}")
+
+    t_count, v_count, c, _, _ = x.shape
+    out_rows = []
+    for t in range(t_count):
+        out_row = []
+        for v in range(v_count):
+            meta = meta_nested[t][v]
+            crop_top = meta["crop_top"]
+            crop_left = meta["crop_left"]
+            crop_h = meta["crop_h"]
+            crop_w = meta["crop_w"]
+            new_h = meta["new_h"]
+            new_w = meta["new_w"]
+
+            cur = x[t, v:v + 1, :, crop_top:crop_top + crop_h, crop_left:crop_left + crop_w]
+            cur = resize_clr_keep_invalid(cur.unsqueeze(0), new_h, new_w)[0, 0]
+            out_row.append(cur)
+        out_rows.append(torch.stack(out_row, dim=0))
+    return torch.stack(out_rows, dim=0)
     
 class DatasetAdapter(torch.utils.data.Dataset):
+    @staticmethod
     def apply_transform(transform, a, stack: bool = True):
         if isinstance(a, list):
             result = [
@@ -271,15 +519,238 @@ class DatasetAdapter(torch.utils.data.Dataset):
             if stack:
                 result = torch.stack(result)
             return result
-        else:
-            return transform(a)
+        return transform(a)
 
+    @staticmethod
+    def infer_tv_from_item(item):
+        if "camera_intrinsics" in item:
+            k = item["camera_intrinsics"]
+            if not torch.is_tensor(k):
+                k = torch.tensor(k)
+            if k.ndim == 4:
+                return int(k.shape[0]), int(k.shape[1])
+            if k.ndim == 3:
+                return int(k.shape[0]), None
+
+        if "images" in item:
+            imgs = item["images"]
+            if isinstance(imgs, list) and len(imgs) > 0:
+                if isinstance(imgs[0], list):
+                    return len(imgs), len(imgs[0])
+                return len(imgs), None
+
+        raise ValueError("Cannot infer T/V from item")
+
+    @staticmethod
+    def ensure_nested_list_tv(x, t_count=None, v_count=None, key="images"):
+        if not isinstance(x, list) or len(x) == 0:
+            raise ValueError(f"item['{key}'] must be a non-empty list")
+
+        if isinstance(x[0], list):
+            out = x
+            if t_count is not None and len(out) != t_count:
+                raise ValueError(
+                    f"{key} time count mismatch: len={len(out)} vs expected T={t_count}"
+                )
+            if v_count is not None:
+                for t in range(len(out)):
+                    if len(out[t]) != v_count:
+                        raise ValueError(
+                            f"{key} view count mismatch at t={t}: "
+                            f"len={len(out[t])} vs expected V={v_count}"
+                        )
+            return out
+
+        if t_count is None:
+            raise ValueError(f"{key} is flat list but T is unknown")
+        if v_count is None:
+            if len(x) != t_count:
+                raise ValueError(
+                    f"{key} flat list length mismatch: len={len(x)} vs expected T={t_count}"
+                )
+            return [[x[t]] for t in range(t_count)]
+
+        if len(x) != t_count * v_count:
+            raise ValueError(
+                f"{key} flat list length mismatch: len={len(x)} vs expected T*V={t_count * v_count}"
+            )
+
+        out = []
+        flat_idx = 0
+        for t in range(t_count):
+            row = []
+            for v in range(v_count):
+                row.append(x[flat_idx])
+                flat_idx += 1
+            out.append(row)
+        return out
+
+    @staticmethod
+    def stack_nested_list_tv(x, key="images"):
+        if not isinstance(x, list) or len(x) == 0:
+            raise ValueError(f"{key} must be a non-empty nested list")
+        if not isinstance(x[0], list):
+            raise ValueError(f"{key} must be nested as [T][V], got flat list")
+        rows = []
+        for t in range(len(x)):
+            rows.append(torch.stack(x[t], dim=0))
+        return torch.stack(rows, dim=0)
+
+    @staticmethod
+    def crop_resize_nested_images_keep_tv(
+        nested_images,
+        height,
+        width,
+        intrinsics_src=None,
+        crop_use_intrinsics_center: bool = True,
+        crop_horizontal_anchor: float = 0.5,
+        crop_vertical_anchor: float = 0.5,
+    ):
+        t_count = len(nested_images)
+        v_count = len(nested_images[0])
+
+        if intrinsics_src is not None and not torch.is_tensor(intrinsics_src):
+            intrinsics_src = torch.tensor(intrinsics_src)
+
+        resized_nested = []
+        meta_nested = []
+
+        for t in range(t_count):
+            resized_row = []
+            meta_row = []
+
+            if len(nested_images[t]) != v_count:
+                raise ValueError(
+                    f"images view count mismatch at t={t}: "
+                    f"{len(nested_images[t])} vs expected {v_count}"
+                )
+
+            for v in range(v_count):
+                k_this = None
+                if intrinsics_src is not None:
+                    if intrinsics_src.ndim == 4:
+                        k_this = intrinsics_src[t, v]
+                    elif intrinsics_src.ndim == 3:
+                        k_this = intrinsics_src[t]
+                    else:
+                        raise ValueError(
+                            f"Unsupported camera_intrinsics shape: {tuple(intrinsics_src.shape)}"
+                        )
+
+                resized_img, meta = resize_and_crop_image(
+                    img=nested_images[t][v],
+                    target_h=height,
+                    target_w=width,
+                    k=k_this,
+                    crop_use_intrinsics_center=crop_use_intrinsics_center,
+                    crop_horizontal_anchor=crop_horizontal_anchor,
+                    crop_vertical_anchor=crop_vertical_anchor,
+                )
+                resized_row.append(resized_img)
+                meta_row.append(meta)
+
+            resized_nested.append(resized_row)
+            meta_nested.append(meta_row)
+
+        return resized_nested, meta_nested
+
+    @staticmethod
+    def build_size_tensors_from_meta(meta_nested):
+        t_count = len(meta_nested)
+        v_count = len(meta_nested[0])
+
+        image_size_before_resize_crop = torch.zeros(
+            t_count, v_count, 2, dtype=torch.long
+        )
+        image_size_after_crop_before_resize = torch.zeros(
+            t_count, v_count, 2, dtype=torch.long
+        )
+        image_size_tensor = torch.zeros(
+            t_count, v_count, 2, dtype=torch.long
+        )
+
+        for t in range(t_count):
+            for v in range(v_count):
+                meta = meta_nested[t][v]
+                image_size_before_resize_crop[t, v] = torch.tensor(
+                    [meta["orig_w"], meta["orig_h"]], dtype=torch.long
+                )
+                image_size_after_crop_before_resize[t, v] = torch.tensor(
+                    [meta["crop_w"], meta["crop_h"]], dtype=torch.long
+                )
+                image_size_tensor[t, v] = torch.tensor(
+                    [meta["new_w"], meta["new_h"]], dtype=torch.long
+                )
+
+        return (
+            image_size_before_resize_crop,
+            image_size_after_crop_before_resize,
+            image_size_tensor,
+        )
+
+    @staticmethod
+    def update_intrinsics_nested(k_src, meta_nested):
+        if not torch.is_tensor(k_src):
+            k_src = torch.tensor(k_src)
+
+        k_new = k_src.clone().float()
+
+        if k_new.ndim == 4:
+            t_count = k_new.shape[0]
+            v_count = k_new.shape[1]
+
+            if len(meta_nested) != t_count:
+                raise ValueError(
+                    f"camera_intrinsics T mismatch: {len(meta_nested)} vs {t_count}"
+                )
+
+            for t in range(t_count):
+                if len(meta_nested[t]) != v_count:
+                    raise ValueError(
+                        f"camera_intrinsics V mismatch at t={t}: "
+                        f"{len(meta_nested[t])} vs {v_count}"
+                    )
+                for v in range(v_count):
+                    meta = meta_nested[t][v]
+                    k_new[t, v] = update_intrinsics_for_resize_crop(
+                        k_new[t, v],
+                        meta["crop_left"],
+                        meta["crop_top"],
+                        meta["scale_x"],
+                        meta["scale_y"],
+                    )
+            return k_src, k_new
+
+        if k_new.ndim == 3:
+            t_count = k_new.shape[0]
+            if len(meta_nested) != t_count:
+                raise ValueError(
+                    f"camera_intrinsics T mismatch: {len(meta_nested)} vs {t_count}"
+                )
+            for t in range(t_count):
+                meta = meta_nested[t][0]
+                k_new[t] = update_intrinsics_for_resize_crop(
+                    k_new[t],
+                    meta["crop_left"],
+                    meta["crop_top"],
+                    meta["scale_x"],
+                    meta["scale_y"],
+                )
+            return k_src, k_new
+
+        raise ValueError(f"Unsupported camera_intrinsics shape: {tuple(k_new.shape)}")
+    
     def __init__(
         self,
         base_dataset: torch.utils.data.Dataset,
         transform_list: list,
         pop_list=None,
-        enable_geometry_check: bool = False
+        enable_geometry_check: bool = False,
+        crop_use_intrinsics_center: bool = True,
+        crop_horizontal_anchor: float = 0.5,
+        crop_vertical_anchor: float = 0.5,
+        default_height: int = 288,
+        default_width: int = 512,
     ):
         self.base_dataset = base_dataset
         self.transform_list = transform_list
@@ -287,26 +758,24 @@ class DatasetAdapter(torch.utils.data.Dataset):
         self.enable_geometry_check = enable_geometry_check
         self._geometry_check_done = False
 
+        self.crop_use_intrinsics_center = crop_use_intrinsics_center
+        self.crop_horizontal_anchor = crop_horizontal_anchor
+        self.crop_vertical_anchor = crop_vertical_anchor
+
+        self.default_height = default_height
+        self.default_width = default_width
+
     def __len__(self):
         return len(self.base_dataset)
 
     def __getitem__(self, index):
+        num_frame = None
 
         if isinstance(index, int):
-            item = self.base_dataset[index]
-            for i in self.transform_list:
-                if i.get("is_dynamic_transform", False):
-                    item = i["transform"](item)
-                else:
-                    item[i["new_key"]] = DatasetAdapter.apply_transform(
-                        i["transform"], item[i["old_key"]],
-                        i["stack"] if "stack" in i else True
-                    )
-
-            if self.pop_list is not None:
-                for i in self.pop_list:
-                    if i in item:
-                        item.pop(i)
+            idx = index
+            height = self.default_height
+            width = self.default_width
+            item = self.base_dataset[idx]
 
         elif isinstance(index, str):
             idx, num_frame, height, width = [
@@ -321,224 +790,168 @@ class DatasetAdapter(torch.utils.data.Dataset):
                     v = v[start_f:start_f + num_frame]
                 item[k] = v
 
-            image_resize_pad_meta = None
-            image_valid_masks = None
+        else:
+            raise TypeError(f"Unsupported index type: {type(index)}")
 
-            if "images" in item:
-                src_images = item["images"]
-                if not isinstance(src_images, list) or len(src_images) == 0:
-                    raise ValueError("item['images'] must be a non-empty list")
+        t_count, v_count = DatasetAdapter.infer_tv_from_item(item)
+        image_resize_crop_meta = None
 
-                resized_padded_images = []
-                image_resize_pad_meta = []
-                image_valid_masks = []
+        if "images" in item:
+            nested_images = DatasetAdapter.ensure_nested_list_tv(
+                item["images"], t_count=t_count, v_count=v_count, key="images"
+            )
 
-                for img in src_images:
-                    resized_padded_img, meta = resize_and_pad_image(
-                        img, height, width, pad_value=0.0
+            intrinsics_src = item["camera_intrinsics"] if "camera_intrinsics" in item else None
+
+            resized_nested_images, meta_nested = DatasetAdapter.crop_resize_nested_images_keep_tv(
+                nested_images,
+                height,
+                width,
+                intrinsics_src=intrinsics_src,
+                crop_use_intrinsics_center=self.crop_use_intrinsics_center,
+                crop_horizontal_anchor=self.crop_horizontal_anchor,
+                crop_vertical_anchor=self.crop_vertical_anchor,
+            )
+
+            item["images"] = resized_nested_images
+            image_resize_crop_meta = meta_nested
+
+            (
+                image_size_before_resize_crop,
+                image_size_after_crop_before_resize,
+                image_size_tensor,
+            ) = DatasetAdapter.build_size_tensors_from_meta(meta_nested)
+
+            item["image_size_before_resize_crop"] = image_size_before_resize_crop
+            item["image_size_after_crop_before_resize"] = image_size_after_crop_before_resize
+            item["image_size"] = image_size_tensor
+
+            if "camera_intrinsics" in item:
+                k_src, k_new = DatasetAdapter.update_intrinsics_nested(
+                    item["camera_intrinsics"], meta_nested
+                )
+                item["camera_intrinsics_before_resize_crop"] = k_src
+                item["camera_intrinsics"] = k_new
+
+                if self.enable_geometry_check and not self._geometry_check_done:
+                    if k_src.ndim == 4:
+                        validate_resize_crop_update(
+                            k_src[0, 0],
+                            k_new[0, 0],
+                            meta_nested[0][0]
+                        )
+                    else:
+                        validate_resize_crop_update(
+                            k_src[0],
+                            k_new[0],
+                            meta_nested[0][0]
+                        )
+
+                    self._geometry_check_done = True
+                    print(
+                        "[DatasetAdapter] geometry check passed: "
+                        "crop+resize updates fx/fy/cx/cy correctly."
                     )
-                    valid_mask = make_valid_mask_from_meta(meta)
-                    resized_padded_images.append(resized_padded_img)
-                    image_resize_pad_meta.append(meta)
-                    image_valid_masks.append(valid_mask)
 
-                item["images"] = resized_padded_images
+        for i in self.transform_list:
+            old_key = i["old_key"]
+            new_key = i["new_key"]
+            stack = i.get("stack", True)
 
-                valid_mask_tensor = torch.stack(image_valid_masks)
-                image_size_before_resize_pad = torch.stack([
-                    torch.tensor([m["orig_w"], m["orig_h"]], dtype=torch.long)
-                    for m in image_resize_pad_meta
-                ])
-                image_size_after_resize_before_pad = torch.stack([
-                    torch.tensor([m["scaled_w"], m["scaled_h"]], dtype=torch.long)
-                    for m in image_resize_pad_meta
-                ])
-                image_size_tensor = torch.stack([
-                    torch.tensor([m["new_w"], m["new_h"]], dtype=torch.long)
-                    for m in image_resize_pad_meta
-                ])
+            if old_key == "images":
+                src = item[old_key]
+                src = DatasetAdapter.ensure_nested_list_tv(
+                    src, t_count=t_count, v_count=v_count, key=old_key
+                )
+                item[new_key] = DatasetAdapter.stack_nested_list_tv(
+                    src, key=new_key
+                ) if stack else src
+                continue
 
-                if "camera_intrinsics" in item:
-                    k_src_for_shape = item["camera_intrinsics"]
-                    if not torch.is_tensor(k_src_for_shape):
-                        k_src_for_shape = torch.tensor(k_src_for_shape)
+            if old_key in ["3dbox_images", "hdmap_images"]:
+                if image_resize_crop_meta is None:
+                    raise ValueError(
+                        f"{old_key} exists but images crop meta is missing"
+                    )
 
-                    if k_src_for_shape.ndim == 4:
-                        t_count = k_src_for_shape.shape[0]
-                        v_count = k_src_for_shape.shape[1]
+                src = DatasetAdapter.ensure_nested_list_tv(
+                    item[old_key], t_count=t_count, v_count=v_count, key=old_key
+                )
 
-                        if len(image_resize_pad_meta) != t_count * v_count:
-                            raise ValueError(
-                                f"image/meta count mismatch with camera_intrinsics: "
-                                f"{len(image_resize_pad_meta)} vs {t_count * v_count}"
-                            )
-
-                        item["valid_mask"] = valid_mask_tensor.view(t_count, v_count, 1, height, width)
-                        item["image_size_before_resize_pad"] = image_size_before_resize_pad.view(t_count, v_count, 2)
-                        item["image_size_after_resize_before_pad"] = image_size_after_resize_before_pad.view(t_count, v_count, 2)
-                        item["image_size"] = image_size_tensor.view(t_count, v_count, 2)
-
-                    elif k_src_for_shape.ndim == 3:
-                        t_count = k_src_for_shape.shape[0]
-
-                        if len(image_resize_pad_meta) != t_count:
-                            raise ValueError(
-                                f"image/meta count mismatch with camera_intrinsics: "
-                                f"{len(image_resize_pad_meta)} vs {t_count}"
-                            )
-
-                        item["valid_mask"] = valid_mask_tensor
-                        item["image_size_before_resize_pad"] = image_size_before_resize_pad
-                        item["image_size_after_resize_before_pad"] = image_size_after_resize_before_pad
-                        item["image_size"] = image_size_tensor
-
-                    else:
-                        raise ValueError(
-                            f"Unsupported camera_intrinsics shape for image_size/valid_mask reshape: "
-                            f"{tuple(k_src_for_shape.shape)}"
+                out_nested = []
+                for t in range(t_count):
+                    out_row = []
+                    for v in range(v_count):
+                        resized_img = apply_crop_resize_to_chw_tensor(
+                            to_chw_tensor(src[t][v]),
+                            image_resize_crop_meta[t][v],
+                            mode="bilinear"
                         )
-                else:
-                    item["valid_mask"] = valid_mask_tensor
-                    item["image_size_before_resize_pad"] = image_size_before_resize_pad
-                    item["image_size_after_resize_before_pad"] = image_size_after_resize_before_pad
-                    item["image_size"] = image_size_tensor
+                        out_row.append(resized_img)
+                    out_nested.append(out_row)
 
-                if "camera_intrinsics" in item:
-                    k_src = item["camera_intrinsics"]
-                    if not torch.is_tensor(k_src):
-                        k_src = torch.tensor(k_src)
+                item[new_key] = DatasetAdapter.stack_nested_list_tv(
+                    out_nested, key=new_key
+                ) if stack else out_nested
+                continue
 
-                    k_new = k_src.clone().float()
+            if old_key == "proj_depth":
+                if image_resize_crop_meta is None:
+                    raise ValueError("proj_depth exists but images crop meta is missing")
 
-                    if k_new.ndim == 3:
-                        if len(image_resize_pad_meta) != k_new.shape[0]:
-                            raise ValueError(
-                                f"camera_intrinsics frame count mismatch: "
-                                f"{k_new.shape[0]} vs {len(image_resize_pad_meta)}"
-                            )
-                        for t in range(k_new.shape[0]):
-                            meta = image_resize_pad_meta[t]
-                            k_new[t] = update_intrinsics_for_resize_pad(
-                                k_new[t], meta["scale"], meta["pad_left"], meta["pad_top"]
-                            )
-
-                    elif k_new.ndim == 4:
-                        tv_count = k_new.shape[0] * k_new.shape[1]
-                        if len(image_resize_pad_meta) != tv_count:
-                            raise ValueError(
-                                f"camera_intrinsics flattened frame-view count mismatch: "
-                                f"{tv_count} vs {len(image_resize_pad_meta)}"
-                            )
-                        flat_idx = 0
-                        for t in range(k_new.shape[0]):
-                            for v in range(k_new.shape[1]):
-                                meta = image_resize_pad_meta[flat_idx]
-                                k_new[t, v] = update_intrinsics_for_resize_pad(
-                                    k_new[t, v], meta["scale"], meta["pad_left"], meta["pad_top"]
-                                )
-                                flat_idx += 1
-                    else:
-                        raise ValueError(
-                            f"Unsupported camera_intrinsics shape: {tuple(k_new.shape)}"
-                        )
-
-                    item["camera_intrinsics_before_resize_pad"] = k_src
-                    item["camera_intrinsics"] = k_new
-
-                    if self.enable_geometry_check and not self._geometry_check_done:
-                        if k_src.ndim == 3:
-                            validate_resize_pad_update(
-                                k_src[0],
-                                k_new[0],
-                                image_resize_pad_meta[0],
-                                item["valid_mask"][0]
-                            )
-                        else:
-                            validate_resize_pad_update(
-                                k_src[0, 0],
-                                k_new[0, 0],
-                                image_resize_pad_meta[0],
-                                item["valid_mask"][0]
-                            )
-
-                        self._geometry_check_done = True
-                        print(
-                            "[DatasetAdapter] geometry+mask check passed: "
-                            "resize+pad transform updates fx/fy/cx/cy and valid_mask correctly."
-                        )
-
-            for i in self.transform_list:
-                old_key = i["old_key"]
-                new_key = i["new_key"]
-                stack = i.get("stack", True)
-
-                if old_key == "images":
-                    src = item[old_key]
-                    if not isinstance(src, list):
-                        raise ValueError(
-                            f"{old_key} is expected to be a list in string-index path, got {type(src)}"
-                        )
-
-                    item[new_key] = torch.stack(src) if stack else src
-                    continue
-
-                if old_key in ["3dbox_images", "hdmap_images"]:
-                    src = item[old_key]
-                    if not isinstance(src, list):
-                        raise ValueError(
-                            f"{old_key} is expected to be a list in string-index path, got {type(src)}"
-                        )
-
+                src = item["proj_depth"]
+                if isinstance(src, list):
                     out = []
-                    for img in src:
-                        resized_padded_img, _ = resize_and_pad_image(
-                            img, height, width, pad_value=0.0
-                        )
-                        out.append(resized_padded_img)
-
+                    for x in src:
+                        out.append(crop_resize_tv_tensor_nearest(x, image_resize_crop_meta))
                     item[new_key] = torch.stack(out) if stack else out
-                    continue
-
-                if old_key == "proj_depth":
-                    src = item["proj_depth"]
-                    if isinstance(src, list):
-                        item[new_key] = torch.stack([rs_bins_u16(x, height, width) for x in src])
-                    else:
-                        item[new_key] = rs_bins_u16(src, height, width)
-                    continue
-
-                if old_key == "proj_sem":
-                    src = item["proj_sem"]
-                    if isinstance(src, list):
-                        item[new_key] = torch.stack([rs_bins_u16(x, height, width) for x in src])
-                    else:
-                        item[new_key] = rs_bins_u16(src, height, width)
-                    continue
-
-                if old_key == "proj_clr":
-                    src = item["proj_clr"]
-                    if isinstance(src, list):
-                        out = [resize_clr_keep_invalid(c, height, width) for c in src]
-                        item[new_key] = torch.stack(out) if stack else out
-                    else:
-                        item[new_key] = resize_clr_keep_invalid(src, height, width)
-                    continue
-
-                if getattr(i["transform"], "is_temporal_transform", False):
-                    item[i["new_key"]] = DatasetAdapter.apply_temporal_transform(
-                        i["transform"], item[i["old_key"]]
-                    )
                 else:
-                    item[i["new_key"]] = DatasetAdapter.apply_transform(
-                        i["transform"], item[i["old_key"]],
-                        i["stack"] if "stack" in i else True
-                    )
+                    item[new_key] = crop_resize_tv_tensor_nearest(src, image_resize_crop_meta)
+                continue
 
-            if self.pop_list is not None:
-                for i in self.pop_list:
-                    if i in item:
-                        item.pop(i)
+            if old_key == "proj_sem":
+                if image_resize_crop_meta is None:
+                    raise ValueError("proj_sem exists but images crop meta is missing")
 
+                src = item["proj_sem"]
+                if isinstance(src, list):
+                    out = []
+                    for x in src:
+                        out.append(crop_resize_tv_tensor_nearest(x, image_resize_crop_meta))
+                    item[new_key] = torch.stack(out) if stack else out
+                else:
+                    item[new_key] = crop_resize_tv_tensor_nearest(src, image_resize_crop_meta)
+                continue
+
+            if old_key == "proj_clr":
+                if image_resize_crop_meta is None:
+                    raise ValueError("proj_clr exists but images crop meta is missing")
+
+                src = item["proj_clr"]
+                if isinstance(src, list):
+                    out = []
+                    for c in src:
+                        out.append(crop_resize_proj_clr_keep_invalid(c, image_resize_crop_meta))
+                    item[new_key] = torch.stack(out) if stack else out
+                else:
+                    item[new_key] = crop_resize_proj_clr_keep_invalid(src, image_resize_crop_meta)
+                continue
+
+            if getattr(i["transform"], "is_temporal_transform", False):
+                item[new_key] = DatasetAdapter.apply_temporal_transform(
+                    i["transform"], item[old_key]
+                )
+            else:
+                item[new_key] = DatasetAdapter.apply_transform(
+                    i["transform"], item[old_key], stack
+                )
+
+        if self.pop_list is not None:
+            for i in self.pop_list:
+                if i in item:
+                    item.pop(i)
+
+        print("DEBUG final item keys:", item.keys())
         return item
 
 

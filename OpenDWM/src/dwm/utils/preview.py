@@ -24,17 +24,14 @@ def _get_preview_view_count_from_batch(batch: dict, default_view_count: int) -> 
         ####增加对输出进行对应数据集的筛选流程，改了两个函数（make_ctsd_preview_tensor）###
         ####
 def make_ctsd_preview_tensor(output_images, batch, inference_config):
-
-    # The output image sequece length may be shorter than the input due to the
-    # autoregressive inference, so use the output sequence length to clip batch
-    # data.
     batch_size, _, view_count = batch["vae_images"].shape[:3]
-    output_images = output_images\
-        .cpu().unflatten(0, (batch_size, -1, view_count))
+
+    output_images = output_images.cpu().unflatten(0, (batch_size, -1, view_count))
     sequence_length = output_images.shape[1]
     preview_v = _get_preview_view_count_from_batch(batch, view_count)
-    ####改了collect
+
     collected_images = [batch["vae_images"][:, :sequence_length, :preview_v]]
+
     if "3dbox_images" in batch:
         collected_images.append(batch["3dbox_images"][:, :sequence_length, :preview_v])
 
@@ -44,19 +41,23 @@ def make_ctsd_preview_tensor(output_images, batch, inference_config):
     collected_images.append(output_images[:, :, :preview_v])
 
     stacked_images = torch.stack(collected_images)
-    resized_images = torch.nn.functional.interpolate(
-        stacked_images.flatten(0, 3),
-        tuple(inference_config["preview_image_size"][::-1])
-    )
-    resized_images = resized_images.view(
-        *stacked_images.shape[:4], -1, *resized_images.shape[-2:])
+
+    if inference_config.get("force_preview_resize", False):
+        preview_images = torch.nn.functional.interpolate(
+            stacked_images.flatten(0, 3),
+            tuple(inference_config["preview_image_size"][::-1])
+        )
+        preview_images = preview_images.view(
+            *stacked_images.shape[:4], -1, *preview_images.shape[-2:]
+        )
+    else:
+        preview_images = stacked_images
+
     if sequence_length == 1:
-        # image preview with shape [C, B * T * S * H, V * W]
-        preview_tensor = resized_images.permute(4, 1, 2, 0, 5, 3, 6)\
+        preview_tensor = preview_images.permute(4, 1, 2, 0, 5, 3, 6) \
             .flatten(-2).flatten(1, 4)
     else:
-        # video preview with shape [T, C, B * S * H, V * W]
-        preview_tensor = resized_images.permute(2, 4, 1, 0, 5, 3, 6)\
+        preview_tensor = preview_images.permute(2, 4, 1, 0, 5, 3, 6) \
             .flatten(-2).flatten(2, 4)
 
     return preview_tensor
