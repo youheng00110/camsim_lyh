@@ -3,6 +3,7 @@ import dwm.common
 import json
 import os
 import torch
+import debugpy
 from dwm.utils.sampler import VariableVideoBatchSampler
 
 
@@ -46,6 +47,15 @@ def create_parser():
 if __name__ == "__main__":
     parser = create_parser()
     args = parser.parse_args()
+        # ========= 开启远程调试（端口 9876） =========
+    ddp = "LOCAL_RANK" in os.environ
+    local_rank = int(os.environ["LOCAL_RANK"]) if ddp else 0
+
+    if os.environ.get("ENABLE_DEBUGPY", "0") == "1" and local_rank == 0:
+        debugpy.listen(("0.0.0.0", 9876))
+        print("[debugpy] listening on 0.0.0.0:9876, waiting for VS Code to attach...")
+        debugpy.wait_for_client()
+        print("[debugpy] attached ✅")
 
     with open(args.config_path, "r", encoding="utf-8") as f:
         config = json.load(f)

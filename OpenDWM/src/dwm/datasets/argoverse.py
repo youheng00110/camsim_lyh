@@ -587,7 +587,7 @@ class MotionDataset(torch.utils.data.Dataset):
         # 获取所有 JSON 文件
         json_files = glob.glob(os.path.join(index_json_path, "*.json"))
         
-        print(f"[Dataset] Loading metadata from {len(json_files)} JSON files...")
+        print(f"[avrgoDataset] Loading metadata from {len(json_files)} JSON files...")
 
         for json_path in tqdm(json_files, desc="Loading Scene JSONs"):
             with open(json_path, 'r') as f:
@@ -654,7 +654,7 @@ class MotionDataset(torch.utils.data.Dataset):
             with open(balanced_json_path, "r") as f:
                 raw_entries = json.load(f)
 
-            print(f"[Dataset] Motion intervals loaded: {len(raw_entries)}")
+            print(f"[avrgoDataset] Motion intervals loaded: {len(raw_entries)}")
 
             self.motion_intervals = []
 
@@ -678,19 +678,19 @@ class MotionDataset(torch.utils.data.Dataset):
                 self.motion_intervals_by_scene[scene].append(interval)
 
         else:
-            print("[Dataset] No balanced_json provided → skip filtering")
+            print("[avrgoDataset] No balanced_json provided → skip filtering")
             self.motion_intervals_by_scene = {}
 
         # ===============================
         # DEBUG
         # ===============================
 
-        print("\n========== SENSOR DATA DEBUG ==========")
+        print("\n========== avrgoSENSOR DATA DEBUG ==========")
 
-        print(f"[Dataset] Total scenes: {len(scene_channel_sample_data)}")
+        print(f"[avrgoDataset] Total scenes: {len(scene_channel_sample_data)}")
 
         example_scene = list(scene_channel_sample_data.keys())[0]
-        print(f"[Dataset] Example scene: {example_scene}")
+        print(f"[avrgoDataset] Example scene: {example_scene}")
 
         for i, ch in enumerate(self.sensor_channels):
             print(
@@ -698,10 +698,10 @@ class MotionDataset(torch.utils.data.Dataset):
                 len(scene_channel_sample_data[example_scene][i])
             )
 
-        print("=======================================\n")
+        print("================avrgo=======================\n")
 
         if use_balance:
-            print("\n========== BALANCED JSON DEBUG ==========")
+            print("\n==========avrgo BALANCED JSON DEBUG ==========")
             print(f"[Dataset] Motion intervals loaded: {len(raw_entries)}")
 
             if len(raw_entries) > 0:
@@ -710,7 +710,7 @@ class MotionDataset(torch.utils.data.Dataset):
                     print(f"  {k}: {v}")
 
             print("[Dataset] Interval scenes:", len(self.motion_intervals_by_scene))
-            print("=========================================\n")
+            print("==================avrgo=======================\n")
 
         ####### 构建 items ########
 
@@ -789,12 +789,12 @@ class MotionDataset(torch.utils.data.Dataset):
         # 最终统计
         # ===============================
 
-        print(f"[Dataset] Total windows: {total_windows}")
+        print(f"[avrgoDataset] Total windows: {total_windows}")
 
         if use_balance:
-            print(f"[Dataset] Matched windows: {matched_windows}")
+            print(f"[avrgoDataset] Matched windows: {matched_windows}")
         else:
-            print(f"[Dataset] No filtering → using all windows")
+            print(f"[avrgoDataset] No filtering → using all windows")
 
         
 
@@ -822,7 +822,7 @@ class MotionDataset(torch.utils.data.Dataset):
     def __getitem__(self, index: int):
         item = self.items[index]
         if index == 0:
-            print("\n========== GETITEM DEBUG ==========")
+            print("\n==========avrgo GETITEM DEBUG ==========")
             print("Scene:", item["scene_id"])
             print("Segment length:", len(item["segment"]))
             print("FPS:", item["fps"])

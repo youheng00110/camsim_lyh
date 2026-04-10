@@ -583,7 +583,7 @@ class MotionDataset(torch.utils.data.Dataset):
             with open(balanced_json_path, 'r') as f:
                 raw_entries = json.load(f)
 
-            print(f"[Dataset] Motion intervals loaded: {len(raw_entries)}")
+            print(f"[waymoDataset] Motion intervals loaded: {len(raw_entries)}")
 
             self.motion_intervals = []
 
@@ -607,10 +607,10 @@ class MotionDataset(torch.utils.data.Dataset):
                     self.motion_intervals_by_scene[scene] = []
                 self.motion_intervals_by_scene[scene].append(interval)
 
-            print("[Dataset] Interval scenes:", len(self.motion_intervals_by_scene))
+            print("[waymoDataset] Interval scenes:", len(self.motion_intervals_by_scene))
 
         else:
-            print("[Dataset] No balanced_json → no filtering")
+            print("[waymoDataset] No balanced_json → no filtering")
             self.motion_intervals_by_scene = {}
 
         # ===============================
@@ -695,17 +695,17 @@ class MotionDataset(torch.utils.data.Dataset):
         # 4️⃣ stats
         # ===============================
 
-        print("[Dataset] Window enumeration finished")
-        print("Total windows:", total_windows)
+        print("waymo[Dataset] Window enumeration finished")
+        print("waymoTotal windows:", total_windows)
 
         if use_balance:
-            print("Matched windows:", matched_windows)
+            print("waymoMatched windows:", matched_windows)
         else:
-            print("No filtering → using all windows")
+            print("waymoNo filtering → using all windows")
 
-        print("Final dataset size:", len(self.items))
+        print("waymoFinal dataset size:", len(self.items))
         if len(self.items) > 0:
-            print("[Dataset DEBUG] Example item:")
+            print("[waymoDataset DEBUG] Example item:")
             print(self.items[0])
 
         # 👉 最终封装（只保留这个）
@@ -729,184 +729,279 @@ class MotionDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.items)
-def __getitem__(self, index: int):
-    # 取出当前样本对应的元信息
-    item = self.items[index]
-    scene_id = item["scene"]
+    def __getitem__(self, index: int):
+        # 取出当前样本对应的元信息
+        item = self.items[index]
+        scene_id = item["scene"]
 
-    # 只保留相机通道；后面 images / hdmap / 3dbox 这些都是按相机视角组织
-    camera_only_channels = [
-        j for j in self.sensor_channels
-        if j.startswith("CAM")
-    ]
-    # 当前样本里相机视角数
-    view_count = len(camera_only_channels)
+        # 只保留相机通道；后面 images / hdmap / 3dbox 这些都是按相机视角组织
+        camera_only_channels = [
+            j for j in self.sensor_channels
+            if j.startswith("CAM")
+        ]
+        # 当前样本里相机视角数
+        view_count = len(camera_only_channels)
 
-    # 防御性检查：确保 __init__ 中已经初始化了 sample_info_dict
-    if not hasattr(self, "sample_info_dict"):
-        raise AttributeError(
-            "sample_info_dict not initialized. Check __init__ logic."
-        )
-
-    # 取出该 scene 的全部帧信息
-    all_frames = self.sample_info_dict[scene_id]
-    # 按当前 window 的 start_idx / end_idx 截取出本次要读取的 segment
-    # 注意 Python 切片是左闭右开
-    segment = all_frames[item["start_idx"]: item["end_idx"]]
-
-    # 防御性检查：当前窗口不能为空
-    if len(segment) == 0:
-        raise ValueError(
-            f"No frames found for {scene_id} at "
-            f"{item['start_idx']}:{item['end_idx']}"
-        )
-
-    # 初始化返回结果
-    result = {
-        # 当前 clip 的 fps
-        "fps": torch.tensor(item["fps"]).float(),
-        # pts: 每一帧相对首帧的时间偏移
-        # 这里沿 view 维复制，保证形状和多视角输入对齐
-        "pts": torch.tensor(
-            [
-                [(i[0] - segment[0][0]) / 1000] * view_count
-                for i in segment
-            ],
-            dtype=torch.float32
-        ),
-        # balanced_json 里附带的运动属性
-        "angle": torch.tensor(item["angle"]).float(),
-        "dist": torch.tensor(item["dist"]).float(),
-    }
-
-    # 构造当前 scene 对应的 tfrecord 文件名
-    scene_filename = f"segment-{scene_id}_with_camera_labels.tfrecord"
-    # 优先从 item 中拿 split；否则退回 self.split；再否则默认 training
-    split = item.get("split", self.split if hasattr(self, "split") else "training")
-
-    # 这里保持你当前的路径逻辑不变：
-    # 如果给了 dataset_root，则按 individual_files/split/filename 拼
-    # 否则退回默认 training 路径
-    if self.dataset_root:
-        scene_path = os.path.join(
-            "individual_files",
-            split,
-            scene_filename
-        )
-    else:
-        scene_path = os.path.join(
-            "individual_files",
-            "training",
-            scene_filename
-        )
-
-    # 文件不存在就直接报错，避免后面静默失败
-    if not self.fs.exists(scene_path):
-        raise FileNotFoundError(f"Waymo record not found at: {scene_path}")
-
-    # frames: 当前 segment 内逐帧解析出来的 Frame
-    frames = [waymo_pb.Frame() for _ in segment]
-    # scene_frame: 专门用来承载整段 scene 的 map_features
-    # 这里仍然沿用你现在的使用方式：从该 scene 第一帧读取 map 信息
-    scene_frame = waymo_pb.Frame()
-
-    # 打开 tfrecord，按 offset 进行随机读取
-    with self.fs.open(scene_path, "rb") as f:
-        # 如果需要画 hdmap / hdmap_bev，则先单独读取 scene 的第一帧
-        # 目的是拿到 scene_frame.map_features
-        if (
-            self.hdmap_image_settings is not None or
-            self.hdmap_bev_settings is not None
-        ):
-            _, first_length, first_offset = all_frames[0]
-            f.seek(first_offset)
-            scene_frame.ParseFromString(f.read(first_length))
-
-        # 逐帧读取当前窗口里的 frame 数据
-        for i_id, frame_info in enumerate(segment):
-            _, length, offset = frame_info
-            f.seek(offset)
-            frames[i_id].ParseFromString(f.read(length))
-
-    # 下面这三组分别缓存：
-    # images      : 原始 PIL 图像，按 [T][V] 组织
-    # intrinsics  : 相机内参，按 [T, V, 3, 3] 组织
-    # extrinsics  : 相机外参，按 [T, V, 4, 4] 组织
-    images = []
-    intrinsics = []
-    extrinsics = []
-
-    # 遍历当前窗口中的每一帧
-    for f_data in frames:
-        frame_images = []
-        frame_intr = []
-        frame_extr = []
-
-        # 遍历当前帧中的每个相机
-        for cam_name in camera_only_channels:
-            cam_id = MotionDataset.sensor_name_id_dict[cam_name]
-
-            # 先取图像数据
-            img_data = MotionDataset.find_by_name(f_data.images, cam_id)
-            if img_data is not None:
-                # 正常读到图像时，解析成 PIL.Image
-                with io.BytesIO(img_data.image) as f:
-                    img = Image.open(f)
-                    img.load()
-                    frame_images.append(img)
-            else:
-                # 容错：如果某个相机图缺失，则补一张黑图占位
-                # 这样可以保证多视角维度不乱
-                frame_images.append(Image.new("RGB", (448, 256), (0, 0, 0)))
-
-            # 再取该相机的标定信息
-            calib = MotionDataset.find_by_name(
-                f_data.context.camera_calibrations,
-                cam_id
+        # 防御性检查：确保 __init__ 中已经初始化了 sample_info_dict
+        if not hasattr(self, "sample_info_dict"):
+            raise AttributeError(
+                "sample_info_dict not initialized. Check __init__ logic."
             )
-            if calib is not None:
-                # 外参：直接从 protobuf 中读出 4x4
-                ext = np.array(
-                    calib.extrinsic.transform,
-                    dtype=np.float32
-                ).reshape(4, 4)
 
-                # 内参：只构造基础 3x3 pinhole 矩阵
-                ins = np.eye(3, dtype=np.float32)
-                ins[0, 0] = calib.intrinsic[0]
-                ins[1, 1] = calib.intrinsic[1]
-                ins[0, 2] = calib.intrinsic[2]
-                ins[1, 2] = calib.intrinsic[3]
+        # 取出该 scene 的全部帧信息
+        all_frames = self.sample_info_dict[scene_id]
+        # 按当前 window 的 start_idx / end_idx 截取出本次要读取的 segment
+        # 注意 Python 切片是左闭右开
+        segment = all_frames[item["start_idx"]: item["end_idx"]]
 
-                frame_intr.append(torch.from_numpy(ins).float())
-                frame_extr.append(torch.from_numpy(ext).float())
-            else:
-                # 容错：标定缺失时给单位阵
-                frame_intr.append(torch.eye(3))
-                frame_extr.append(torch.eye(4))
+        # 防御性检查：当前窗口不能为空
+        if len(segment) == 0:
+            raise ValueError(
+                f"No frames found for {scene_id} at "
+                f"{item['start_idx']}:{item['end_idx']}"
+            )
 
-        # 当前帧处理完成后，写入总列表
-        images.append(frame_images)
-        intrinsics.append(torch.stack(frame_intr))
-        extrinsics.append(torch.stack(frame_extr))
-
-    # 将原始图像与相机参数写回 result
-    result["images"] = images
-    result["camera_intrinsics"] = torch.stack(intrinsics)
-    result["camera_extrinsics"] = torch.stack(extrinsics)
-    result["camera_names"] = camera_only_channels
-
-    # ---------------------------
-    # 相机几何相关输出
-    # ---------------------------
-    if self.enable_camera_transforms:
-        if "images" in result:
-            # 为每一帧、每一个相机取出 calibration
-            camera_calibrations = [
+        # 初始化返回结果
+        result = {
+            # 当前 clip 的 fps
+            "fps": torch.tensor(item["fps"]).float(),
+            # pts: 每一帧相对首帧的时间偏移
+            # 这里沿 view 维复制，保证形状和多视角输入对齐
+            "pts": torch.tensor(
                 [
-                    MotionDataset.find_by_name(
-                        i.context.camera_calibrations,
-                        MotionDataset.sensor_name_id_dict[j]
+                    [(i[0] - segment[0][0]) / 1000] * view_count
+                    for i in segment
+                ],
+                dtype=torch.float32
+            ),
+            # balanced_json 里附带的运动属性
+            "angle": torch.tensor(item["angle"]).float(),
+            "dist": torch.tensor(item["dist"]).float(),
+        }
+
+        # 构造当前 scene 对应的 tfrecord 文件名
+        scene_filename = f"segment-{scene_id}_with_camera_labels.tfrecord"
+        # 优先从 item 中拿 split；否则退回 self.split；再否则默认 training
+        split = item.get("split", self.split if hasattr(self, "split") else "training")
+
+        # 这里保持你当前的路径逻辑不变：
+        # 如果给了 dataset_root，则按 individual_files/split/filename 拼
+        # 否则退回默认 training 路径
+        if self.dataset_root:
+            scene_path = os.path.join(
+                "individual_files",
+                split,
+                scene_filename
+            )
+        else:
+            scene_path = os.path.join(
+                "individual_files",
+                "training",
+                scene_filename
+            )
+
+        # 文件不存在就直接报错，避免后面静默失败
+        if not self.fs.exists(scene_path):
+            raise FileNotFoundError(f"Waymo record not found at: {scene_path}")
+
+        # frames: 当前 segment 内逐帧解析出来的 Frame
+        frames = [waymo_pb.Frame() for _ in segment]
+        # scene_frame: 专门用来承载整段 scene 的 map_features
+        # 这里仍然沿用你现在的使用方式：从该 scene 第一帧读取 map 信息
+        scene_frame = waymo_pb.Frame()
+
+        # 打开 tfrecord，按 offset 进行随机读取
+        with self.fs.open(scene_path, "rb") as f:
+            # 如果需要画 hdmap / hdmap_bev，则先单独读取 scene 的第一帧
+            # 目的是拿到 scene_frame.map_features
+            if (
+                self.hdmap_image_settings is not None or
+                self.hdmap_bev_settings is not None
+            ):
+                _, first_length, first_offset = all_frames[0]
+                f.seek(first_offset)
+                scene_frame.ParseFromString(f.read(first_length))
+
+            # 逐帧读取当前窗口里的 frame 数据
+            for i_id, frame_info in enumerate(segment):
+                _, length, offset = frame_info
+                f.seek(offset)
+                frames[i_id].ParseFromString(f.read(length))
+
+        # 下面这三组分别缓存：
+        # images      : 原始 PIL 图像，按 [T][V] 组织
+        # intrinsics  : 相机内参，按 [T, V, 3, 3] 组织
+        # extrinsics  : 相机外参，按 [T, V, 4, 4] 组织
+        images = []
+        intrinsics = []
+        extrinsics = []
+
+        # 遍历当前窗口中的每一帧
+        for f_data in frames:
+            frame_images = []
+            frame_intr = []
+            frame_extr = []
+
+            # 遍历当前帧中的每个相机
+            for cam_name in camera_only_channels:
+                cam_id = MotionDataset.sensor_name_id_dict[cam_name]
+
+                # 先取图像数据
+                img_data = MotionDataset.find_by_name(f_data.images, cam_id)
+                if img_data is not None:
+                    # 正常读到图像时，解析成 PIL.Image
+                    with io.BytesIO(img_data.image) as f:
+                        img = Image.open(f)
+                        img.load()
+                        frame_images.append(img)
+                else:
+                    # 容错：如果某个相机图缺失，则补一张黑图占位
+                    # 这样可以保证多视角维度不乱
+                    frame_images.append(Image.new("RGB", (448, 256), (0, 0, 0)))
+
+                # 再取该相机的标定信息
+                calib = MotionDataset.find_by_name(
+                    f_data.context.camera_calibrations,
+                    cam_id
+                )
+                if calib is not None:
+                    # 外参：直接从 protobuf 中读出 4x4
+                    ext = np.array(
+                        calib.extrinsic.transform,
+                        dtype=np.float32
+                    ).reshape(4, 4)
+
+                    # 内参：只构造基础 3x3 pinhole 矩阵
+                    ins = np.eye(3, dtype=np.float32)
+                    ins[0, 0] = calib.intrinsic[0]
+                    ins[1, 1] = calib.intrinsic[1]
+                    ins[0, 2] = calib.intrinsic[2]
+                    ins[1, 2] = calib.intrinsic[3]
+
+                    frame_intr.append(torch.from_numpy(ins).float())
+                    frame_extr.append(torch.from_numpy(ext).float())
+                else:
+                    # 容错：标定缺失时给单位阵
+                    frame_intr.append(torch.eye(3))
+                    frame_extr.append(torch.eye(4))
+
+            # 当前帧处理完成后，写入总列表
+            images.append(frame_images)
+            intrinsics.append(torch.stack(frame_intr))
+            extrinsics.append(torch.stack(frame_extr))
+
+        # 将原始图像与相机参数写回 result
+        result["images"] = images
+        result["camera_intrinsics"] = torch.stack(intrinsics)
+        result["camera_extrinsics"] = torch.stack(extrinsics)
+        result["camera_names"] = camera_only_channels
+
+        # ---------------------------
+        # 相机几何相关输出
+        # ---------------------------
+        if self.enable_camera_transforms:
+            if "images" in result:
+                # 为每一帧、每一个相机取出 calibration
+                camera_calibrations = [
+                    [
+                        MotionDataset.find_by_name(
+                            i.context.camera_calibrations,
+                            MotionDataset.sensor_name_id_dict[j]
+                        )
+                        for j in self.sensor_channels
+                        if j.startswith("CAM")
+                    ]
+                    for i in frames
+                ]
+
+                # extrinsic_correction 的逆，用于和原版保持一致的相机坐标定义
+                ec_inv = torch.linalg.inv(
+                    torch.tensor(
+                        MotionDataset.extrinsic_correction,
+                        dtype=torch.float32
+                    )
+                )
+
+                # camera_transforms: [T, V, 4, 4]
+                # 将数据集原始外参与 correction 结合，得到统一约定下的相机变换
+                result["camera_transforms"] = torch.stack([
+                    torch.stack([
+                        torch.tensor(
+                            j.extrinsic.transform,
+                            dtype=torch.float32
+                        ).reshape(4, 4) @ ec_inv
+                        for j in i
+                    ])
+                    for i in camera_calibrations
+                ])
+
+                # camera_intrinsics: [T, V, 3, 3]
+                # 这里用仓库原有的 make_intrinsic_matrix("pt") 形式覆盖前面手动拼的 K
+                result["camera_intrinsics"] = torch.stack([
+                    torch.stack([
+                        dwm.datasets.common.make_intrinsic_matrix(
+                            j.intrinsic[0:2],
+                            j.intrinsic[2:4],
+                            "pt"
+                        )
+                        for j in i
+                    ])
+                    for i in camera_calibrations
+                ])
+
+                # image_size: [T, V, 2]
+                # 这里约定为 [width, height]
+                result["image_size"] = torch.stack([
+                    torch.stack([
+                        torch.tensor([j.width, j.height], dtype=torch.long)
+                        for j in i
+                    ])
+                    for i in camera_calibrations
+                ])
+
+            # 如果 result 中存在 lidar_points，则额外构造 lidar_transforms
+            # 你当前这版里大多情况下不会进来，因为前面没实际填充 lidar_points
+            if "lidar_points" in result:
+                result["lidar_transforms"] = torch.stack([
+                    torch.stack([
+                        torch.eye(4)
+                        for j in self.sensor_channels
+                        if j.startswith("LIDAR")
+                    ])
+                    for _ in frames
+                ])
+
+        # ---------------------------
+        # ego pose 相关输出
+        # ---------------------------
+        if self.enable_ego_transforms:
+            # ego_transforms: [T, V, 4, 4]
+            # 同一帧下对每个 sensor 复制一份 ego pose，保持维度兼容
+            result["ego_transforms"] = torch.stack([
+                torch.stack([
+                    torch.tensor(
+                        i.pose.transform,
+                        dtype=torch.float32
+                    ).reshape(4, 4)
+                    for _ in self.sensor_channels
+                ])
+                for i in frames
+            ])
+
+        # ---------------------------
+        # 3D box 图像
+        # ---------------------------
+        if self._3dbox_image_settings is not None:
+            # 对每一帧的每个相机，利用激光标注 + 当前相机标定投影出 3D box
+            result["3dbox_images"] = [
+                [
+                    MotionDataset.get_3dbox_image(
+                        i.laser_labels,
+                        MotionDataset.find_by_name(
+                            i.context.camera_calibrations,
+                            MotionDataset.sensor_name_id_dict[j]
+                        ),
+                        self._3dbox_image_settings
                     )
                     for j in self.sensor_channels
                     if j.startswith("CAM")
@@ -914,199 +1009,104 @@ def __getitem__(self, index: int):
                 for i in frames
             ]
 
-            # extrinsic_correction 的逆，用于和原版保持一致的相机坐标定义
-            ec_inv = torch.linalg.inv(
-                torch.tensor(
-                    MotionDataset.extrinsic_correction,
-                    dtype=torch.float32
+        # ---------------------------
+        # HD map 图像
+        # ---------------------------
+        if self.hdmap_image_settings is not None:
+            # 注意这里用的是 scene_frame.map_features
+            # 所以 scene_frame 必须在前面先正确读取，否则这里会全黑
+            result["hdmap_images"] = [
+                [
+                    MotionDataset.get_hdmap_image(
+                        scene_frame.map_features,
+                        MotionDataset.find_by_name(
+                            i.context.camera_calibrations,
+                            MotionDataset.sensor_name_id_dict[j]
+                        ),
+                        i.pose,
+                        self.hdmap_image_settings
+                    )
+                    for j in self.sensor_channels
+                    if j.startswith("CAM")
+                ]
+                for i in frames
+            ]
+
+        # ---------------------------
+        # 3D box 的 BEV 图
+        # ---------------------------
+        if self._3dbox_bev_settings is not None:
+            # 这里仍然沿用你当前写法：
+            # 对每个 frame、每个 lidar 通道生成一张 bev 图
+            result["3dbox_bev_images"] = [
+                MotionDataset.get_3dbox_bev_image(
+                    i.laser_labels,
+                    self._3dbox_bev_settings
                 )
-            )
+                for i in frames
+                for j in self.sensor_channels
+                if j.startswith("LIDAR")
+            ]
 
-            # camera_transforms: [T, V, 4, 4]
-            # 将数据集原始外参与 correction 结合，得到统一约定下的相机变换
-            result["camera_transforms"] = torch.stack([
-                torch.stack([
-                    torch.tensor(
-                        j.extrinsic.transform,
-                        dtype=torch.float32
-                    ).reshape(4, 4) @ ec_inv
-                    for j in i
-                ])
-                for i in camera_calibrations
-            ])
+        # ---------------------------
+        # HD map 的 BEV 图
+        # ---------------------------
+        if self.hdmap_bev_settings is not None:
+            # 同样依赖 scene_frame.map_features
+            result["hdmap_bev_images"] = [
+                MotionDataset.get_hdmap_bev_image(
+                    scene_frame.map_features,
+                    i.pose,
+                    self.hdmap_bev_settings
+                )
+                for i in frames
+                for j in self.sensor_channels
+                if j.startswith("LIDAR")
+            ]
 
-            # camera_intrinsics: [T, V, 3, 3]
-            # 这里用仓库原有的 make_intrinsic_matrix("pt") 形式覆盖前面手动拼的 K
-            result["camera_intrinsics"] = torch.stack([
-                torch.stack([
-                    dwm.datasets.common.make_intrinsic_matrix(
-                        j.intrinsic[0:2],
-                        j.intrinsic[2:4],
-                        "pt"
+        # ---------------------------
+        # 图像描述文本
+        # ---------------------------
+        if self.image_description_settings is not None:
+            # 先按 timestamp 对齐到最近的标注时间点，再做 cross-view 聚合
+            image_captions = [
+                dwm.datasets.common.align_image_description_crossview([
+                    MotionDataset.get_image_description(
+                        self.image_descriptions,
+                        self.time_list_dict,
+                        item["scene"],
+                        i[0],
+                        MotionDataset.sensor_name_id_dict[j]
+                    )
+                    for j in self.sensor_channels
+                    if "LIDAR" not in j
+                ], self.image_description_settings)
+                for i in segment
+            ]
+
+            # 再将结构化 caption 转成最终字符串
+            result["image_description"] = [
+                [
+                    dwm.datasets.common.make_image_description_string(
+                        j,
+                        self.image_description_settings,
+                        self.image_desc_rs
                     )
                     for j in i
-                ])
-                for i in camera_calibrations
-            ])
-
-            # image_size: [T, V, 2]
-            # 这里约定为 [width, height]
-            result["image_size"] = torch.stack([
-                torch.stack([
-                    torch.tensor([j.width, j.height], dtype=torch.long)
-                    for j in i
-                ])
-                for i in camera_calibrations
-            ])
-
-        # 如果 result 中存在 lidar_points，则额外构造 lidar_transforms
-        # 你当前这版里大多情况下不会进来，因为前面没实际填充 lidar_points
-        if "lidar_points" in result:
-            result["lidar_transforms"] = torch.stack([
-                torch.stack([
-                    torch.eye(4)
-                    for j in self.sensor_channels
-                    if j.startswith("LIDAR")
-                ])
-                for _ in frames
-            ])
-
-    # ---------------------------
-    # ego pose 相关输出
-    # ---------------------------
-    if self.enable_ego_transforms:
-        # ego_transforms: [T, V, 4, 4]
-        # 同一帧下对每个 sensor 复制一份 ego pose，保持维度兼容
-        result["ego_transforms"] = torch.stack([
-            torch.stack([
-                torch.tensor(
-                    i.pose.transform,
-                    dtype=torch.float32
-                ).reshape(4, 4)
-                for _ in self.sensor_channels
-            ])
-            for i in frames
-        ])
-
-    # ---------------------------
-    # 3D box 图像
-    # ---------------------------
-    if self._3dbox_image_settings is not None:
-        # 对每一帧的每个相机，利用激光标注 + 当前相机标定投影出 3D box
-        result["3dbox_images"] = [
-            [
-                MotionDataset.get_3dbox_image(
-                    i.laser_labels,
-                    MotionDataset.find_by_name(
-                        i.context.camera_calibrations,
-                        MotionDataset.sensor_name_id_dict[j]
-                    ),
-                    self._3dbox_image_settings
-                )
-                for j in self.sensor_channels
-                if j.startswith("CAM")
+                ]
+                for i in image_captions
             ]
-            for i in frames
-        ]
 
-    # ---------------------------
-    # HD map 图像
-    # ---------------------------
-    if self.hdmap_image_settings is not None:
-        # 注意这里用的是 scene_frame.map_features
-        # 所以 scene_frame 必须在前面先正确读取，否则这里会全黑
-        result["hdmap_images"] = [
-            [
-                MotionDataset.get_hdmap_image(
-                    scene_frame.map_features,
-                    MotionDataset.find_by_name(
-                        i.context.camera_calibrations,
-                        MotionDataset.sensor_name_id_dict[j]
-                    ),
-                    i.pose,
-                    self.hdmap_image_settings
-                )
-                for j in self.sensor_channels
-                if j.startswith("CAM")
-            ]
-            for i in frames
-        ]
+        # 给缺失字段补 stub，和其他数据集对齐
+        dwm.datasets.common.add_stub_key_data(self.stub_key_data_dict, result)
 
-    # ---------------------------
-    # 3D box 的 BEV 图
-    # ---------------------------
-    if self._3dbox_bev_settings is not None:
-        # 这里仍然沿用你当前写法：
-        # 对每个 frame、每个 lidar 通道生成一张 bev 图
-        result["3dbox_bev_images"] = [
-            MotionDataset.get_3dbox_bev_image(
-                i.laser_labels,
-                self._3dbox_bev_settings
-            )
-            for i in frames
-            for j in self.sensor_channels
-            if j.startswith("LIDAR")
-        ]
+        # 再次写入 angle / dist
+        # 这两项前面已经写过，这里保留你当前逻辑，不改动
+        if "angle" in item:
+            result["angle"] = torch.tensor(item["angle"]).float()
 
-    # ---------------------------
-    # HD map 的 BEV 图
-    # ---------------------------
-    if self.hdmap_bev_settings is not None:
-        # 同样依赖 scene_frame.map_features
-        result["hdmap_bev_images"] = [
-            MotionDataset.get_hdmap_bev_image(
-                scene_frame.map_features,
-                i.pose,
-                self.hdmap_bev_settings
-            )
-            for i in frames
-            for j in self.sensor_channels
-            if j.startswith("LIDAR")
-        ]
+        if "dist" in item:
+            result["dist"] = torch.tensor(item["dist"]).float()
 
-    # ---------------------------
-    # 图像描述文本
-    # ---------------------------
-    if self.image_description_settings is not None:
-        # 先按 timestamp 对齐到最近的标注时间点，再做 cross-view 聚合
-        image_captions = [
-            dwm.datasets.common.align_image_description_crossview([
-                MotionDataset.get_image_description(
-                    self.image_descriptions,
-                    self.time_list_dict,
-                    item["scene"],
-                    i[0],
-                    MotionDataset.sensor_name_id_dict[j]
-                )
-                for j in self.sensor_channels
-                if "LIDAR" not in j
-            ], self.image_description_settings)
-            for i in segment
-        ]
-
-        # 再将结构化 caption 转成最终字符串
-        result["image_description"] = [
-            [
-                dwm.datasets.common.make_image_description_string(
-                    j,
-                    self.image_description_settings,
-                    self.image_desc_rs
-                )
-                for j in i
-            ]
-            for i in image_captions
-        ]
-
-    # 给缺失字段补 stub，和其他数据集对齐
-    dwm.datasets.common.add_stub_key_data(self.stub_key_data_dict, result)
-
-    # 再次写入 angle / dist
-    # 这两项前面已经写过，这里保留你当前逻辑，不改动
-    if "angle" in item:
-        result["angle"] = torch.tensor(item["angle"]).float()
-
-    if "dist" in item:
-        result["dist"] = torch.tensor(item["dist"]).float()
-
-    # 返回最终样本
-    return result
+        # 返回最终样本
+        return result

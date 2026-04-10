@@ -1359,13 +1359,19 @@ class CrossviewTemporalSD():
             sd_pred_latent = sd_pred[0] * (-sigmas) + noisy_latents \
                 if isinstance(self.model, diffusers.SD3Transformer2DModel) \
                 else sd_pred[0]
-                
 
             if self.training_config.get("disable_reference_frame_loss", False):
                 reference_frame_loss_mask = ~reference_frame_indicator.view(
                     *sd_pred_latent.shape[:3], 1, 1, 1
                 ).to(sd_pred_latent.device)
-                loss_mask = reference_frame_loss_mask.float()
+                sd_pred_latent = sd_pred_latent * reference_frame_loss_mask
+                target = target * reference_frame_loss_mask
+
+            loss_dict["sd_loss"] = torch.nn.functional.mse_loss(
+                sd_pred_latent.float(),
+                target.float(),
+                reduction="mean"
+            ) * self.get_loss_coef("sd")
 
            
         if len(sd_pred) > 1:

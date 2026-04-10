@@ -573,22 +573,22 @@ class MotionDataset(torch.utils.data.Dataset):
         infos = self._load_infos(pkl_path)
 
 
-        print("DEBUG infos:", len(infos))
-        print("DEBUG example keys:", infos[0].keys())
+        print("nuplanDEBUG infos:", len(infos))
+        print("nuplanDEBUG example keys:", infos[0].keys())
         self.scenes, self.scene_ts = self._build_scenes(infos)
-        print("DEBUG scenes:", len(self.scenes))
+        print("nuplanDEBUG scenes:", len(self.scenes))
 
         for k in list(self.scene_ts.keys())[:3]:
-            print("scene:", k, "frames:", len(self.scene_ts[k]))
-        print("DEBUG build_items start")
-        print("sequence_length:", self.sequence_length)
-        print("fps_stride_tuples:", self.fps_stride_tuples)
+            print("nuplanscene:", k, "frames:", len(self.scene_ts[k]))
+        print("nuplannuplanDEBUG build_items start")
+        print("nuplansequence_length:", self.sequence_length)
+        print("nuplanfps_stride_tuples:", self.fps_stride_tuples)
         raw_items = self._build_items()
-        print("DEBUG total raw windows:", len(raw_items))
+        print("nuplanDEBUG total raw windows:", len(raw_items))
         if len(raw_items) > 0:
-            print("DEBUG example window:", raw_items[0])
+            print("nuplanDEBUG example window:", raw_items[0])
         else:
-            print("DEBUG: raw_items is EMPTY")
+            print("nuplanDEBUG: raw_items is EMPTY")
         
         #####
         ###对已有window进行匹配
@@ -638,14 +638,14 @@ class MotionDataset(torch.utils.data.Dataset):
                         break
 
             self.items = matched_items
-            print("DEBUG intervals:", len(raw_intervals))
-            print("DEBUG interval example:", raw_intervals[0])
+            print("nuplanDEBUG intervals:", len(raw_intervals))
+            print("nuplanDEBUG interval example:", raw_intervals[0])
             print(
-                f"[NuPlan Matching] Total windows: {len(raw_items)}, "
+                f"[nuplanNuPlan Matching] Total windows: {len(raw_items)}, "
                 f"Matched: {len(self.items)}"
             )
-            print("window scene:", raw_items[0]["scene"])
-            print("interval seq:", raw_intervals[0]["seq_id"])
+            print("nuplanwindow scene:", raw_items[0]["scene"])
+            print("nuplaninterval seq:", raw_intervals[0]["seq_id"])
 
         else:
             self.items = raw_items

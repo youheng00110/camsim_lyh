@@ -900,12 +900,15 @@ class MotionDataset(torch.utils.data.Dataset):
             t_json = time.time()
             self.balanced_json_path = balanced_json_path
             use_balanced = balanced_json_path is not None
-            if  use_balanced:
+            if use_balanced:
+                if os.path.isabs(balanced_json_path):
+                    with open(balanced_json_path, 'r', encoding='utf-8') as f:
+                        raw_entries = json.load(f)
+                else:
+                    with self.fs.open(balanced_json_path, 'r') as f:
+                        raw_entries = json.load(f)
 
-                with self.fs.open(balanced_json_path, 'r') as f:
-                    raw_entries = json.load(f)
-
-                print(f"[Dataset DEBUG] Loading motion intervals from JSON: {len(raw_entries)} entries")
+                print(f"[Dataset DEBUG] NUSSS Loading motion intervals from JSON: {len(raw_entries)} entries")
                 print(f"[TIME] JSON load: {time.time() - t_json:.3f}s")
 
                 # ===============================
@@ -982,13 +985,13 @@ class MotionDataset(torch.utils.data.Dataset):
                     for scene in tables["scene"]
                 ]
 
-                print("[Dataset DEBUG] Scene channel sample data prepared")
+                print("[nuscenceDataset DEBUG] Scene channel sample data prepared")
                 print(f"[TIME] scene_channel_sample_data build: {time.time() - t_scene_data:.3f}s")
 
 
                 for i in range(min(3, len(scene_channel_sample_data))):
                     scene_i, channels_i = scene_channel_sample_data[i]
-                    print(f"[Dataset DEBUG] Scene {scene_i['name']} channel frame counts:")
+                    print(f"[nuscenceDataset DEBUG] Scene {scene_i['name']} channel frame counts:")
 
                     for ch, frames in zip(sensor_channels, channels_i):
                         print(f"   {ch}: {len(frames)} frames")
@@ -998,11 +1001,11 @@ class MotionDataset(torch.utils.data.Dataset):
                 # enumerate_segments
                 # ===============================
 
-                print("[Dataset DEBUG] sequence_length:", self.sequence_length)
-                print("[Dataset DEBUG] sensor_channels:", self.sensor_channels)
-                print("[Dataset DEBUG] fps_stride_tuples:", self.fps_stride_tuples)
-                print("[Dataset DEBUG] number of scenes:", len(tables["scene"]))
-                print("[Dataset] Enumerating segments...")
+                print("[nuscenceDataset DEBUG] sequence_length:", self.sequence_length)
+                print("[nuscenceDataset DEBUG] sensor_channels:", self.sensor_channels)
+                print("[nuscenceDataset DEBUG] fps_stride_tuples:", self.fps_stride_tuples)
+                print("[nuscenceDataset DEBUG] number of scenes:", len(tables["scene"]))
+                print("[nuscenceDataset] Enumerating segments...")
 
                 t_enumerate = time.time()
                 t_interval_match = 0
@@ -1090,15 +1093,11 @@ class MotionDataset(torch.utils.data.Dataset):
                             })
 
 
-                print("[Dataset DEBUG] Window generation finished")
+                print("[nuscenceDataset DEBUG] Window generation finished")
 
-                print(f"[Dataset DEBUG] Total windows generated: {total_windows}")
-                print(f"[Dataset DEBUG] Windows matched with intervals: {matched_windows}")
-                print(f"[Dataset DEBUG] Final dataset size: {len(self.items)}")
-
-                print(f"[TIME] enumerate_segments total: {time.time() - t_enumerate:.3f}s")
-                print(f"[TIME] interval matching total: {t_interval_match:.3f}s")
-                print(f"[TIME] Dataset init total: {time.time() - t_dataset_total:.3f}s")
+                print(f"[nuscenceDataset DEBUG] Total windows generated: {total_windows}")
+                print(f"[nuscenceDataset DEBUG] Windows matched with intervals: {matched_windows}")
+                print(f"[nuscenceDataset DEBUG] Final dataset size: {len(self.items)}")
 
 
                 if total_windows == 0:
@@ -1111,14 +1110,14 @@ class MotionDataset(torch.utils.data.Dataset):
                         "[Dataset ERROR] No windows matched motion intervals."
                     )
 
-                print("[Dataset DEBUG] Windows per scene (first 10):")
+                print("[nuscenceDataset DEBUG] Windows per scene (first 10):")
                 for i, (k, v) in enumerate(scene_window_counter.items()):
                     if i > 10:
                         break
                     print(f"   {k}: {v}")
             
             else:
-                print("[Dataset INFO] Using default enumerate_segments (no balanced_json_path)")
+                print("[nuscenceDataset INFO] Using default enumerate_segments (no balanced_json_path)")
 
                 scene_channel_sample_data = [
                     (scene, [
@@ -1177,13 +1176,13 @@ class MotionDataset(torch.utils.data.Dataset):
     def __getitem__(self, index: int):
         item = self.items[index]
         if index < 3:
-            print("[Dataset DEBUG] __getitem__ sample")
-            print("   index:", index)
-            print("   scene:", item["scene"])
-            print("   fps:", item["fps"])
-            print("   angle:", item["angle"])
-            print("   dist:", item["dist"])
-            print("   segment length:", len(item["segment"]))
+            print("[nuscencenuscenceDataset DEBUG] __getitem__ sample")
+            print("   nuscenceindex:", index)
+            print("  nuscence scene:", item["scene"])
+            print("  nuscence fps:", item["fps"])
+            print("  nuscence angle:", item["angle"])
+            print("  nuscence dist:", item["dist"])
+            print("  nuscence segment length:", len(item["segment"]))
         scene = MotionDataset.query(
             self.tables, self.indices, "scene", item["scene"])
         segment = [
