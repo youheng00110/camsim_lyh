@@ -2,8 +2,10 @@ import argparse
 import dwm.common
 import json
 import os
+import time
 import torch
 import debugpy
+from tqdm import tqdm
 from dwm.utils.sampler import VariableVideoBatchSampler
 
 
@@ -176,15 +178,43 @@ if __name__ == "__main__":
 
         if ddp:
             # Fixing training data order reduces the accessed objects per rank,
-            # therefore reduces the upper-bound of memory usage comsumed by the
+            # therefore reduces the upper-bound of memory usage consumed by the
             # Python reference counting of objects.
             sampler_epoch = 0 if config.get("fix_training_data_order", False) \
                 else epoch
             training_datasampler.set_epoch(sampler_epoch)
 
-        for batch in training_dataloader:
+        epoch_start_time = time.time()
+        loader = training_dataloader
+
+        if should_log:
+            loader = tqdm(
+                training_dataloader,
+                total=len(training_dataloader),
+                desc="Epoch {}".format(epoch),
+                dynamic_ncols=True,
+                leave=True
+            )
+
+        for batch_idx, batch in enumerate(loader, start=1):
+            step_start_time = time.time()
+
             pipeline.train_step(batch, global_step)
             global_step += 1
+
+            step_time = time.time() - step_start_time
+            elapsed_epoch_time = time.time() - epoch_start_time
+            avg_step_time = elapsed_epoch_time / batch_idx
+            remaining_steps = len(training_dataloader) - batch_idx
+            eta_seconds = avg_step_time * remaining_steps
+
+            if should_log:
+                loader.set_postfix({
+                    "step": global_step,
+                    "step_s": "{:.2f}".format(step_time),
+                    "avg_s": "{:.2f}".format(avg_step_time),
+                    "eta_min": "{:.1f}".format(eta_seconds / 60.0)
+                })
 
             # log
             if global_step % args.log_steps == 0:
@@ -218,7 +248,14 @@ if __name__ == "__main__":
                     validation_dataloader, validation_datasampler)
 
         if should_log:
-            print("Epoch {} done.".format(epoch))
+            epoch_total_time = time.time() - epoch_start_time
+            print(
+                "Epoch {} done. total_time={:.1f} min, avg_step={:.2f} s".format(
+                    epoch,
+                    epoch_total_time / 60.0,
+                    epoch_total_time / len(training_dataloader)
+                )
+            )
 
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()
