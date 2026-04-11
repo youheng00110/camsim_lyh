@@ -1280,12 +1280,12 @@ class MotionDataset(torch.utils.data.Dataset):
         seq = [self.scenes[scene][i] for i in idxs]
         location = seq[0]['location']
         t0 = seq[0][self.timestamp_key]
-        pts = torch.tensor([(x[self.timestamp_key] - t0 + 500) // 1000 for x in seq], dtype=torch.float32)
+        #pts = torch.tensor([(x[self.timestamp_key] - t0 + 500) // 1000 for x in seq], dtype=torch.float32)
 
         # 把匹配到的 angle 和 dist 放入 result
         result = {
             "fps": torch.tensor(float(fps), dtype=torch.float32),
-            "pts": pts,
+            #"pts": pts,
             
         }
 
@@ -1329,7 +1329,6 @@ class MotionDataset(torch.utils.data.Dataset):
         assert camera_intr.shape[-2:] == (3, 3), camera_intr.shape
         result["camera_intrinsics"] = camera_intr
         result["image_size"] = torch.tensor(np.asarray([[[w,h] for (w,h) in row] for row in img_sizes]), dtype=torch.long)
-        result["distortion"] = dists
 
         # ---- 3dbox_images (gt_line) cached
         cached = []
@@ -1774,10 +1773,10 @@ class MotionDataset(torch.utils.data.Dataset):
                 ego_T.append([world_from_ego] * V)
             result["ego_transforms"] = torch.tensor(np.asarray(ego_T), dtype=torch.float32)  # [T,V,4,4]
 
-        if "lidar_transforms" not in result:
-            T = len(seq)
-            I4 = torch.eye(4, dtype=torch.float32)
-            result["lidar_transforms"] = I4.view(1, 1, 4, 4).repeat(T, 1, 1, 1)  # [T,1,4,4]
+        #if "lidar_transforms" not in result:
+         #   T = len(seq)
+          #  I4 = torch.eye(4, dtype=torch.float32)
+           # result["lidar_transforms"] = I4.view(1, 1, 4, 4).repeat(T, 1, 1, 1)  # [T,1,4,4]
             
         dwm.datasets.common.add_stub_key_data(self.stub_key_data_dict, result)
         

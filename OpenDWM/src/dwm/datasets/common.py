@@ -822,15 +822,13 @@ class DatasetAdapter(torch.utils.data.Dataset):
                 image_size_tensor,
             ) = DatasetAdapter.build_size_tensors_from_meta(meta_nested)
 
-            item["image_size_before_resize_crop"] = image_size_before_resize_crop
-            item["image_size_after_crop_before_resize"] = image_size_after_crop_before_resize
             item["image_size"] = image_size_tensor
 
             if "camera_intrinsics" in item:
                 k_src, k_new = DatasetAdapter.update_intrinsics_nested(
                     item["camera_intrinsics"], meta_nested
                 )
-                item["camera_intrinsics_before_resize_crop"] = k_src
+                #item["camera_intrinsics_before_resize_crop"] = k_src
                 item["camera_intrinsics"] = k_new
 
                 if self.enable_geometry_check and not self._geometry_check_done:
@@ -995,7 +993,23 @@ class CollateFnIgnoring():
             (key, [item.pop(key) for item in item_list])
             for key in self.keys
         ]
-        result = torch.utils.data.default_collate(item_list)
+        result = {}
+        keys = item_list[0].keys()
+
+        for k in keys:
+            vlist = [item[k] for item in item_list]
+
+            try:
+                result[k] = torch.utils.data.default_collate(vlist)
+            except Exception as e:
+                print("\n========== COLLATE ERROR ==========")
+                print("key:", k)
+                for i, v in enumerate(vlist):
+                    if isinstance(v, torch.Tensor):
+                        print(f"[{i}] shape={tuple(v.shape)}, dtype={v.dtype}, contig={v.is_contiguous()}")
+                    else:
+                        print(f"[{i}] type={type(v)}")
+                raise 
         for key, value in ignored:
             result[key] = value
 

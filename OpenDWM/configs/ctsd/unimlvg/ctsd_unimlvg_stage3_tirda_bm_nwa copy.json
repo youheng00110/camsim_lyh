@@ -186,7 +186,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/opendwm-models/ctsd_unimlvg_tirda_bm_nwa_60k.pth"
+        "model_checkpoint_path": null
         
     },
     "training_dataset": {
@@ -205,7 +205,7 @@
                     "dataset_root": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_link/plan_data/mini",
                     "map_root": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_link/maps",
 
-                    "sequence_length": 40,
+                    "sequence_length": 20,
                     "fps_stride_tuples": [
                         [10, 1]
                     ],
@@ -246,6 +246,130 @@
                         "crossview_mask": ["content", {
                             "_class_name": "torch.tensor",
                             "data": { "_class_name": "json.loads", "s": "[[1,1,0,0,0,0,0,1],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[0,0,0,0,1,1,1,0],[0,0,0,0,0,1,1,1],[1,0,0,0,0,0,1,1]]" },
+                            "dtype": { "_class_name": "get_class", "class_name": "torch.bool" }
+                        }],
+                    "dataset_tag": [
+                        "content",
+                        {
+                            "_class_name": "torch.tensor",
+                            "data": 0,
+                            "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
+                        }
+                        ]
+                    }
+                },
+                {
+                    "_class_name": "dwm.datasets.nuplan.MotionDataset",
+                    "sensor_root": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_prepo/mini_sensors",
+                    "pkl_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_prepo/mini_infos_train.pkl",
+                    "balanced_json_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_balanced/balanced_windows_metadata.json",
+                    "cache_root": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/newpas/ggearth_files/nuplan-test/mini_cache",
+                    "dataset_root": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_link/plan_data/mini",
+                    "map_root": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_link/maps",
+
+                    "sequence_length": 40,
+                    "fps_stride_tuples": [
+                        [10, 1]
+                    ],
+
+                    "sensor_channels": [
+                        "CAM_L1",
+                        "CAM_L0",
+                        "CAM_F0",
+                        "CAM_R0",
+                        "CAM_R1",
+                        "CAM_F0",
+                        "CAM_L0",
+                        "CAM_R0"
+                    ],
+
+                    "enable_camera_transforms": true,
+                    "enable_ego_transforms": true,
+                    "enable_synchronization_check": true,
+
+                    "_3dbox_image_settings": {},
+                    "hdmap_image_settings": {},
+
+                    "image_description_settings": {
+                        "path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/newpas/ggearth_files/nuplan-test/nuplan_scene.json",
+                        "align_keys": [
+                            "time",
+                            "weather"
+                        ],
+                        "reorder_keys": true,
+                        "drop_rates": {
+                            "environment": 0.04,
+                            "objects": 0.08,
+                            "image_description": 0.16
+                        }
+                    },
+
+                    "stub_key_data_dict": {
+                        "crossview_mask": ["content", {
+                            "_class_name": "torch.tensor",
+                            "data": { "_class_name": "json.loads", "s": "[[1,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]"},
+                            "dtype": { "_class_name": "get_class", "class_name": "torch.bool" }
+                        }],
+                    "dataset_tag": [
+                        "content",
+                        {
+                            "_class_name": "torch.tensor",
+                            "data": 0,
+                            "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
+                        }
+                        ]
+                    }
+                },
+                {
+                    "_class_name": "dwm.datasets.nuplan.MotionDataset",
+                    "sensor_root": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_prepo/mini_sensors",
+                    "pkl_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_prepo/mini_infos_train.pkl",
+                    "balanced_json_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_balanced/balanced_windows_metadata.json",
+                    "cache_root": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/newpas/ggearth_files/nuplan-test/mini_cache",
+                    "dataset_root": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_link/plan_data/mini",
+                    "map_root": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_link/maps",
+
+                    "sequence_length": 40,
+                    "fps_stride_tuples": [
+                        [10, 1]
+                    ],
+
+                    "sensor_channels": [
+                        "CAM_R1",
+                        "CAM_R2",
+                        "CAM_B0",
+                        "CAM_L2",
+                        "CAM_L1",
+                        "CAM_B0",
+                        "CAM_L2",
+                        "CAM_R2"
+                    ],
+
+                    "enable_camera_transforms": true,
+                    "enable_ego_transforms": true,
+                    "enable_synchronization_check": true,
+
+                    "_3dbox_image_settings": {},
+                    "hdmap_image_settings": {},
+
+                    "image_description_settings": {
+                        "path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/newpas/ggearth_files/nuplan-test/nuplan_scene.json",
+                        "align_keys": [
+                            "time",
+                            "weather"
+                        ],
+                        "reorder_keys": true,
+                        "drop_rates": {
+                            "environment": 0.04,
+                            "objects": 0.08,
+                            "image_description": 0.16
+                        }
+                    },
+
+                    "stub_key_data_dict": {
+                        "crossview_mask": ["content", {
+                            "_class_name": "torch.tensor",
+                            "data": { "_class_name": "json.loads", "s": "[[1,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]" },
                             "dtype": { "_class_name": "get_class", "class_name": "torch.bool" }
                         }],
                     "dataset_tag": [
@@ -412,6 +536,7 @@
                         "enable_cached_info": true
                     },
                     "split":"train",
+                    "dataset_root":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link",
                     "index_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_json",
                     "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_balanced/balanced_windows.json",
                     "sequence_length": 40,
@@ -424,13 +549,14 @@
                     "sensor_channels": [
                         "lidar",
                         "cameras/ring_front_left",
+                        "cameras/ring_front_center",
                         "cameras/ring_front_right",
                         "cameras/ring_side_right",
                         "cameras/ring_rear_right",
                         "cameras/ring_rear_left",
                         "cameras/ring_side_left",
-                        "cameras/ring_front_left",
-                        "cameras/ring_front_right"
+                        "cameras/ring_front_center"
+                        
                     ],
                     "enable_camera_transforms": true,
                     "enable_ego_transforms": true,
@@ -458,6 +584,160 @@
                                 "data": {
                                     "_class_name": "json.loads",
                                     "s": "[[1,1,0,0,0,0,1,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[0,0,0,0,1,1,1,0],[1,0,0,0,0,1,1,0],[0,0,0,0,0,0,0,1]]"
+                                },
+                                "dtype": {
+                                    "_class_name": "get_class",
+                                    "class_name": "torch.bool"
+                                }
+                            }
+                        ],
+                        "dataset_tag": [
+                            "content",
+                            {
+                                "_class_name": "torch.tensor",
+                                "data": 3,
+                                "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
+                            }
+                            ]
+                    }
+                },
+                {
+                    "_class_name": "dwm.datasets.argoverse.MotionDataset",
+                    "fs": {
+                        "_class_name": "dwm.fs.dirfs.DirFileSystem",
+                        "fs": {
+                            "_class_name": "dwm.fs.dirfs.DirFileSystem",
+                            "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link"
+                        },
+
+                        "enable_cached_info": true
+                    },
+                    "split":"train",
+                    "dataset_root":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link",
+                    "index_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_json",
+                    "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_balanced/balanced_windows.json",
+                    "sequence_length": 40,
+                    "fps_stride_tuples": [
+                        [
+                            10,
+                            1
+                        ]
+                    ],
+                    "sensor_channels": [
+                        "lidar",
+                        "cameras/ring_front_left",
+                        "cameras/ring_front_center",
+                        "cameras/ring_front_right",
+                        "cameras/ring_rear_right",
+                        "cameras/ring_rear_left",
+                        "cameras/ring_front_left",
+                        "cameras/ring_front_center",
+                        "cameras/ring_front_right"
+                        
+                    ],
+                    "enable_camera_transforms": true,
+                    "enable_ego_transforms": true,
+                    "_3dbox_image_settings": {},
+                    "hdmap_image_settings": {},
+                    "image_description_settings": {
+                        "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_train.json",
+                        "time_list_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_times_train.json",
+                        "align_keys": [
+                            "time",
+                            "weather"
+                        ],
+                        "reorder_keys": true,
+                        "drop_rates": {
+                            "environment": 0.04,
+                            "objects": 0.08,
+                            "image_description": 0.16
+                        }
+                    },
+                    "stub_key_data_dict": {
+                        "crossview_mask": [
+                            "content",
+                            {
+                                "_class_name": "torch.tensor",
+                                "data": {
+                                    "_class_name": "json.loads",
+                                    "s": "[[1,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]"
+                                },
+                                "dtype": {
+                                    "_class_name": "get_class",
+                                    "class_name": "torch.bool"
+                                }
+                            }
+                        ],
+                        "dataset_tag": [
+                            "content",
+                            {
+                                "_class_name": "torch.tensor",
+                                "data": 3,
+                                "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
+                            }
+                            ]
+                    }
+                },
+                {
+                    "_class_name": "dwm.datasets.argoverse.MotionDataset",
+                    "fs": {
+                        "_class_name": "dwm.fs.dirfs.DirFileSystem",
+                        "fs": {
+                            "_class_name": "dwm.fs.dirfs.DirFileSystem",
+                            "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link"
+                        },
+
+                        "enable_cached_info": true
+                    },
+                    "split":"train",
+                    "dataset_root":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_link",
+                    "index_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_json",
+                    "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_balanced/balanced_windows.json",
+                    "sequence_length": 40,
+                    "fps_stride_tuples": [
+                        [
+                            10,
+                            1
+                        ]
+                    ],
+                    "sensor_channels": [
+                        "lidar",
+                        "cameras/ring_side_left",
+                        "cameras/ring_front_center",
+                        "cameras/ring_side_right",
+                        "cameras/ring_rear_right",
+                        "cameras/ring_rear_left",
+                        "cameras/ring_side_left",
+                        "cameras/ring_front_center",
+                        "cameras/ring_side_right"
+                        
+                    ],
+                    "enable_camera_transforms": true,
+                    "enable_ego_transforms": true,
+                    "_3dbox_image_settings": {},
+                    "hdmap_image_settings": {},
+                    "image_description_settings": {
+                        "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_train.json",
+                        "time_list_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_times_train.json",
+                        "align_keys": [
+                            "time",
+                            "weather"
+                        ],
+                        "reorder_keys": true,
+                        "drop_rates": {
+                            "environment": 0.04,
+                            "objects": 0.08,
+                            "image_description": 0.16
+                        }
+                    },
+                    "stub_key_data_dict": {
+                        "crossview_mask": [
+                            "content",
+                            {
+                                "_class_name": "torch.tensor",
+                                "data": {
+                                    "_class_name": "json.loads",
+                                    "s": "[[1,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]"
                                 },
                                 "dtype": {
                                     "_class_name": "get_class",

@@ -166,7 +166,8 @@ class CrossviewTemporalSD():
         latents_shape=None,
     ):
         batch_size, _, view_count = latent_shape[:3]
-        sequence_length = batch["pts"].shape[1]
+        #############原逻辑用pts，但我们的batch里没有pts。故用vae
+        sequence_length = batch["vae_images"].shape[1]
         if do_classifier_free_guidance:
             batch_size *= 2
 

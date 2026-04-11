@@ -11,7 +11,6 @@ src_dir = "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data
 sys.path.append(src_dir)
 # ====== dataset ======
 # 确保导入的是 ArgoDataset (MotionDataset)
-from dwm.fs.dirfs import DirFileSystem
 from dwm.datasets.argoverse import MotionDataset as ArgoDataset
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -68,39 +67,57 @@ def _shape_nested(nested):
 # =========================
 
 def make_base_ds():
-    fs = DirFileSystem(
-        fs=DirFileSystem(
-            path=ARGO2_ROOT
-        ),
-        enable_cached_info=True
-    )
+
+    fs = fsspec.filesystem("file")
+
+    # =========================
+    # 扫描 train + val scenes
+    # =========================
+
+    scene_dirs = []
+
+    for split in ["train", "val"]:
+        split_dir = os.path.join(ARGO2_ROOT, split)
+
+        if not os.path.exists(split_dir):
+            continue
+
+        for scene in os.listdir(split_dir):
+            scene_path = os.path.join(split_dir, scene)
+
+            if os.path.isdir(scene_path):
+                scene_dirs.append(scene_path)
+
+    print("Total scenes found:", len(scene_dirs))
+
+    # =========================
+    # 创建 dataset
+    # =========================
 
     ds = ArgoDataset(
         fs=fs,
         dataset_root=ARGO2_ROOT,
+        scene_dirs=scene_dirs,
 
         sequence_length=20,
-        fps_stride_tuples=[(2, 1)],
+        fps_stride_tuples=[(10, 2)],
 
         sensor_channels=[
-            "lidar",
-            "cameras/ring_front_left",
-            "cameras/ring_front_center",
-            "cameras/ring_front_right",
-            "cameras/ring_side_right",
-            "cameras/ring_rear_right",
-            "cameras/ring_rear_left",
-            "cameras/ring_side_left",
-            "cameras/ring_front_center",
+            "cameras/ring_front_center", "cameras/ring_front_left",
+            "cameras/ring_front_right", "cameras/ring_rear_left",
+            "cameras/ring_rear_right", "cameras/ring_side_left",
+            "cameras/ring_side_right"
         ],
 
         enable_camera_transforms=True,
-        enable_ego_transforms=True,
-
         balanced_json_path=BALANCED_JSON_PATH,
         index_json_path=INDEX_PATH,
         split="train"
     )
+
+    # =========================
+    # Debug
+    # =========================
 
     print("\n========== DATASET DEBUG ==========")
     print("Dataset size:", len(ds))

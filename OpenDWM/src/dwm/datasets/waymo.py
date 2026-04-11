@@ -767,13 +767,13 @@ class MotionDataset(torch.utils.data.Dataset):
             "fps": torch.tensor(item["fps"]).float(),
             # pts: 每一帧相对首帧的时间偏移
             # 这里沿 view 维复制，保证形状和多视角输入对齐
-            "pts": torch.tensor(
-                [
-                    [(i[0] - segment[0][0]) / 1000] * view_count
-                    for i in segment
-                ],
-                dtype=torch.float32
-            ),
+            #"pts": torch.tensor(
+             #   [
+              #      [(i[0] - segment[0][0]) / 1000] * view_count
+               #     for i in segment
+                #],
+                #dtype=torch.float32
+            #),
             # balanced_json 里附带的运动属性
             "angle": torch.tensor(item["angle"]).float(),
             "dist": torch.tensor(item["dist"]).float(),
@@ -893,8 +893,6 @@ class MotionDataset(torch.utils.data.Dataset):
         # 将原始图像与相机参数写回 result
         result["images"] = images
         result["camera_intrinsics"] = torch.stack(intrinsics)
-        result["camera_extrinsics"] = torch.stack(extrinsics)
-        result["camera_names"] = camera_only_channels
 
         # ---------------------------
         # 相机几何相关输出
@@ -961,15 +959,15 @@ class MotionDataset(torch.utils.data.Dataset):
 
             # 如果 result 中存在 lidar_points，则额外构造 lidar_transforms
             # 你当前这版里大多情况下不会进来，因为前面没实际填充 lidar_points
-            if "lidar_points" in result:
-                result["lidar_transforms"] = torch.stack([
-                    torch.stack([
-                        torch.eye(4)
-                        for j in self.sensor_channels
-                        if j.startswith("LIDAR")
-                    ])
-                    for _ in frames
-                ])
+            #if "lidar_points" in result:
+            #    result["lidar_transforms"] = torch.stack([
+            #        torch.stack([
+            #            torch.eye(4)
+            #            for j in self.sensor_channels
+            #            if j.startswith("LIDAR")
+            #        ])
+            #        for _ in frames
+            #    ])
 
         # ---------------------------
         # ego pose 相关输出
@@ -977,13 +975,18 @@ class MotionDataset(torch.utils.data.Dataset):
         if self.enable_ego_transforms:
             # ego_transforms: [T, V, 4, 4]
             # 同一帧下对每个 sensor 复制一份 ego pose，保持维度兼容
+            camera_channels = [
+                s for s in self.sensor_channels
+                if s.startswith("CAM") or s.startswith("cameras")
+            ]
+
             result["ego_transforms"] = torch.stack([
                 torch.stack([
                     torch.tensor(
                         i.pose.transform,
                         dtype=torch.float32
                     ).reshape(4, 4)
-                    for _ in self.sensor_channels
+                    for _ in camera_channels
                 ])
                 for i in frames
             ])

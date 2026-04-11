@@ -719,7 +719,7 @@ class MotionDataset(torch.utils.data.Dataset):
         total_windows = 0
         matched_windows = 0
 
-        OVERLAP_RATIO = 0.9
+        OVERLAP_RATIO = 0.3
 
         for scene_id, csd in scene_channel_sample_data.items():
 
@@ -747,18 +747,22 @@ class MotionDataset(torch.utils.data.Dataset):
                     total_windows += 1
 
                     ts_start = segment[0][0]["timestamp"]
-                    ts_end = segment[-1][0]["timestamp"]
 
-                    window_duration = ts_end - ts_start
+                    if fps > 0:
+                        window_duration = int(self.sequence_length / fps * 1e9)
+                        ts_end = ts_start + window_duration
+                    else:
+                        ts_end = segment[-1][0]["timestamp"]
+                        window_duration = ts_end - ts_start
 
                     matched_interval = None
 
-                    # 👉 只有 use_balance 才做匹配
                     if use_balance:
-                        for interval in scene_intervals:
+                        tolerance_ns = 100_000_000  # 100ms
 
-                            overlap_start = max(ts_start, interval["start_ts"])
-                            overlap_end = min(ts_end, interval["end_ts"])
+                        for interval in scene_intervals:
+                            overlap_start = max(ts_start - tolerance_ns, interval["start_ts"])
+                            overlap_end = min(ts_end + tolerance_ns, interval["end_ts"])
 
                             overlap = overlap_end - overlap_start
 
@@ -832,18 +836,18 @@ class MotionDataset(torch.utils.data.Dataset):
             "fps": torch.tensor(item["fps"], dtype=torch.float32),
             "angle": torch.tensor(item["angle"], dtype=torch.float32),
             "dist": torch.tensor(item["dist"], dtype=torch.float32),
-            "pts": torch.tensor([
-                [
-                    (j["timestamp"] - item["segment"][0][0]["timestamp"])
-                    / 1000000
-                    for j in i
-                    if (
-                        j["sensor"].startswith("cameras") or
-                        (j["sensor"] == "lidar" and not self.hide_lidar)
-                    )
-                ]
-                for i in item["segment"]
-            ], dtype=torch.float32)
+            #"pts": torch.tensor([
+                #[
+                    #(j["timestamp"] - item["segment"][0][0]["timestamp"])
+                    #/ 1000000
+                   # for j in i
+                  #  if (
+                 #       j["sensor"].startswith("cameras") or
+                #        (j["sensor"] == "lidar" and not self.hide_lidar)
+               #     )
+              #  ]
+             #   for i in item["segment"]
+            #], dtype=torch.float32)#
         }
 
         images, lidar_points = [], []
@@ -973,8 +977,8 @@ class MotionDataset(torch.utils.data.Dataset):
                         poses, "timestamp_ns", j["timestamp"], "pt")
                     for j in i
                     if (
-                        j["sensor"].startswith("cameras") or
-                        (j["sensor"] == "lidar" and not self.hide_lidar)
+                        j["sensor"].startswith("cameras") #or
+                        #(j["sensor"] == "lidar" and not self.hide_lidar)
                     )
                 ])
                 for i in item["segment"]

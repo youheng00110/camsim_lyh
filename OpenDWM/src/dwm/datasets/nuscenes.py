@@ -1205,13 +1205,13 @@ class MotionDataset(torch.utils.data.Dataset):
             result["dist"] = torch.tensor(item["dist"], dtype=torch.float32)
 
 
-        result["pts"] = torch.tensor([
-            [
-                (j["timestamp"] - segment[0][0]["timestamp"] + 500) // 1000
-                for j in i
-            ]
-            for i in segment
-        ], dtype=torch.float32)
+       # result["pts"] = torch.tensor([
+       #     [
+       #         (j["timestamp"] - segment[0][0]["timestamp"] + 500) // 1000
+       #         for j in i
+       #     ]
+       #     for i in segment
+       # ], dtype=torch.float32)
         images, lidar_points = [], []
         for i in segment:
             images_i, lidar_points_i = self.get_images_and_lidar_points(
@@ -1267,29 +1267,29 @@ class MotionDataset(torch.utils.data.Dataset):
                     for i in segment
                 ])
 
-            if "lidar_points" in result:
-                result["lidar_transforms"] = torch.stack([
-                    torch.stack([
-                        MotionDataset.get_transform(
-                            self.tables, self.indices, "calibrated_sensor",
-                            j["calibrated_sensor_token"], "pt")
-                        for j in i
-                        if MotionDataset.check_sensor(
-                            self.tables, self.indices, j, modality="lidar")
-                    ])
-                    for i in segment
-                ])
-
+        #    if "lidar_points" in result:
+        #        result["lidar_transforms"] = torch.stack([
+        #            torch.stack([
+        #                MotionDataset.get_transform(
+        #                    self.tables, self.indices, "calibrated_sensor",
+        #                    j["calibrated_sensor_token"], "pt")
+        #                for j in i
+        #                if MotionDataset.check_sensor(
+        #                    self.tables, self.indices, j, modality="lidar")
+        #            ])
+        #            for i in segment
+        #        ])
         if self.enable_ego_transforms:
             result["ego_transforms"] = torch.stack([
                 torch.stack([
                     dwm.datasets.common.get_transform(
                         j["rotation"], j["translation"], "pt")
-                    for j in i
+                    for j, s in zip(i, self.sensor_channels)
+                    if s != "LIDAR_TOP"
                 ])
                 for i in segment
             ])
-
+            
         if self._3dbox_image_settings is not None:
             result["3dbox_images"] = [
                 [
