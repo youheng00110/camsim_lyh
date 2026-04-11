@@ -949,7 +949,7 @@ class DatasetAdapter(torch.utils.data.Dataset):
                 if i in item:
                     item.pop(i)
 
-        print("DEBUG final item keys:", item.keys())
+        #print("DEBUG final item keys:", item.keys())
         return item
 
 

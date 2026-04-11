@@ -690,15 +690,11 @@ class MotionDataset(torch.utils.data.Dataset):
         print(f"[avrgoDataset] Total scenes: {len(scene_channel_sample_data)}")
 
         example_scene = list(scene_channel_sample_data.keys())[0]
-        print(f"[avrgoDataset] Example scene: {example_scene}")
+        #print(f"[avrgoDataset] Example scene: {example_scene}")
 
-        for i, ch in enumerate(self.sensor_channels):
-            print(
-                f"Channel {ch} frame count:",
-                len(scene_channel_sample_data[example_scene][i])
-            )
+        #
 
-        print("================avrgo=======================\n")
+        #print("================avrgo=======================\n")
 
         if use_balance:
             print("\n==========avrgo BALANCED JSON DEBUG ==========")
@@ -710,7 +706,7 @@ class MotionDataset(torch.utils.data.Dataset):
                     print(f"  {k}: {v}")
 
             print("[Dataset] Interval scenes:", len(self.motion_intervals_by_scene))
-            print("==================avrgo=======================\n")
+            #print("==================avrgo=======================\n")
 
         ####### 构建 items ########
 
@@ -825,13 +821,13 @@ class MotionDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index: int):
         item = self.items[index]
-        if index == 0:
-            print("\n==========avrgo GETITEM DEBUG ==========")
-            print("Scene:", item["scene_id"])
-            print("Segment length:", len(item["segment"]))
-            print("FPS:", item["fps"])
-            print("Angle:", item["angle"])
-            print("Dist:", item["dist"])
+        #if index == 0:
+        #    print("\n==========avrgo GETITEM DEBUG ==========")
+        #    print("Scene:", item["scene_id"])
+        #    print("Segment length:", len(item["segment"]))
+        #    print("FPS:", item["fps"])
+        #    print("Angle:", item["angle"])
+        #   print("Dist:", item["dist"])
         result = {
             "fps": torch.tensor(item["fps"], dtype=torch.float32),
             "angle": torch.tensor(item["angle"], dtype=torch.float32),
@@ -1161,8 +1157,4 @@ class MotionDataset(torch.utils.data.Dataset):
             ]
 
         dwm.datasets.common.add_stub_key_data(self.stub_key_data_dict, result)
-        if index == 0:
-            print("Keys in result:")
-            print(result.keys())
-            print("===================================\n")
         return result

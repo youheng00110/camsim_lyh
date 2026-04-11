@@ -607,7 +607,7 @@ class MotionDataset(torch.utils.data.Dataset):
                     self.motion_intervals_by_scene[scene] = []
                 self.motion_intervals_by_scene[scene].append(interval)
 
-            print("[waymoDataset] Interval scenes:", len(self.motion_intervals_by_scene))
+            #print("[waymoDataset] Interval scenes:", len(self.motion_intervals_by_scene))
 
         else:
             print("[waymoDataset] No balanced_json → no filtering")
@@ -695,7 +695,7 @@ class MotionDataset(torch.utils.data.Dataset):
         # 4️⃣ stats
         # ===============================
 
-        print("waymo[Dataset] Window enumeration finished")
+        #print("waymo[Dataset] Window enumeration finished")
         print("waymoTotal windows:", total_windows)
 
         if use_balance:
@@ -704,9 +704,9 @@ class MotionDataset(torch.utils.data.Dataset):
             print("waymoNo filtering → using all windows")
 
         print("waymoFinal dataset size:", len(self.items))
-        if len(self.items) > 0:
-            print("[waymoDataset DEBUG] Example item:")
-            print(self.items[0])
+        #if len(self.items) > 0:
+         #   print("[waymoDataset DEBUG] Example item:")
+          #  print(self.items[0])
 
         # 👉 最终封装（只保留这个）
         self.items = dwm.common.SerializedReadonlyList(self.items)

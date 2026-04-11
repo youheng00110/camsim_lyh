@@ -18,7 +18,7 @@
             "device_type": "cuda",
             "mesh_shape": [
                 1,
-                1
+                2
             ]
         }
     },
@@ -1150,9 +1150,9 @@
         ]
     },
     "training_dataloader": {
-        "batch_size": 2,
-        "num_workers": 1,
-        "prefetch_factor": 3,
+        "batch_size": 1,
+        "num_workers": 2,
+        "prefetch_factor": 1,
         "collate_fn": {
             "_class_name": "dwm.datasets.common.CollateFnIgnoring",
             "keys": [
