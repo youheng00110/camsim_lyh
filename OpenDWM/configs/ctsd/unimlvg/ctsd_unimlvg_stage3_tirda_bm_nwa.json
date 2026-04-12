@@ -207,7 +207,7 @@
 
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [10, 1]
+                        [2,2.5,0.39],[6,2,0.5]
                     ],
 
                     "sensor_channels": [
@@ -269,7 +269,7 @@
 
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [10, 1]
+                        [6,2,0.5],[10,3,0.9]
                     ],
 
                     "sensor_channels": [
@@ -331,7 +331,7 @@
 
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [10, 1]
+                        [6, 2,0.5],[2,2.5,0.39]
                     ],
 
                     "sensor_channels": [
@@ -393,10 +393,7 @@
                     "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_train_balanced/balanced_windows_metadata.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [
-                            10,
-                            1
-                        ]
+                        [10,3,0.9],[6,2,0.95],[2,2,0.39]
                     ],
                     "sensor_channels": [
                         "LIDAR_TOP",
@@ -465,10 +462,7 @@
                     "info_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/waymo_balanced/training.info.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [
-                            10,
-                            1
-                        ]
+                        [10,3,0.91],[6,2,0.95],[2,2.5,0.39]
                     ],
                     "sensor_channels": [
                         "LIDAR_TOP",
@@ -541,10 +535,7 @@
                     "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_balanced/balanced_windows.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [
-                            10,
-                            2
-                        ]
+                        [6,2,0.95],[2,1.5,0.39]
                     ],
                     "sensor_channels": [
                         "lidar",
@@ -618,10 +609,7 @@
                     "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_balanced/balanced_windows.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [
-                            10,
-                            2
-                        ]
+                        [10,3,0.9],[6,2,0.95]
                     ],
                     "sensor_channels": [
                         "lidar",
@@ -695,10 +683,7 @@
                     "balanced_json_path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/avrgo2_balanced/balanced_windows.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [
-                            10,
-                            2
-                        ]
+                        [6,2,0.95],[2,1.5,0.39]
                     ],
                     "sensor_channels": [
                         "lidar",

@@ -67,9 +67,9 @@ def make_base_ds():
         # 【修改点1】：sequence_length。
         # 你的 json 是以 window (片段) 为单位的，这里的 sequence_length 应该和你希望提取的帧数一致。
         # 如果长度不固定，底层需要处理 padding，或者在这里设为 None/最大值。
-        sequence_length=48, 
+        sequence_length=20, 
         
-        fps_stride_tuples=[(12, 1)],
+        fps_stride_tuples=[(6,2,0.95)],
         
         # 【修改点2】：NuScenes 只有 6 个相机！(之前 NuPlan 是 8 个)
         sensor_channels=['CAM_FRONT', 'CAM_FRONT_RIGHT', 'CAM_BACK_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_FRONT_LEFT'],

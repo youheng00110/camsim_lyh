@@ -708,14 +708,14 @@ class MotionDataset(torch.utils.data.Dataset):
             print("[Dataset] Interval scenes:", len(self.motion_intervals_by_scene))
             #print("==================avrgo=======================\n")
 
-        ####### 构建 items ########
+                ####### 构建 items ########
 
         items = []
 
         total_windows = 0
         matched_windows = 0
 
-        OVERLAP_RATIO = 0.3
+        DEFAULT_OVERLAP_RATIO = 0.39
 
         for scene_id, csd in scene_channel_sample_data.items():
 
@@ -730,7 +730,18 @@ class MotionDataset(torch.utils.data.Dataset):
 
             scene_intervals = self.motion_intervals_by_scene.get(scene_id, [])
 
-            for fps, stride in self.fps_stride_tuples:
+            for fps_stride_cfg in self.fps_stride_tuples:
+                if len(fps_stride_cfg) == 2:
+                    fps, stride = fps_stride_cfg
+                    overlap_ratio = DEFAULT_OVERLAP_RATIO
+                elif len(fps_stride_cfg) == 3:
+                    fps, stride, overlap_ratio = fps_stride_cfg
+                else:
+                    raise ValueError(
+                        "Each item in fps_stride_tuples must be "
+                        "(fps, stride) or (fps, stride, overlap_ratio), "
+                        f"but got: {fps_stride_cfg}"
+                    )
 
                 for segment in MotionDataset.enumerate_segments(
                     csd,
@@ -754,7 +765,7 @@ class MotionDataset(torch.utils.data.Dataset):
                     matched_interval = None
 
                     if use_balance:
-                        tolerance_ns = 100_000_000  # 100ms
+                        tolerance_ns = 50_000_000  # 50ms
 
                         for interval in scene_intervals:
                             overlap_start = max(ts_start - tolerance_ns, interval["start_ts"])
@@ -765,7 +776,7 @@ class MotionDataset(torch.utils.data.Dataset):
                             if overlap <= 0:
                                 continue
 
-                            if overlap >= OVERLAP_RATIO * window_duration:
+                            if overlap >= overlap_ratio * window_duration:
                                 matched_interval = interval
                                 break
 
@@ -780,7 +791,9 @@ class MotionDataset(torch.utils.data.Dataset):
                         "scene_id": scene_id,
                         "split": scene_split_dict[scene_id],
 
-                        # 👉 核心：无 balance 给默认值
+                        # 可选：调试时保留
+                        # "overlap_ratio": overlap_ratio,
+
                         "angle": matched_interval["angle"] if use_balance else 0.0,
                         "dist": matched_interval["dist"] if use_balance else 0.0,
                     })

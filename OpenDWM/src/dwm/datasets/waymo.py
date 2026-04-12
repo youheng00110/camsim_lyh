@@ -570,8 +570,19 @@ class MotionDataset(torch.utils.data.Dataset):
         # 1️⃣ 读取 info_dict
         # ===============================
 
-        with open(info_dict_path, 'r') as f:
-            self.sample_info_dict = json.load(f)
+        with open(info_dict_path, "r") as f:
+            raw_sample_info_dict = json.load(f)
+
+        self.sample_info_dict = {
+            scene_id: sorted(sample_list, key=lambda x: x[0])
+            for scene_id, sample_list in raw_sample_info_dict.items()
+        }
+
+        self.sample_info_lookup = dwm.common.SerializedReadonlyDict({
+            f"{scene_id};{sample_info[0]}": sample_info
+            for scene_id, sample_list in self.sample_info_dict.items()
+            for sample_info in sample_list
+        })
 
         # ===============================
         # 2️⃣ balanced_json（可选）
@@ -612,7 +623,6 @@ class MotionDataset(torch.utils.data.Dataset):
         else:
             print("[waymoDataset] No balanced_json → no filtering")
             self.motion_intervals_by_scene = {}
-
         # ===============================
         # 3️⃣ enumerate windows
         # ===============================
@@ -620,48 +630,58 @@ class MotionDataset(torch.utils.data.Dataset):
         total_windows = 0
         matched_windows = 0
 
-        OVERLAP_RATIO = 0.8
+        DEFAULT_OVERLAP_RATIO = 0.8
 
         for scene_id, sample_list in self.sample_info_dict.items():
 
-            # 👉 只有用 balance 才过滤 scene
             if use_balance and scene_id not in self.motion_intervals_by_scene:
                 continue
 
-            # 👉 强烈建议排序（防止 timestamp 乱）
-            sample_list = sorted(sample_list, key=lambda x: x[0])
-
             scene_intervals = self.motion_intervals_by_scene.get(scene_id, [])
 
-            timestamps = [i[0] for i in sample_list]
+            for fps_stride_cfg in self.fps_stride_tuples:
+                if len(fps_stride_cfg) == 2:
+                    fps, stride = fps_stride_cfg
+                    overlap_ratio = DEFAULT_OVERLAP_RATIO
+                elif len(fps_stride_cfg) == 3:
+                    fps, stride, overlap_ratio = fps_stride_cfg
+                else:
+                    raise ValueError(
+                        "Each item in fps_stride_tuples must be "
+                        "(fps, stride) or (fps, stride, overlap_ratio), "
+                        f"but got: {fps_stride_cfg}"
+                    )
 
-            for fps, stride_sec in self.fps_stride_tuples:
+                if not (0.0 <= overlap_ratio <= 1.0):
+                    raise ValueError(
+                        f"overlap_ratio must be in [0, 1], got: {overlap_ratio}"
+                    )
 
-                stride = int(stride_sec * fps)
-                if stride <= 0:
-                    stride = 1
-
-                for start_idx in range(
-                    0,
-                    len(sample_list) - self.sequence_length + 1,
+                # 这里保持原版语义：
+                # fps > 0 时，stride 就是“相邻 clip 起点间隔的秒数”
+                # 不要再乘 fps
+                for segment in MotionDataset.enumerate_segments(
+                    sample_list,
+                    self.sequence_length,
+                    fps,
                     stride
                 ):
-
-                    end_idx = start_idx + self.sequence_length
-
-                    window_ts_start = timestamps[start_idx]
-                    window_ts_end = timestamps[end_idx - 1]
-
-                    window_duration = window_ts_end - window_ts_start
+                    if len(segment) == 0:
+                        continue
 
                     total_windows += 1
 
+                    window_ts_start = segment[0]
+                    window_ts_end = segment[-1]
+                    window_duration = window_ts_end - window_ts_start
+
+                    if window_duration <= 0:
+                        continue
+
                     matched_interval = None
 
-                    # 👉 只有 use_balance 才匹配
                     if use_balance:
                         for interval in scene_intervals:
-
                             overlap_start = max(window_ts_start, interval["start_ts"])
                             overlap_end = min(window_ts_end, interval["end_ts"])
 
@@ -670,7 +690,7 @@ class MotionDataset(torch.utils.data.Dataset):
                             if overlap <= 0:
                                 continue
 
-                            if overlap >= OVERLAP_RATIO * window_duration:
+                            if overlap >= overlap_ratio * window_duration:
                                 matched_interval = interval
                                 break
 
@@ -681,16 +701,12 @@ class MotionDataset(torch.utils.data.Dataset):
 
                     self.items.append({
                         "scene": scene_id,
-                        "start_idx": start_idx,
-                        "end_idx": end_idx,
+                        "segment": segment,
                         "fps": fps,
-                        "split": split,   
-
-                        # 👉 核心兼容
+                        "split": split,
                         "angle": matched_interval["angle"] if use_balance else 0.0,
-                        "dist": matched_interval["dist"] if use_balance else 0.0
+                        "dist": matched_interval["dist"] if use_balance else 0.0,
                     })
-
         # ===============================
         # 4️⃣ stats
         # ===============================
@@ -748,11 +764,17 @@ class MotionDataset(torch.utils.data.Dataset):
                 "sample_info_dict not initialized. Check __init__ logic."
             )
 
-        # 取出该 scene 的全部帧信息
         all_frames = self.sample_info_dict[scene_id]
-        # 按当前 window 的 start_idx / end_idx 截取出本次要读取的 segment
-        # 注意 Python 切片是左闭右开
-        segment = all_frames[item["start_idx"]: item["end_idx"]]
+
+        segment = [
+            self.sample_info_lookup[f"{scene_id};{ts}"]
+            for ts in item["segment"]
+        ]
+
+        if len(segment) == 0:
+            raise ValueError(
+                f"No frames found for scene={scene_id}, segment={item['segment']}"
+            )
 
         # 防御性检查：当前窗口不能为空
         if len(segment) == 0:

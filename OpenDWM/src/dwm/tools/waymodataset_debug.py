@@ -101,9 +101,9 @@ def make_base_ds():
 
         dataset_root=WAYMO_ROOT,
 
-        sequence_length=40,
+        sequence_length=20,
 
-        fps_stride_tuples=[(12, 1)],
+        fps_stride_tuples=[(6, 2,0.91)],
 
         sensor_channels=[
             "CAM_FRONT",

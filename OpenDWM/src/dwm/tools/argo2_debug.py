@@ -80,7 +80,7 @@ def make_base_ds():
         dataset_root=ARGO2_ROOT,
 
         sequence_length=20,
-        fps_stride_tuples=[(2, 1)],
+        fps_stride_tuples=[(10,3,0.95)],
 
         sensor_channels=[
             "lidar",

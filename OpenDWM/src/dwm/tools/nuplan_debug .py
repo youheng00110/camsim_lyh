@@ -8,7 +8,7 @@ import sys
 src_dir = "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/src"
 sys.path.append(src_dir)
 # ========= nuplanDataset =========
-from dwm.datasets.nuplan import NuPlanDataset
+from dwm.datasets.nuplan import MotionDataset
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -53,15 +53,15 @@ def _shape_nested(nested):
 
 def make_base_ds(train=False):
     data_pkl = train_data_pkl if train else val_data_pkl
-    return NuPlanDataset(
+    return MotionDataset(
         sensor_root="/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_prepo/mini_sensorss",
         pkl_path=data_pkl,
         balanced_json_path=BALANCED_JSON_PATH,
         cache_root='/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/newpas/ggearth_files/nuplan-test/mini_cache',
         dataset_root='/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_link/plan_data/mini',
         map_root='/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_link/maps',
-        sequence_length=40,
-        fps_stride_tuples=[(10, 1)],
+        sequence_length=20,
+        fps_stride_tuples=[(6, 2,0.5)],
         sensor_channels=['CAM_L1','CAM_L0','CAM_F0','CAM_R0','CAM_R1','CAM_R2','CAM_B0','CAM_L2'],
         enable_synchronization_check=True,
         stub_key_data_dict={
@@ -79,7 +79,7 @@ def make_base_ds(train=False):
             ]
         },
         image_description_settings={
-        "path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/dataset/nuscenes/nuscenes_v1.0-trainval_caption_v2_train.json",
+        "path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/newpas/ggearth_files/nuplan-test/nuplan_scene.json",
         "align_keys": [
             "time",
             "weather"

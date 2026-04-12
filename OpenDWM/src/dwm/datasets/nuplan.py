@@ -521,7 +521,45 @@ class MotionDataset(torch.utils.data.Dataset):
         self.map_factory = NuPlanMapFactory(get_maps_db(map_root=map_root, map_version=map_version))
 
         self.sequence_length = int(sequence_length)
-        self.fps_stride_tuples = list(fps_stride_tuples)
+
+        DEFAULT_OVERLAP_RATIO = 0.75
+
+        self.fps_stride_tuples = []
+        self.overlap_ratio_by_cfg = {}
+        self.overlap_ratio_by_fps = {}
+
+        for fps_stride_cfg in fps_stride_tuples:
+            if len(fps_stride_cfg) == 2:
+                fps, stride = fps_stride_cfg
+                overlap_ratio = DEFAULT_OVERLAP_RATIO
+            elif len(fps_stride_cfg) == 3:
+                fps, stride, overlap_ratio = fps_stride_cfg
+            else:
+                raise ValueError(
+                    "Each item in fps_stride_tuples must be "
+                    "(fps, stride) or (fps, stride, overlap_ratio), "
+                    f"but got: {fps_stride_cfg}"
+                )
+
+            if not (0.0 <= overlap_ratio <= 1.0):
+                raise ValueError(
+                    f"overlap_ratio must be in [0, 1], got: {overlap_ratio}"
+                )
+
+            # 给 _build_items() 用：始终保持二元组
+            self.fps_stride_tuples.append((fps, stride))
+
+            # 给 __init__ 里的 interval matching 用
+            self.overlap_ratio_by_cfg[(fps, stride)] = overlap_ratio
+
+            if fps not in self.overlap_ratio_by_fps:
+                self.overlap_ratio_by_fps[fps] = overlap_ratio
+            elif self.overlap_ratio_by_fps[fps] != overlap_ratio:
+                print(
+                    f"[nuplan WARN] fps={fps} has multiple overlap ratios across tuples. "
+                    "If raw_items do not store stride, matching will fall back to fps-only."
+                )
+
         self.sensor_channels = list(sensor_channels)
         self.scene_key = scene_key
         self.timestamp_key = timestamp_key
@@ -603,7 +641,10 @@ class MotionDataset(torch.utils.data.Dataset):
             for e in raw_intervals:
                 interval_map.setdefault(e["seq_id"], []).append(e)
 
-            OVERLAP_RATIO = 0.75
+            DEFAULT_OVERLAP_RATIO = 0.75
+            ratio_by_cfg = self.overlap_ratio_by_cfg
+            ratio_by_fps = self.overlap_ratio_by_fps
+
             matched_items = []
 
             for item in tqdm(raw_items, desc="Interval Matching"):
@@ -615,29 +656,53 @@ class MotionDataset(torch.utils.data.Dataset):
 
                 idxs = item["indices"]
 
+                if len(idxs) == 0:
+                    continue
+
                 win_start = idxs[0]
-                win_end   = idxs[-1]
-                win_len   = win_end - win_start + 1
+                win_end = idxs[-1]
+                win_len = win_end - win_start + 1
 
                 if win_len <= 0:
                     continue
 
+                item_fps = item.get("fps", None)
+                item_stride = item.get("stride", None)
+
+                if (
+                    item_fps is not None and
+                    item_stride is not None and
+                    (item_fps, item_stride) in ratio_by_cfg
+                ):
+                    overlap_ratio = ratio_by_cfg[(item_fps, item_stride)]
+                elif item_fps is not None and item_fps in ratio_by_fps:
+                    overlap_ratio = ratio_by_fps[item_fps]
+                else:
+                    overlap_ratio = DEFAULT_OVERLAP_RATIO
+
                 for interval in interval_map[scene_id]:
 
                     int_start = interval["start_idx"]
-                    int_end   = interval["end_idx"]
+                    int_end = interval["end_idx"]
 
                     overlap = min(win_end, int_end) - max(win_start, int_start) + 1
 
-                    if overlap > 0 and overlap / win_len >= OVERLAP_RATIO:
+                    if overlap <= 0:
+                        continue
 
-                        item["angle"] = interval["angle"]
-                        item["dist"]  = interval["dist"]
+                    if overlap >= overlap_ratio * win_len:
+                        new_item = dict(item)
+                        new_item["angle"] = interval["angle"]
+                        new_item["dist"] = interval["dist"]
 
-                        matched_items.append(item)
+                        # 可选：调试时保留
+                        # new_item["overlap_ratio"] = overlap_ratio
+
+                        matched_items.append(new_item)
                         break
 
             self.items = matched_items
+
             #print("nuplanDEBUG intervals:", len(raw_intervals))
             #print("nuplanDEBUG interval example:", raw_intervals[0])
             print(

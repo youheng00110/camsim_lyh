@@ -1002,9 +1002,33 @@ class MotionDataset(torch.utils.data.Dataset):
                 matched_windows = 0
                 scene_window_counter = {}
 
+                DEFAULT_OVERLAP_RATIO = 0.9
+
                 for scene, channel_sample_data_list in scene_channel_sample_data:
 
-                    for fps, stride in fps_stride_tuples:
+                    scene_intervals = self.motion_intervals_by_scene.get(scene["token"], [])
+
+                    # 只在 use_balanced 时过滤 scene
+                    if use_balanced and len(scene_intervals) == 0:
+                        continue
+
+                    for fps_stride_cfg in fps_stride_tuples:
+                        if len(fps_stride_cfg) == 2:
+                            fps, stride = fps_stride_cfg
+                            overlap_ratio = DEFAULT_OVERLAP_RATIO
+                        elif len(fps_stride_cfg) == 3:
+                            fps, stride, overlap_ratio = fps_stride_cfg
+                        else:
+                            raise ValueError(
+                                "Each item in fps_stride_tuples must be "
+                                "(fps, stride) or (fps, stride, overlap_ratio), "
+                                f"but got: {fps_stride_cfg}"
+                            )
+
+                        if not (0.0 <= overlap_ratio <= 1.0):
+                            raise ValueError(
+                                f"overlap_ratio must be in [0, 1], got: {overlap_ratio}"
+                            )
 
                         for segment_tokens in MotionDataset.enumerate_segments(
                             channel_sample_data_list,
@@ -1016,47 +1040,47 @@ class MotionDataset(torch.utils.data.Dataset):
 
                             total_windows += 1
 
-                            # 获取window timestamp
                             first_token = segment_tokens[0][0]
                             last_token = segment_tokens[-1][0]
 
                             first_sd = MotionDataset.query(
-                                tables, self.indices, "sample_data", first_token)
-
+                                tables, self.indices, "sample_data", first_token
+                            )
                             last_sd = MotionDataset.query(
-                                tables, self.indices, "sample_data", last_token)
+                                tables, self.indices, "sample_data", last_token
+                            )
 
                             window_start = first_sd["timestamp"]
                             window_end = last_sd["timestamp"]
+                            window_duration = window_end - window_start
 
-                            # ===============================
-                            # interval matching
-                            # ===============================
+                            matched_interval = None
 
                             t_match_start = time.time()
 
-                            scene_intervals = self.motion_intervals_by_scene.get(scene["token"], [])
-                            matched_interval = None
-
-                            window_duration = window_end - window_start
-                            # ===== debug (只打印前5次) =====
                             if total_windows < 5:
-                                print("window duration:", window_duration)
+                                print(
+                                    f"[overlap-debug] cfg={fps_stride_cfg}, "
+                                    f"parsed_ratio={overlap_ratio}, "
+                                    f"window_duration={window_duration}"
+                                )
 
                             for interval in scene_intervals:
-
                                 overlap_start = max(window_start, interval["start_ts"])
                                 overlap_end = min(window_end, interval["end_ts"])
-
                                 overlap = overlap_end - overlap_start
-                                if total_windows < 5:
-                                    if overlap > 0:
-                                        print("overlap:", overlap)
-                                        print("overlap ratio:", overlap / window_duration)
+
                                 if overlap <= 0:
                                     continue
 
-                                if overlap >= 0.9 * window_duration:
+                                if total_windows < 5:
+                                    print(
+                                        f"[overlap-debug] overlap={overlap}, "
+                                        f"ratio={overlap / window_duration:.4f}, "
+                                        f"threshold={overlap_ratio:.4f}"
+                                    )
+
+                                if overlap >= overlap_ratio * window_duration:
                                     matched_interval = interval
                                     break
 
@@ -1132,6 +1156,8 @@ class MotionDataset(torch.utils.data.Dataset):
                         channel_sample_data, self.sequence_length, fps, stride,
                         enable_synchronization_check)
                 ])
+                print(f"[nuscenceDataset INFO] Total scenes: {len(scene_channel_sample_data)}")
+                print(f"[nuscenceDataset INFO] Final dataset size: {len(self.items)}")
             
             if image_description_settings is not None:
                 with open(
@@ -1162,7 +1188,14 @@ class MotionDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index: int):
         item = self.items[index]
-        
+        if index < 3:
+            print("[nuscencenuscenceDataset DEBUG] __getitem__ sample")
+            print("   nuscenceindex:", index)
+            print("  nuscence scene:", item["scene"])
+            print("  nuscence fps:", item["fps"])
+            print("  nuscence angle:", item["angle"])
+            print("  nuscence dist:", item["dist"])
+            print("  nuscence segment length:", len(item["segment"]))
         scene = MotionDataset.query(
             self.tables, self.indices, "scene", item["scene"])
         segment = [
