@@ -16,10 +16,7 @@
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
-            "mesh_shape": [
-                1,
-                2
-            ]
+            "mesh_shape": [1, 2]
         }
     },
     "optimizer": {
@@ -33,7 +30,36 @@
             "cat_condition": true,
             "cond_with_action": false,
             "condition_on_all_frames": true,
-            "explicit_view_modeling": true,
+            "uncondition_image_color": 0.1255,
+            "added_time_ids": "fps_camera_transforms_action",
+            "camera_intrinsic_embedding_indices": [
+                0,
+                4,
+                2,
+                5
+            ],
+            "camera_intrinsic_denom_embedding_indices": [
+                1,
+                1,
+                0,
+                1
+            ],
+            "camera_transform_embedding_indices": [
+                2,
+                6,
+                10,
+                3,
+                7,
+                11
+            ],
+            "camera_ego_sensor_indices": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5
+            ],
             "distribution_framework": "fsdp",
             "ddp_wrapper_settings": {
                 "sharding_strategy": {
@@ -85,6 +111,7 @@
                 }
             },
             "text_encoder_load_args": {
+                "variant": "fp16",
                 "torch_dtype": {
                     "_class_name": "get_class",
                     "class_name": "torch.float16"
@@ -96,36 +123,49 @@
             "text_prompt_condition_ratio": 0.8,
             "3dbox_condition_ratio": 0.8,
             "hdmap_condition_ratio": 0.8,
-            "explicit_view_modeling_ratio": 0.8,
-            "reference_frame_count": 3,
-            "generation_task_ratio": 0.2,
-            "image_generation_ratio": 0.5,
-            "all_reference_visible_ratio": 0.8,
-            "reference_visible_rate": 0.5,
-            "disable_reference_frame_loss": true,
+            "action_condition_mask": 0.8,
+            "image_generation_ratio": 0.1,
+            "reference_frame_scale_std": 0.01,
+            "reference_frame_offset_std": 0.01,
             "enable_grad_scaler": true
         },
         "inference_config": {
-            "guidance_scale": 3,
-            "inference_steps": 50,
+            "scheduler": "dwm.schedulers.temporal_independent.FlowMatchEulerDiscreteScheduler",
+            "guidance_scale": 2,
+            "inference_steps": 35,
             "preview_image_size": [
                 512,
                 288
             ],
             "force_preview_resize":false,
             "generate_frames_for_reference": false,
-            "sequence_length_per_iteration": 40,
-            "reference_frame_count": 3,
+            "sequence_length_per_iteration": 6,
+            "clear_reference_frame_count": 1,
+            "reference_frame_count": 5,
             "autoregression_data_exception_for_take_sequence": [
                 "crossview_mask",
                 "camera_names",
                 "distortion"
-                
-            ],
-            "evaluation_item_count": 480
+            
+            ]
         },
         "model": {
             "_class_name": "dwm.models.crossview_temporal_dit.DiTCrossviewTemporalConditionModel",
+            "dual_attention_layers": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12
+            ],
             "attention_head_dim": 64,
             "caption_projection_dim": 1536,
             "in_channels": 16,
@@ -135,9 +175,12 @@
             "out_channels": 16,
             "patch_size": 2,
             "pooled_projection_dim": 2048,
-            "pos_embed_max_size": 192,
+            "pos_embed_max_size": 384,
+            "qk_norm": "rms_norm",
+            "qk_norm_on_additional_modules": "rms_norm",
             "sample_size": 128,
-            "perspective_modeling_type": "explicit",
+            "perspective_modeling_type": "implicit",
+            "projection_class_embeddings_input_dim": 3328,
             "enable_crossview": true,
             "crossview_attention_type": "rowwise",
             "crossview_block_layers": [
@@ -150,14 +193,20 @@
             ],
             "crossview_gradient_checkpointing": true,
             "enable_temporal": true,
-            "temporal_attention_type": "full",
+            "temporal_attention_type": "pointwise",
             "temporal_block_layers": [
-                1,
-                5,
-                9,
-                13,
-                17,
-                21
+                2,
+                3,
+                6,
+                7,
+                10,
+                11,
+                14,
+                15,
+                18,
+                19,
+                22,
+                23
             ],
             "temporal_gradient_checkpointing": true,
             "mixer_type": "AlphaBlender",
@@ -186,8 +235,21 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/stable-diffusion-3-medium",
-        "model_checkpoint_path": null
-        
+        "model_checkpoint_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/opendwm-models/ctsd_35_df16_tirda_bm_nwao_40k.pth",
+        "model_load_state_args": {
+            "strict": false
+        },
+        "metrics": {
+            "fid": {
+                "_class_name": "torchmetrics.image.fid.FrechetInceptionDistance",
+                "normalize": true
+            },
+            "fvd": {
+                "_class_name": "dwm.metrics.fvd.FrechetVideoDistance",
+                "inception_3d_checkpoint_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/newpas/OpenDWM/externals/TATS/tats/fvd/i3d_pretrained_400.pt",
+                "sequence_count": 16
+            }
+        }
     },
     "training_dataset": {
         "_class_name": "dwm.datasets.common.DatasetAdapter",
@@ -1134,8 +1196,9 @@
             "image_description"
         ]
     },
-    "training_dataloader": {
-        "batch_size": 1,
+
+    "training_dataloader": {        
+        "batch_size": 2,
         "num_workers": 2,
         "prefetch_factor": 1,
         "collate_fn": {
@@ -1173,12 +1236,11 @@
         "persistent_workers": true
     },
     "informations": {
-        "fid": 3.34,
-        "fvd": 18.76,
-        "fvd_on_nusc_by_3_ref_frames": 36.10,
-        "fvd_on_nusc_by_1_ref_frame": 41.41,
-        "fvd_on_nusc_without_ref_frame": 106.01,
-        "total_batch_sizes": 32,
-        "steps": 60000
+        "fid": 13.13,
+        "fvd": 98.39,
+        "fvd_on_nusc_by_1_ref_frames": 42.32,
+        "fvd_on_nusc_without_ref_frame": 89.37,
+        "average_total_batch_sizes": 48,
+        "steps": 40000
     }
 }
