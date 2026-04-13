@@ -20,7 +20,7 @@ def create_parser():
         "-o", "--output-path", type=str, default=None,
         help="The path to save checkpoint files.")
     parser.add_argument(
-        "--log-steps", default=20, type=int,
+        "--log-steps", default=100, type=int,
         help="The step count to print log and update the tensorboard.")
     parser.add_argument(
         "--preview-steps", default=400, type=int,
