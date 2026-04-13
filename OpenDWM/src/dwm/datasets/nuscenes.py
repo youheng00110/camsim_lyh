@@ -2,6 +2,7 @@ import dwm.common
 import dwm.datasets.common
 import dwm.datasets.nuscenes_common
 import einops
+import random
 import fsspec
 import json
 import os
@@ -999,10 +1000,15 @@ class MotionDataset(torch.utils.data.Dataset):
                 t_interval_match = 0
 
                 total_windows = 0
+                matched_windows_before_downsample = 0
                 matched_windows = 0
                 scene_window_counter = {}
 
                 DEFAULT_OVERLAP_RATIO = 0.9
+
+                KEEP_RATIO = 0.25
+                DOWNSAMPLE_SEED = 1234
+                rng = random.Random(DOWNSAMPLE_SEED)
 
                 for scene, channel_sample_data_list in scene_channel_sample_data:
 
@@ -1089,6 +1095,11 @@ class MotionDataset(torch.utils.data.Dataset):
                             if matched_interval is None:
                                 continue
 
+                            matched_windows_before_downsample += 1
+
+                            if rng.random() >= KEEP_RATIO:
+                                continue
+
                             matched_windows += 1
 
                             scene_name = scene["name"]
@@ -1125,7 +1136,7 @@ class MotionDataset(torch.utils.data.Dataset):
                 for i, (k, v) in enumerate(scene_window_counter.items()):
                     if i > 10:
                         break
-                    print(f"   {k}: {v}")
+                    #print(f"   {k}: {v}")
             
             else:
                 print("[nuscenceDataset INFO] Using default enumerate_segments (no balanced_json_path)")
@@ -1188,14 +1199,6 @@ class MotionDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index: int):
         item = self.items[index]
-        if index < 3:
-            print("[nuscencenuscenceDataset DEBUG] __getitem__ sample")
-            print("   nuscenceindex:", index)
-            print("  nuscence scene:", item["scene"])
-            print("  nuscence fps:", item["fps"])
-            print("  nuscence angle:", item["angle"])
-            print("  nuscence dist:", item["dist"])
-            print("  nuscence segment length:", len(item["segment"]))
         scene = MotionDataset.query(
             self.tables, self.indices, "scene", item["scene"])
         segment = [

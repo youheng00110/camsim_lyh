@@ -1758,7 +1758,7 @@ class CrossviewTemporalSD():
     def autoregressive_inference_pipeline(
         self, latent_shape, batch, output_type
     ):
-        total_frame_count = batch["pts"].shape[1]
+        total_frame_count = batch["vae_images"].shape[1]
         diffusion_forcing_mode = (
             "frame_prediction_style" in self.common_config and
             self.common_config["frame_prediction_style"] == "diffusion_forcing"

@@ -3,6 +3,7 @@ import dwm.common
 import dwm.datasets.common
 import dwm.fs.czip
 import json
+import random
 import numpy as np
 from PIL import Image, ImageDraw
 import pyarrow.feather
@@ -685,7 +686,7 @@ class MotionDataset(torch.utils.data.Dataset):
         # DEBUG
         # ===============================
 
-        print("\n========== avrgoSENSOR DATA DEBUG ==========")
+        #print("\n========== avrgoSENSOR DATA DEBUG ==========")
 
         print(f"[avrgoDataset] Total scenes: {len(scene_channel_sample_data)}")
 
@@ -697,25 +698,25 @@ class MotionDataset(torch.utils.data.Dataset):
         #print("================avrgo=======================\n")
 
         if use_balance:
-            print("\n==========avrgo BALANCED JSON DEBUG ==========")
-            print(f"[Dataset] Motion intervals loaded: {len(raw_entries)}")
-
-            if len(raw_entries) > 0:
-                print("[Dataset] Example interval:")
-                for k, v in raw_entries[0].items():
-                    print(f"  {k}: {v}")
-
-            print("[Dataset] Interval scenes:", len(self.motion_intervals_by_scene))
+            #print("\n==========avrgo BALANCED JSON DEBUG ==========")
+            #print(f"[Dataset] Motion intervals loaded: {len(raw_entries)}")
+            #print("[Dataset] Interval scenes:", len(self.motion_intervals_by_scene))
             #print("==================avrgo=======================\n")
 
                 ####### 构建 items ########
 
+
         items = []
 
         total_windows = 0
+        matched_windows_before_downsample = 0
         matched_windows = 0
 
         DEFAULT_OVERLAP_RATIO = 0.39
+
+        KEEP_RATIO = 0.25
+        DOWNSAMPLE_SEED = 1234
+        rng = random.Random(DOWNSAMPLE_SEED)
 
         for scene_id, csd in scene_channel_sample_data.items():
 
@@ -783,6 +784,11 @@ class MotionDataset(torch.utils.data.Dataset):
                         if matched_interval is None:
                             continue
 
+                    matched_windows_before_downsample += 1
+
+                    if rng.random() >= KEEP_RATIO:
+                        continue
+
                     matched_windows += 1
 
                     items.append({
@@ -790,10 +796,6 @@ class MotionDataset(torch.utils.data.Dataset):
                         "fps": fps,
                         "scene_id": scene_id,
                         "split": scene_split_dict[scene_id],
-
-                        # 可选：调试时保留
-                        # "overlap_ratio": overlap_ratio,
-
                         "angle": matched_interval["angle"] if use_balance else 0.0,
                         "dist": matched_interval["dist"] if use_balance else 0.0,
                     })

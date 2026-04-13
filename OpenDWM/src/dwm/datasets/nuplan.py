@@ -2,6 +2,7 @@ import os, json, time, pickle
 import numpy as np
 import torch
 import cv2
+import random
 from tqdm import tqdm
 import dwm.common
 import dwm.datasets.common
@@ -615,18 +616,15 @@ class MotionDataset(torch.utils.data.Dataset):
         #print("nuplanDEBUG example keys:", infos[0].keys())
         self.scenes, self.scene_ts = self._build_scenes(infos)
         #print("nuplanDEBUG scenes:", len(self.scenes))
-
-        for k in list(self.scene_ts.keys())[:3]:
-            print("nuplanscene:", k, "frames:", len(self.scene_ts[k]))
         #print("nuplannuplanDEBUG build_items start")
         #print("nuplansequence_length:", self.sequence_length)
         #print("nuplanfps_stride_tuples:", self.fps_stride_tuples)
         raw_items = self._build_items()
-        print("nuplanDEBUG total raw windows:", len(raw_items))
-        if len(raw_items) > 0:
-            print("nuplanDEBUG example window:", raw_items[0])
-        else:
-            print("nuplanDEBUG: raw_items is EMPTY")
+        #print("nuplanDEBUG total raw windows:", len(raw_items))
+        #if len(raw_items) > 0:
+         #   print("nuplanDEBUG example window:", raw_items[0])
+        #else:
+         #   print("nuplanDEBUG: raw_items is EMPTY")
         
         #####
         ###对已有window进行匹配
@@ -645,7 +643,12 @@ class MotionDataset(torch.utils.data.Dataset):
             ratio_by_cfg = self.overlap_ratio_by_cfg
             ratio_by_fps = self.overlap_ratio_by_fps
 
+            KEEP_RATIO = 0.25
+            DOWNSAMPLE_SEED = 1234
+            rng = random.Random(DOWNSAMPLE_SEED)
+
             matched_items = []
+            matched_before_downsample = 0
 
             for item in tqdm(raw_items, desc="Interval Matching"):
 
@@ -691,24 +694,28 @@ class MotionDataset(torch.utils.data.Dataset):
                         continue
 
                     if overlap >= overlap_ratio * win_len:
+                        matched_before_downsample += 1
+
+                        if rng.random() >= KEEP_RATIO:
+                            break
+
                         new_item = dict(item)
                         new_item["angle"] = interval["angle"]
                         new_item["dist"] = interval["dist"]
-
-                        # 可选：调试时保留
-                        # new_item["overlap_ratio"] = overlap_ratio
 
                         matched_items.append(new_item)
                         break
 
             self.items = matched_items
 
+            print(
+                f"[nuplan Matching] Total windows: {len(raw_items)}, "
+                f"Matched before downsample: {matched_before_downsample}, "
+                f"Final after 1/4 keep: {len(self.items)}"
+            )
             #print("nuplanDEBUG intervals:", len(raw_intervals))
             #print("nuplanDEBUG interval example:", raw_intervals[0])
-            print(
-                f"[nuplanNuPlan Matching] Total windows: {len(raw_items)}, "
-                f"Matched: {len(self.items)}"
-            )
+
             #print("nuplanwindow scene:", raw_items[0]["scene"])
             #print("nuplaninterval seq:", raw_intervals[0]["seq_id"])
 

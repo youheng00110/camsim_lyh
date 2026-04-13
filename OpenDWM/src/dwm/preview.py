@@ -162,7 +162,7 @@ def main():  # ========= 你要的 main 函数 + debug 在这里 =========
             else:
                 print(f"{k}: type={type(v)}")
         print("image_size sample:", batch["image_size"][0, 0, 0])
-        print("K_before:\n", batch["camera_intrinsics_before_resize_crop"][0, 0, 0])
+        #print("K_before:\n", batch["camera_intrinsics_before_resize_crop"][0, 0, 0])
         print("K_after:\n", batch["camera_intrinsics"][0, 0, 0])        
         #############检查crossview#############
         if "crossview_mask" in batch:

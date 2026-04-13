@@ -3,6 +3,7 @@ import dwm.datasets.common
 import dwm.datasets.waymo_common as wc
 import fsspec
 import io
+import random
 import json
 import numpy as np
 from PIL import Image, ImageDraw
@@ -628,9 +629,14 @@ class MotionDataset(torch.utils.data.Dataset):
         # ===============================
 
         total_windows = 0
+        matched_windows_before_downsample = 0
         matched_windows = 0
 
         DEFAULT_OVERLAP_RATIO = 0.8
+
+        KEEP_RATIO = 0.25
+        DOWNSAMPLE_SEED = 1234
+        rng = random.Random(DOWNSAMPLE_SEED)
 
         for scene_id, sample_list in self.sample_info_dict.items():
 
@@ -696,6 +702,11 @@ class MotionDataset(torch.utils.data.Dataset):
 
                         if matched_interval is None:
                             continue
+
+                    matched_windows_before_downsample += 1
+
+                    if rng.random() >= KEEP_RATIO:
+                        continue
 
                     matched_windows += 1
 
