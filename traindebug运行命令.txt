@@ -18,4 +18,4 @@ torchrun \
   -m dwm.train \
   -c /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/nusctest.json \
   -o /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output/train_stage3_8gpu \
-  --log-steps 10
+  --log-steps 100
