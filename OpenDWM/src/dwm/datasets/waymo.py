@@ -595,7 +595,7 @@ class MotionDataset(torch.utils.data.Dataset):
             with open(balanced_json_path, 'r') as f:
                 raw_entries = json.load(f)
 
-            print(f"[waymoDataset] Motion intervals loaded: {len(raw_entries)}")
+            #print(f"[waymoDataset] Motion intervals loaded: {len(raw_entries)}")
 
             self.motion_intervals = []
 
@@ -622,7 +622,7 @@ class MotionDataset(torch.utils.data.Dataset):
             #print("[waymoDataset] Interval scenes:", len(self.motion_intervals_by_scene))
 
         else:
-            print("[waymoDataset] No balanced_json → no filtering")
+            #print("[waymoDataset] No balanced_json → no filtering")
             self.motion_intervals_by_scene = {}
         # ===============================
         # 3️⃣ enumerate windows
@@ -723,14 +723,9 @@ class MotionDataset(torch.utils.data.Dataset):
         # ===============================
 
         #print("waymo[Dataset] Window enumeration finished")
-        print("waymoTotal windows:", total_windows)
+        #print("waymoTotal windows:", total_windows)
 
-        if use_balance:
-            print("waymoMatched windows:", matched_windows)
-        else:
-            print("waymoNo filtering → using all windows")
-
-        print("waymoFinal dataset size:", len(self.items))
+        
         #if len(self.items) > 0:
          #   print("[waymoDataset DEBUG] Example item:")
           #  print(self.items[0])

@@ -588,7 +588,7 @@ class MotionDataset(torch.utils.data.Dataset):
         # 获取所有 JSON 文件
         json_files = glob.glob(os.path.join(index_json_path, "*.json"))
         
-        print(f"[avrgoDataset] Loading metadata from {len(json_files)} JSON files...")
+        
 
         for json_path in tqdm(json_files, desc="Loading Scene JSONs"):
             with open(json_path, 'r') as f:
@@ -655,7 +655,7 @@ class MotionDataset(torch.utils.data.Dataset):
             with open(balanced_json_path, "r") as f:
                 raw_entries = json.load(f)
 
-            print(f"[avrgoDataset] Motion intervals loaded: {len(raw_entries)}")
+            
 
             self.motion_intervals = []
 
@@ -679,7 +679,7 @@ class MotionDataset(torch.utils.data.Dataset):
                 self.motion_intervals_by_scene[scene].append(interval)
 
         else:
-            print("[avrgoDataset] No balanced_json provided → skip filtering")
+            #print("[avrgoDataset] No balanced_json provided → skip filtering")
             self.motion_intervals_by_scene = {}
 
         # ===============================
@@ -688,7 +688,7 @@ class MotionDataset(torch.utils.data.Dataset):
 
         #print("\n========== avrgoSENSOR DATA DEBUG ==========")
 
-        print(f"[avrgoDataset] Total scenes: {len(scene_channel_sample_data)}")
+        #print(f"[avrgoDataset] Total scenes: {len(scene_channel_sample_data)}")
 
         example_scene = list(scene_channel_sample_data.keys())[0]
         #print(f"[avrgoDataset] Example scene: {example_scene}")
@@ -802,14 +802,11 @@ class MotionDataset(torch.utils.data.Dataset):
 
         # ===============================
         # 最终统计
-        # ===============================
+        # ========================3=======
 
-        print(f"[avrgoDataset] Total windows: {total_windows}")
+       # print(f"[avrgoDataset] Total windows: {total_windows}")
 
-        if use_balance:
-            print(f"[avrgoDataset] Matched windows: {matched_windows}")
-        else:
-            print(f"[avrgoDataset] No filtering → using all windows")
+        
 
         
 

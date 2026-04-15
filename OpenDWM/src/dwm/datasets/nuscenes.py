@@ -909,7 +909,7 @@ class MotionDataset(torch.utils.data.Dataset):
                     with self.fs.open(balanced_json_path, 'r') as f:
                         raw_entries = json.load(f)
 
-                print(f"[Dataset DEBUG] NUSSS Loading motion intervals from JSON: {len(raw_entries)} entries")
+                #print(f"[Dataset DEBUG] NUSSS Loading motion intervals from JSON: {len(raw_entries)} entries")
                 #print(f"[TIME] JSON load: {time.time() - t_json:.3f}s")
 
                 # ===============================
@@ -935,7 +935,7 @@ class MotionDataset(torch.utils.data.Dataset):
                         "dist": entry["dist"]
                     })
 
-                print(f"[Dataset DEBUG] Motion intervals loaded: {len(self.motion_intervals)}")
+                #print(f"[Dataset DEBUG] Motion intervals loaded: {len(self.motion_intervals)}")
                 
 
                 if len(self.motion_intervals) == 0:
@@ -1064,12 +1064,6 @@ class MotionDataset(torch.utils.data.Dataset):
 
                             t_match_start = time.time()
 
-                            if total_windows < 5:
-                                print(
-                                    f"[overlap-debug] cfg={fps_stride_cfg}, "
-                                    f"parsed_ratio={overlap_ratio}, "
-                                    f"window_duration={window_duration}"
-                                )
 
                             for interval in scene_intervals:
                                 overlap_start = max(window_start, interval["start_ts"])
@@ -1078,13 +1072,6 @@ class MotionDataset(torch.utils.data.Dataset):
 
                                 if overlap <= 0:
                                     continue
-
-                                if total_windows < 5:
-                                    print(
-                                        f"[overlap-debug] overlap={overlap}, "
-                                        f"ratio={overlap / window_duration:.4f}, "
-                                        f"threshold={overlap_ratio:.4f}"
-                                    )
 
                                 if overlap >= overlap_ratio * window_duration:
                                     matched_interval = interval
@@ -1117,9 +1104,9 @@ class MotionDataset(torch.utils.data.Dataset):
 
 
 
-                print(f"[nuscenceDataset DEBUG] Total windows generated: {total_windows}")
-                print(f"[nuscenceDataset DEBUG] Windows matched with intervals: {matched_windows}")
-                print(f"[nuscenceDataset DEBUG] Final dataset size: {len(self.items)}")
+                #print(f"[nuscenceDataset DEBUG] Total windows generated: {total_windows}")
+                #print(f"[nuscenceDataset DEBUG] Windows matched with intervals: {matched_windows}")
+                #print(f"[nuscenceDataset DEBUG] Final dataset size: {len(self.items)}")
 
 
                 if total_windows == 0:
@@ -1167,8 +1154,8 @@ class MotionDataset(torch.utils.data.Dataset):
                         channel_sample_data, self.sequence_length, fps, stride,
                         enable_synchronization_check)
                 ])
-                print(f"[nuscenceDataset INFO] Total scenes: {len(scene_channel_sample_data)}")
-                print(f"[nuscenceDataset INFO] Final dataset size: {len(self.items)}")
+                #print(f"[nuscenceDataset INFO] Total scenes: {len(scene_channel_sample_data)}")
+                #print(f"[nuscenceDataset INFO] Final dataset size: {len(self.items)}")
             
             if image_description_settings is not None:
                 with open(

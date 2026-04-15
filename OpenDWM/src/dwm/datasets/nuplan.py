@@ -708,11 +708,11 @@ class MotionDataset(torch.utils.data.Dataset):
 
             self.items = matched_items
 
-            print(
-                f"[nuplan Matching] Total windows: {len(raw_items)}, "
-                f"Matched before downsample: {matched_before_downsample}, "
-                f"Final after 1/4 keep: {len(self.items)}"
-            )
+            #print(
+        #        f"[nuplan Matching] Total windows: {len(raw_items)}, "
+        #        f"Matched before downsample: {matched_before_downsample}, "
+        #        f"Final after 1/4 keep: {len(self.items)}"
+        #    )
             #print("nuplanDEBUG intervals:", len(raw_intervals))
             #print("nuplanDEBUG interval example:", raw_intervals[0])
 

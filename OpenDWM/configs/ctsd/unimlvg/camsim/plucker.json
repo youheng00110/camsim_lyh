@@ -24,7 +24,7 @@
         "lr": 6e-5
     },
     "pipeline": {
-        "_class_name": "dwm.pipelines.camsim.CrossviewTemporalSD",
+        "_class_name": "dwm.pipelines.camsimpreview.CrossviewTemporalSD",
         "common_config": {
             "frame_prediction_style": "diffusion_forcing",
             "explicit_view_modeling": true,
