@@ -697,7 +697,7 @@ class MotionDataset(torch.utils.data.Dataset):
 
         #print("================avrgo=======================\n")
 
-        if use_balance:
+        
             #print("\n==========avrgo BALANCED JSON DEBUG ==========")
             #print(f"[Dataset] Motion intervals loaded: {len(raw_entries)}")
             #print("[Dataset] Interval scenes:", len(self.motion_intervals_by_scene))
