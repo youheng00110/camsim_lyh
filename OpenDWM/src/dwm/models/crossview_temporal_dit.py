@@ -76,6 +76,7 @@ def get_rays(
             rays_d: [B*T*V, H, W, 3]
     '''
     ###########检查是否更新内参#####
+    '''
     if not hasattr(get_rays, "_debug_printed"):
         get_rays._debug_printed = False
 
@@ -83,17 +84,17 @@ def get_rays(
         print("=== get_rays check ===")
         print("target_size:", target_size)
         print("camera_intrinsics shape:", camera_intrinsics.shape)
-        print("camera_transforms shape:", camera_transforms.shape)
-
+        print("camera_transforms shape:", camera_transforms.shape)#
         k0 = camera_intrinsics.reshape(-1, 3, 3)[0]
         print("K sample:")
         print(k0)
         print("fx fy cx cy:",
               float(k0[0, 0]),
-              float(k0[1, 1]),
+             float(k0[1, 1]),
               float(k0[0, 2]),
               float(k0[1, 2]))
         get_rays._debug_printed = False
+        '''
     device = camera_transforms.device
     dtype = camera_transforms.dtype
     camera_transforms = camera_transforms.to(dtype=torch.float32)

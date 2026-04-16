@@ -590,7 +590,7 @@ class MotionDataset(torch.utils.data.Dataset):
         
         
 
-        for json_path in tqdm(json_files, desc="Loading Scene JSONs"):
+        for json_path in json_files:
             with open(json_path, 'r') as f:
                 scene_info = json.load(f)
 

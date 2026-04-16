@@ -650,7 +650,7 @@ class MotionDataset(torch.utils.data.Dataset):
             matched_items = []
             matched_before_downsample = 0
 
-            for item in tqdm(raw_items, desc="Interval Matching"):
+            for item in raw_items:
 
                 scene_id = item["scene"]
 
