@@ -1126,7 +1126,6 @@ class MotionDataset(torch.utils.data.Dataset):
                     #print(f"   {k}: {v}")
             
             else:
-                print("[nuscenceDataset INFO] Using default enumerate_segments (no balanced_json_path)")
 
                 scene_channel_sample_data = [
                     (scene, [

@@ -93,7 +93,7 @@ def get_rays(
               float(k0[1, 1]),
               float(k0[0, 2]),
               float(k0[1, 2]))
-        get_rays._debug_printed = True
+        get_rays._debug_printed = False
     device = camera_transforms.device
     dtype = camera_transforms.dtype
     camera_transforms = camera_transforms.to(dtype=torch.float32)
