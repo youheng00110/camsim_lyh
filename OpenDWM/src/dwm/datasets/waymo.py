@@ -634,7 +634,7 @@ class MotionDataset(torch.utils.data.Dataset):
 
         DEFAULT_OVERLAP_RATIO = 0.8
 
-        KEEP_RATIO = 0.25
+        KEEP_RATIO = 0.5
         DOWNSAMPLE_SEED = 1234
         rng = random.Random(DOWNSAMPLE_SEED)
 

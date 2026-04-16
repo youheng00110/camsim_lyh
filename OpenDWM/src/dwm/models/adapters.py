@@ -1,5 +1,6 @@
 import diffusers.models.adapter
 import torch
+import einops
 from typing import Optional
 
 
@@ -58,3 +59,122 @@ class ImageAdapter(torch.nn.Module):
 
             features.append(x_out.view(*base_shape, *x_out.shape[1:]))
         return features if not return_features else features[-1]
+
+def zero_module(module: torch.nn.Module):
+    for parameter in module.parameters():
+        parameter.detach().zero_()
+    return module
+def get_temporal_kernel_size(temporal_downsample_factor: int) -> int:
+    if temporal_downsample_factor % 2 == 0:
+        return temporal_downsample_factor + 1
+    return temporal_downsample_factor
+class TemporalConditionImageAdapter(torch.nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        depth: int,
+        hidden_channels: Optional[int] = None,
+        temporal_downsample_factor: int = 4,
+    ):
+        super().__init__()
+        self.out_channels = int(out_channels)
+        self.depth = int(depth)
+        self.hidden_channels = int(hidden_channels or out_channels)
+        self.temporal_downsample_factor = int(temporal_downsample_factor)
+
+        kernel_t = get_temporal_kernel_size(self.temporal_downsample_factor)
+
+        self.stem = torch.nn.Sequential(
+            torch.nn.Conv3d(
+                in_channels=int(in_channels),
+                out_channels=self.hidden_channels,
+                kernel_size=(1, 3, 3),
+                stride=(1, 1, 1),
+                padding=(0, 1, 1),
+            ),
+            torch.nn.SiLU(),
+            torch.nn.Conv3d(
+                in_channels=self.hidden_channels,
+                out_channels=self.hidden_channels,
+                kernel_size=(1, 3, 3),
+                stride=(1, 1, 1),
+                padding=(0, 1, 1),
+            ),
+            torch.nn.SiLU(),
+        )
+
+        self.temporal = torch.nn.Sequential(
+            torch.nn.Conv3d(
+                in_channels=self.hidden_channels,
+                out_channels=self.hidden_channels,
+                kernel_size=(kernel_t, 1, 1),
+                stride=(self.temporal_downsample_factor, 1, 1),
+                padding=(kernel_t // 2, 0, 0),
+            ),
+            torch.nn.SiLU(),
+        )
+
+        self.projs = torch.nn.ModuleList(
+            [
+                zero_module(
+                    torch.nn.Conv3d(
+                        in_channels=self.hidden_channels,
+                        out_channels=self.out_channels,
+                        kernel_size=(1, 1, 1),
+                        stride=(1, 1, 1),
+                        padding=(0, 0, 0),
+                    )
+                )
+                for _ in range(self.depth)
+            ]
+        )
+    def forward(
+        self,
+        condition_image_tensor: torch.Tensor,
+        target_sequence_length: int,
+        target_patch_size,
+    ):
+        if condition_image_tensor.ndim != 5:
+            raise ValueError(
+                f"condition_image_tensor must be 5D [(B*V), C, T, H, W], "
+                f"but got shape {tuple(condition_image_tensor.shape)}"
+            )
+
+        if len(target_patch_size) != 2:
+            raise ValueError(
+                f"target_patch_size must be (patch_height, patch_width), "
+                f"but got {target_patch_size}"
+            )
+
+        batch_size_total, _, dense_t, _, _ = condition_image_tensor.shape
+        patch_height, patch_width = target_patch_size
+
+        x = torch.nn.functional.adaptive_avg_pool3d(
+            condition_image_tensor,
+            output_size=(dense_t, patch_height, patch_width),
+        )
+
+        x = self.stem(x)
+        x = self.temporal(x)
+
+        if x.shape[2] != target_sequence_length:
+            raise ValueError(
+                f"TemporalConditionImageAdapter got T={x.shape[2]}, "
+                f"expected {target_sequence_length}. "
+                f"dense_t={dense_t}, temporal_downsample_factor={self.temporal_downsample_factor}"
+            )
+
+        outputs = []
+        for proj in self.projs:
+            y = proj(x)
+            y = einops.rearrange(
+                y,
+                "b c t h w -> b (t h w) c",
+                t=target_sequence_length,
+                h=patch_height,
+                w=patch_width,
+            )
+            outputs.append(y)
+
+        return outputs
