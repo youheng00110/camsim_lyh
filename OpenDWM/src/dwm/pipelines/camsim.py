@@ -39,7 +39,7 @@ def test_fn(L,S,T,C,start_timestep,stop_timestep,take_time,frozen_ref_count):
     if frozen_ref_count > 0:
         clean_idx = max_idx
         idx[:frozen_ref_count] = clean_idx
-    print('start_t',idx)
+    #print('start_t',idx)
     base = stop_timestep - take_time * S
     j = torch.arange(L)
     j_eff = torch.clamp(j - C, min=0)
@@ -51,7 +51,7 @@ def test_fn(L,S,T,C,start_timestep,stop_timestep,take_time,frozen_ref_count):
     if frozen_ref_count > 0:
         clean_idx = max_idx
         idx[:frozen_ref_count] = clean_idx
-    print('end_t',idx)
+    #print('end_t',idx)
 
 def ck(name, x):
     if not torch.isfinite(x).all():

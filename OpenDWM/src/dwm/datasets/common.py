@@ -777,28 +777,9 @@ class DatasetAdapter(torch.utils.data.Dataset):
             width = self.default_width
             item = self.base_dataset[idx]
 
-        elif isinstance(index, str):
-            idx_split = index.split("-")
-
-            if len(idx_split) == 4:
-                idx = int(idx_split[0])
-                num_frame = int(idx_split[1])
-                h = int(idx_split[2])
-                w = int(idx_split[3])
-
-                item = self.base_dataset[idx]
-                start_f = random.randint(0, len(item["images"]) - num_frame)
 
         elif isinstance(index, str):
-            idx_split = index.split("-")
-
-            if len(idx_split) != 4:
-                raise ValueError(f"Unexpected string index format: {index}")
-
-            idx = int(idx_split[0])
-            num_frame = int(idx_split[1])
-            height = int(idx_split[2])
-            width = int(idx_split[3])
+            idx, num_frame, height, width = [int(val) for val in index.split("-")]
 
             item = self.base_dataset[idx]
             start_f = random.randint(0, len(item["images"]) - num_frame)

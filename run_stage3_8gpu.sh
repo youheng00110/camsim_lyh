@@ -14,6 +14,6 @@ export PYTHONPATH=$PYTHONPATH:/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108
 torchrun \
   --nproc_per_node=8 \
   -m dwm.train \
-  -c /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/nusctest.json \
-  -o /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output/train_stage3_8gpu \
-  --log-steps 100
+  -c //inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/singlenusctest.json\
+  -o /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output/debug_singlenusc \
+  --log-steps 300
