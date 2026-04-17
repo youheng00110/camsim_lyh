@@ -159,7 +159,7 @@ class VariableVideoBatchSampler(DistributedSampler):
         self.reset()
 
     def __len__(self) -> int:
-        return self.get_num_batch() // dist.get_world_size()
+        return self.get_num_batch()
 
     def group_by_bucket(self) -> dict:
 
@@ -182,6 +182,26 @@ class VariableVideoBatchSampler(DistributedSampler):
         bucket_sample_dict = self.group_by_bucket()
         self._get_num_batch_cached_bucket_sample_dict = bucket_sample_dict
 
+        total_bucket_access = 0
+        for bucket_id, data_list in bucket_sample_dict.items():
+            bs_per_gpu = int(bucket_id.split("-")[-1])
+            n = len(data_list)
+            rem = n % bs_per_gpu
+            if rem:
+                if self.drop_last:
+                    n -= rem
+                else:
+                    n += (bs_per_gpu - rem)
+            total_bucket_access += n // bs_per_gpu
+
+        rem = total_bucket_access % self.num_replicas
+        if rem:
+            if self.drop_last:
+                total_bucket_access -= rem
+            else:
+                total_bucket_access += (self.num_replicas - rem)
+
+        self.approximate_num_batch = total_bucket_access // self.num_replicas
         return self.approximate_num_batch
 
     def reset(self):

@@ -140,7 +140,9 @@
             "autoregression_data_exception_for_take_sequence": [
                 "crossview_mask",
                 "camera_names",
-                "distortion"
+                "distortion",
+                "angle",
+                "dist"
             
             ]
         },
@@ -711,23 +713,23 @@
         ]
     },
     "mix_config": {             
-        "256-448": [
+        "288-512": [
             1.0,
             [
                 [
-                    17,
+                    15,
                     1,
-                    0.4
+                    0.3
                 ],                
                 [
-                    21,
+                    17,
                     1,
-                    0.4
+                    0.3
                 ],
                 [
-                    25,
+                    20,
                     1,
-                    0.2
+                    0.4
                 ]
                 
             ]

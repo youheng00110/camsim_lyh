@@ -778,17 +778,53 @@ class DatasetAdapter(torch.utils.data.Dataset):
             item = self.base_dataset[idx]
 
         elif isinstance(index, str):
-            idx, num_frame, height, width = [
-                int(val) for val in index.split("-")
-            ]
-            item = self.base_dataset[idx]
+            idx_split = index.split("-")
 
+            if len(idx_split) == 4:
+                idx = int(idx_split[0])
+                num_frame = int(idx_split[1])
+                h = int(idx_split[2])
+                w = int(idx_split[3])
+
+                item = self.base_dataset[idx]
+                start_f = random.randint(0, len(item["images"]) - num_frame)
+
+        elif isinstance(index, str):
+            idx_split = index.split("-")
+
+            if len(idx_split) != 4:
+                raise ValueError(f"Unexpected string index format: {index}")
+
+            idx = int(idx_split[0])
+            num_frame = int(idx_split[1])
+            height = int(idx_split[2])
+            width = int(idx_split[3])
+
+            item = self.base_dataset[idx]
             start_f = random.randint(0, len(item["images"]) - num_frame)
 
+            new_item = {}
+
             for k, v in item.items():
-                if k != "fps" and k != "crossview_mask":
-                    v = v[start_f:start_f + num_frame]
-                item[k] = v
+                if k == "fps" or k == "crossview_mask":
+                    new_item[k] = v
+                    continue
+
+                if isinstance(v, torch.Tensor) and v.ndim == 0:
+                    new_item[k] = v
+                    continue
+
+                if isinstance(v, np.ndarray) and v.ndim == 0:
+                    new_item[k] = v
+                    continue
+
+                if isinstance(v, int) or isinstance(v, float) or isinstance(v, bool) or isinstance(v, str):
+                    new_item[k] = v
+                    continue
+
+                new_item[k] = v[start_f:start_f + num_frame]
+
+            item = new_item
 
         else:
             raise TypeError(f"Unsupported index type: {type(index)}")

@@ -1176,10 +1176,12 @@ class MotionDataset(torch.utils.data.Dataset):
                             enable_synchronization_check
                         ):
                             self.items.append({
-                                "segment": segment,
-                                "fps": fps,
-                                "scene": scene["token"]
-                            })
+                            "segment": segment,
+                            "fps": fps,
+                            "scene": scene["token"],
+                            "angle": 0.0,
+                            "dist": 0.0
+                        })
 
                 self.items = dwm.common.SerializedReadonlyList(self.items)
                 #print(f"[nuscenceDataset INFO] Total scenes: {len(scene_channel_sample_data)}")
@@ -1226,15 +1228,13 @@ class MotionDataset(torch.utils.data.Dataset):
         ]
 
         result = {
-            "fps": torch.tensor(item["fps"], dtype=torch.float32)
+            "fps": torch.tensor(item["fps"], dtype=torch.float32),
+            "angle": torch.tensor(item["angle"] if "angle" in item else 0.0, dtype=torch.float32),
+            "dist": torch.tensor(item["dist"] if "dist" in item else 0.0, dtype=torch.float32),
         }
-
         # ======= 新增：注入 JSON 里的 angle 和 dist =======
         # 获取当前样本的标识符（通常是 start_sample_token）
-        if "angle" in item:
-            result["angle"] = torch.tensor(item["angle"], dtype=torch.float32)
-            result["dist"] = torch.tensor(item["dist"], dtype=torch.float32)
-
+    
 
        # result["pts"] = torch.tensor([
        #     [
