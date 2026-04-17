@@ -1145,14 +1145,43 @@ class MotionDataset(torch.utils.data.Dataset):
                     for scene in tables["scene"]
                 ]
 
-                self.items = dwm.common.SerializedReadonlyList([
-                    {"segment": segment, "fps": fps, "scene": scene["token"]}
-                    for scene, channel_sample_data in scene_channel_sample_data
-                    for fps, stride in self.fps_stride_tuples
-                    for segment in MotionDataset.enumerate_segments(
-                        channel_sample_data, self.sequence_length, fps, stride,
-                        enable_synchronization_check)
-                ])
+                self.items = []
+
+                DEFAULT_OVERLAP_RATIO = 0.9
+
+                for scene, channel_sample_data in scene_channel_sample_data:
+                    for fps_stride_cfg in self.fps_stride_tuples:
+                        if len(fps_stride_cfg) == 2:
+                            fps, stride = fps_stride_cfg
+                            overlap_ratio = DEFAULT_OVERLAP_RATIO
+                        elif len(fps_stride_cfg) == 3:
+                            fps, stride, overlap_ratio = fps_stride_cfg
+                        else:
+                            raise ValueError(
+                                "Each item in fps_stride_tuples must be "
+                                "(fps, stride) or (fps, stride, overlap_ratio), "
+                                f"but got: {fps_stride_cfg}"
+                            )
+
+                        if not (0.0 <= overlap_ratio <= 1.0):
+                            raise ValueError(
+                                f"overlap_ratio must be in [0, 1], got: {overlap_ratio}"
+                            )
+
+                        for segment in MotionDataset.enumerate_segments(
+                            channel_sample_data,
+                            self.sequence_length,
+                            fps,
+                            stride,
+                            enable_synchronization_check
+                        ):
+                            self.items.append({
+                                "segment": segment,
+                                "fps": fps,
+                                "scene": scene["token"]
+                            })
+
+                self.items = dwm.common.SerializedReadonlyList(self.items)
                 #print(f"[nuscenceDataset INFO] Total scenes: {len(scene_channel_sample_data)}")
                 #print(f"[nuscenceDataset INFO] Final dataset size: {len(self.items)}")
             

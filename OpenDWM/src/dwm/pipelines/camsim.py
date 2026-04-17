@@ -1,6 +1,7 @@
 import contextlib
 import diffusers
 import diffusers.image_processor
+from diffusers.image_processor import VaeImageProcessor
 import dwm.common
 import dwm.distributed
 import dwm.functional
@@ -994,7 +995,7 @@ class CrossviewTemporalSD():
             vae_pretrained_model_name_or_path, subfolder="vae")
         self.vae.requires_grad_(False)
         self.vae.to(self.device)
-        self.image_processor = diffusers.image_processor.VaeImageProcessor(
+        self.image_processor = VaeImageProcessor(
             vae_scale_factor=2 ** (len(self.vae.config.block_out_channels) - 1))
         self.is_temporal_vae = isinstance(
             self.vae, diffusers.models.autoencoders.autoencoder_kl_cogvideox.AutoencoderKLCogVideoX)

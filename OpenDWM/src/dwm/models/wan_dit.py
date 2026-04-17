@@ -481,7 +481,86 @@ class WanCrossviewConditionModel(diffusers.WanTransformer3DModel):
     def _set_gradient_checkpointing(self, module, value=False):
         if module is self:
             self.gradient_checkpointing = value
+    def _forward_wan_block(
+        self,
+        block,
+        hidden_states: torch.Tensor,
+        encoder_hidden_states: Optional[torch.Tensor],
+        timestep_proj: torch.Tensor,
+        rotary_emb,
+    ) -> torch.Tensor:
+        return block(
+            hidden_states,
+            encoder_hidden_states=encoder_hidden_states,
+            temb=timestep_proj,
+            rotary_emb=rotary_emb,
+        )
 
+    def _run_wan_block(
+        self,
+        block,
+        hidden_states: torch.Tensor,
+        encoder_hidden_states: Optional[torch.Tensor],
+        timestep_proj: torch.Tensor,
+        rotary_emb,
+    ) -> torch.Tensor:
+        if self.training and self.gradient_checkpointing:
+            return torch.utils.checkpoint.checkpoint(
+                self._forward_wan_block,
+                block,
+                hidden_states,
+                encoder_hidden_states,
+                timestep_proj,
+                rotary_emb,
+                use_reentrant=False,
+            )
+
+        return self._forward_wan_block(
+            block,
+            hidden_states,
+            encoder_hidden_states,
+            timestep_proj,
+            rotary_emb,
+        )
+
+    def _run_crossview_block(
+        self,
+        hidden_states: torch.Tensor,
+        cross_module,
+        view_emb: torch.Tensor,
+        batch_size: int,
+        sequence_length: int,
+        view_count: int,
+        width: int,
+        height: int,
+        crossview_attention_mask: Optional[torch.Tensor],
+    ) -> torch.Tensor:
+        if self.training and self.crossview_gradient_checkpointing:
+            return torch.utils.checkpoint.checkpoint(
+                self._forward_crossview,
+                hidden_states,
+                cross_module,
+                view_emb,
+                batch_size,
+                sequence_length,
+                view_count,
+                width,
+                height,
+                crossview_attention_mask,
+                use_reentrant=False,
+            )
+
+        return self._forward_crossview(
+            hidden_states=hidden_states,
+            cross_module=cross_module,
+            view_emb=view_emb,
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            view_count=view_count,
+            width=width,
+            height=height,
+            crossview_attention_mask=crossview_attention_mask,
+        )   
     def _run_condition_embedder_no_fsdp_iter(
         self,
         timestep: torch.Tensor,
@@ -710,11 +789,12 @@ class WanCrossviewConditionModel(diffusers.WanTransformer3DModel):
             if condition_residuals is not None and layer_id < len(condition_residuals):
                 hidden_states = hidden_states + condition_residuals[layer_id]
 
-            hidden_states = block(
+            hidden_states = self._run_wan_block(
+                block,
                 hidden_states,
-                encoder_hidden_states=encoder_hidden_states,
-                temb=timestep_proj,
-                rotary_emb=rotary_emb,
+                encoder_hidden_states,
+                timestep_proj,
+                rotary_emb,
             )
 
             if (
@@ -748,16 +828,16 @@ class WanCrossviewConditionModel(diffusers.WanTransformer3DModel):
                 if view_cam_emb is not None:
                     view_emb = view_emb + view_cam_emb
 
-                hidden_states = self._forward_crossview(
-                    hidden_states=hidden_states,
-                    cross_module=self.crossview_modules[cross_idx],
-                    view_emb=view_emb,
-                    batch_size=crossview_batch_size,
-                    sequence_length=post_patch_num_frames,
-                    view_count=view_count,
-                    width=patch_width,
-                    height=patch_height,
-                    crossview_attention_mask=crossview_attention_mask,
+                hidden_states = self._run_crossview_block(
+                    hidden_states,
+                    self.crossview_modules[cross_idx],
+                    view_emb,
+                    crossview_batch_size,
+                    post_patch_num_frames,
+                    view_count,
+                    patch_width,
+                    patch_height,
+                    crossview_attention_mask,
                 )
 
         if temb.ndim != 3:
