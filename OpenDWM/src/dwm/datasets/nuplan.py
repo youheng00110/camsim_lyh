@@ -643,7 +643,7 @@ class MotionDataset(torch.utils.data.Dataset):
             ratio_by_cfg = self.overlap_ratio_by_cfg
             ratio_by_fps = self.overlap_ratio_by_fps
 
-            KEEP_RATIO = 0.5
+            KEEP_RATIO = 1
             DOWNSAMPLE_SEED = 1234
             rng = random.Random(DOWNSAMPLE_SEED)
 

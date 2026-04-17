@@ -1004,9 +1004,9 @@ class MotionDataset(torch.utils.data.Dataset):
                 matched_windows = 0
                 scene_window_counter = {}
 
-                DEFAULT_OVERLAP_RATIO = 0.9
+                DEFAULT_OVERLAP_RATIO = 0.8
 
-                KEEP_RATIO = 0.5
+                KEEP_RATIO = 1
                 DOWNSAMPLE_SEED = 1234
                 rng = random.Random(DOWNSAMPLE_SEED)
 
