@@ -15,4 +15,5 @@ waymo_prepo/*.json
 avrgo2_json/*.json
 nuplan-devkit-master/
 mini_sensors/
-output/debug_stage3/log/**
+# 忽略整个 output 目录（所有内容都忽略）
+output/

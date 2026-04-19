@@ -1451,7 +1451,7 @@ class MotionDataset(torch.utils.data.Dataset):
                         _safe_save_png(imgs[t][v], p)
                     finally:
                         _release_lock(lock)
-
+        
         # ---- hdmap_images (nuplan) cached
         cached = []
         all_hit = True
