@@ -16,4 +16,13 @@ avrgo2_json/*.json
 nuplan-devkit-master/
 mini_sensors/
 # 忽略整个 output 目录（所有内容都忽略）
-output/
+# 忽略 output 下所有 debug_* 目录里的 checkpoints、optimizer
+output/debug_*/checkpoints/
+output/debug_*/optimizer/
+
+# 忽略 log/ 目录（如果确实要忽略的话）
+output/debug_*/log/
+
+# 强制保留 preview/ 目录（可选，防止被上层规则误杀）
+!output/debug_*/preview/
+!output/debug_*/preview/**
