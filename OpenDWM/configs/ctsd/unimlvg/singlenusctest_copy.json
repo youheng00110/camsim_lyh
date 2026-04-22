@@ -24,7 +24,7 @@
         "lr": 6e-5
     },
     "pipeline": {
-        "_class_name": "dwm.pipelines.camsim.CrossviewTemporalSD",
+        "_class_name": "dwm.pipelines.camsim_diffusion.CrossviewTemporalSD",
         "common_config": {
             "frame_prediction_style": "diffusion_forcing",
             "cat_condition": true,
@@ -232,7 +232,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/stable-diffusion-3-medium",
-        "model_checkpoint_path": null,
+        "model_checkpoint_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output/debug_singlenusc/checkpoints/20000.pth",
         "model_load_state_args": {
             "strict": false
         },

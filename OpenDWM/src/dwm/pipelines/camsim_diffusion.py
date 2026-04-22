@@ -39,7 +39,7 @@ def test_fn(L,S,T,C,start_timestep,stop_timestep,take_time,frozen_ref_count):
     if frozen_ref_count > 0:
         clean_idx = max_idx
         idx[:frozen_ref_count] = clean_idx
-    print('start_t',idx)
+    #print('start_t',idx)
     base = stop_timestep - take_time * S
     j = torch.arange(L)
     j_eff = torch.clamp(j - C, min=0)
@@ -51,7 +51,7 @@ def test_fn(L,S,T,C,start_timestep,stop_timestep,take_time,frozen_ref_count):
     if frozen_ref_count > 0:
         clean_idx = max_idx
         idx[:frozen_ref_count] = clean_idx
-    print('end_t',idx)
+    #print('end_t',idx)
 
 def ck(name, x):
     if not torch.isfinite(x).all():
@@ -1472,6 +1472,60 @@ class CrossviewTemporalSD():
             self.lr_scheduler.step()
 
         self.step_duration += time.time() - t0
+    def encode_vae_images_to_latents(self, images):
+        image_tensor = self.image_processor.preprocess(
+            images.flatten(0, 2).to(self.device)
+        )
+        shift_factor = self.vae.config.shift_factor \
+            if self.vae.config.shift_factor is not None else 0
+
+        if self.is_temporal_vae:
+            image_tensor = einops.rearrange(
+                image_tensor,
+                "(b t v) c h w -> (b v) c t h w",
+                t=images.shape[1],
+                v=images.shape[2],
+            )
+
+        latents = dwm.functional.memory_efficient_split_call(
+            self.vae,
+            image_tensor,
+            lambda block, tensor: (
+                block.encode(tensor).latent_dist.mode() - shift_factor
+            ) * block.config.scaling_factor,
+            self.common_config.get("memory_efficient_batch", -1)
+        )
+
+        if self.is_temporal_vae:
+            latents = einops.rearrange(
+                latents,
+                "(b v) c t h w -> b t v c h w",
+                v=images.shape[2],
+            )
+        else:
+            latents = latents.unflatten(0, images.shape[:3])
+
+        return latents
+
+
+    def _make_noised_latents_from_timesteps(self, latents, timesteps, noise):
+        scheduler_timesteps = self.test_scheduler.timesteps.to(self.device)
+
+        flat_t = timesteps.reshape(-1).to(scheduler_timesteps.dtype)
+        match = flat_t[:, None] == scheduler_timesteps[None, :]
+        if not bool(match.any(dim=1).all()):
+            raise ValueError("some timesteps are not found in self.test_scheduler.timesteps")
+
+        timestep_indices = match.long().argmax(dim=1).view(timesteps.shape)
+
+        sigmas = CrossviewTemporalSD.sd3_get_sigmas(
+            self.test_scheduler,
+            timestep_indices,
+            n_dim=latents.ndim,
+            device=latents.device,
+            dtype=latents.dtype,
+        )
+        return sigmas * noise + (1.0 - sigmas) * latents
 
     def inference_pipeline(
         self, latent_shape, batch, output_type, image_latents=None,
@@ -1480,45 +1534,156 @@ class CrossviewTemporalSD():
     ):
         self.model_wrapper.eval()
 
-        diffusion_forcing_mode = (
-            "frame_prediction_style" in self.common_config and
-            self.common_config["frame_prediction_style"] == "diffusion_forcing"
+        batch_size, latent_sequence_length, view_count = latent_shape[:3]
+        reference_frame_count = min(reference_frame_count, latent_sequence_length)
+
+        history_low_noise_step = int(
+            self.inference_config.get("history_low_noise_step", 3)
         )
-        if diffusion_forcing_mode:
-            clear_reference_frame_count = self.inference_config.get(
-                "clear_reference_frame_count", 0)
-            assert self.inference_config["inference_steps"] % \
-                (latent_shape[1] - clear_reference_frame_count) == 0
-            steps_per_inference = \
-                self.inference_config["inference_steps"] // \
-                (latent_shape[1] - clear_reference_frame_count)
-
+        history_guidance_scale = self.inference_config.get(
+            "history_guidance_scale", 1.0
+        )
+        history_low_noise_step = int(self.inference_config.get("history_low_noise_step", 3))
+        history_high_noise_step = int(self.inference_config.get("history_high_noise_step",6))
+        history_clean_prob = self.inference_config.get("history_clean_prob", 0.0)
+        do_history_guidance = (
+            history_guidance_scale is not None and
+            history_guidance_scale != 1.0 and
+            image_latents is not None and
+            reference_frame_count > 0
+        )
         do_classifier_free_guidance = "guidance_scale" in self.inference_config
-        guidance_scale = self.inference_config.get("guidance_scale", 1)
-
+        guidance_scale = self.inference_config.get("guidance_scale", 1.0)
         preview_depth = self.model.depth_net is not None and \
             "camera_intrinsics" in batch and "camera_transforms" in batch
         depth_result = []
+        depth_features = None
 
         shift_factor = self.vae.config.shift_factor \
             if self.vae.config.shift_factor is not None else 0
+
         self.test_scheduler.set_timesteps(
-            self.inference_config["inference_steps"], self.device)
-        if diffusion_forcing_mode and image_latents is not None:
-            latents = image_latents
+            self.inference_config["inference_steps"], self.device
+        )
+        sched_timesteps = self.test_scheduler.timesteps
+
+        max_step_index = len(sched_timesteps) - 1
+
+        history_low_noise_step = max(0, min(history_low_noise_step, max_step_index))
+        history_high_noise_step = max(0, min(history_high_noise_step, max_step_index))
+
+        low_jitter = 0
+        high_jitter = 1
+
+        low_min = max(0, history_low_noise_step - low_jitter)
+        low_max = min(max_step_index, history_low_noise_step + low_jitter)
+
+        high_min = max(0, history_high_noise_step - high_jitter)
+        high_max = min(max_step_index, history_high_noise_step + high_jitter)
+
+        history_low_noise_frame_count = int(
+            self.inference_config.get("history_low_noise_frame_count", 3)
+        )
+        history_low_noise_frame_count = max(
+            0, min(history_low_noise_frame_count, reference_frame_count)
+        )
+
+        sampled_steps = torch.empty(
+            reference_frame_count,
+            device=self.device,
+            dtype=torch.long
+        )
+
+        if history_low_noise_frame_count > 0:
+            sampled_steps[:history_low_noise_frame_count] = torch.randint(
+                low=low_min,
+                high=low_max + 1,
+                size=(history_low_noise_frame_count,),
+                generator=self.generator
+            ).to(device=self.device)
+
+        if reference_frame_count > history_low_noise_frame_count:
+            sampled_steps[history_low_noise_frame_count:] = torch.randint(
+                low=high_min,
+                high=high_max + 1,
+                size=(reference_frame_count - history_low_noise_frame_count,),
+                generator=self.generator
+            ).to(device=self.device)
+
+        history_pos = max_step_index - sampled_steps
+        history_timesteps_1d = sched_timesteps[history_pos]
+
+        history_timesteps = history_timesteps_1d.view(
+            1, reference_frame_count, 1
+        ).expand(
+            batch_size, reference_frame_count, view_count
+        ).to(dtype=sched_timesteps.dtype)
+
+        init_noise_sigma = getattr(self.test_scheduler, "init_noise_sigma", 1.0)
+        latents = torch.randn(
+            latent_shape,
+            generator=self.generator
+        ).to(device=self.device, dtype=self.model_dtype) * init_noise_sigma
+
+        ref_source = None
+        ref_condition = None
+        ref_condition_timesteps = None
+
+        if image_latents is not None and reference_frame_count > 0:
+            ref_source = image_latents[:, :reference_frame_count].to(
+                device=self.device,
+                dtype=self.model_dtype
+            )
+
+            history_clean_mask = (
+                torch.rand(
+                    (batch_size, reference_frame_count, view_count),
+                    generator=self.generator
+                ).to(self.device) < history_clean_prob
+            )
+
+            history_noise = torch.randn(
+                ref_source.shape,
+                generator=self.generator
+            ).to(device=self.device, dtype=ref_source.dtype)
+
+            history_timesteps = history_timesteps_1d.view(1, reference_frame_count, 1).expand(
+                batch_size, reference_frame_count, view_count
+            ).to(dtype=sched_timesteps.dtype)
+
+            stair_noised_history = self._make_noised_latents_from_timesteps(
+                ref_source,
+                history_timesteps,
+                history_noise
+            )
+            
+            if history_clean_prob > 0:
+                history_clean_mask = (
+                    torch.rand(
+                        (batch_size, reference_frame_count, view_count),
+                        generator=self.generator
+                    ).to(self.device) < history_clean_prob
+                )
+
+                ref_condition = torch.where(
+                    history_clean_mask[..., None, None, None],
+                    ref_source,
+                    stair_noised_history
+                )
+
+                ref_condition_timesteps = torch.where(
+                    history_clean_mask,
+                    torch.zeros_like(history_timesteps),
+                    history_timesteps
+                )
+            else:
+                ref_condition = stair_noised_history
+                ref_condition_timesteps = history_timesteps
+
         else:
-            # full sequence denoising
-            latents = torch\
-                .randn(latent_shape, generator=self.generator).to(self.device) * \
-                getattr(self.test_scheduler, "init_noise_sigma", 1)
-        
-        ###数值稳定#######
-        # if not torch.isfinite(latents).all():
-        #     fin = latents[torch.isfinite(latents)]
-        #     lo, hi = (fin.min(), fin.max()) if fin.numel() else (-1.0, 1.0)
-        #     latents = torch.nan_to_num(latents, nan=0.0, posinf=float(hi), neginf=float(lo)).clamp(lo, hi)
-        ###数值稳定#######
-        
+            reference_frame_count = 0
+            
+        # 同一套 text/layout/camera 条件不变，只做有/无 history guidance
         model_conditions = CrossviewTemporalSD.get_conditions(
             self.model,
             self.text_encoders
@@ -1527,439 +1692,428 @@ class CrossviewTemporalSD():
             self.tokenizers
             if isinstance(self.model, diffusers.SD3Transformer2DModel)
             else self.tokenizer,
-            self.common_config, latent_shape, batch, self.device,
+            self.common_config,
+            latent_shape,
+            batch,
+            self.device,
             self.model_dtype,
             do_classifier_free_guidance=do_classifier_free_guidance,
-            latents_shape=latents.shape)
-        result = {}
+            latents_shape=latents.shape
+        )
+
         stop_timestep = (
             self.inference_config["inference_steps"]
             if stop_timestep is None
             else stop_timestep
         )
+
         for i in range(start_timestep, stop_timestep):
-            # make the denoising timesteps
-            if diffusion_forcing_mode:
-                L = latent_shape[1]
-                S = steps_per_inference
-                T = self.inference_config["inference_steps"]
+            t = sched_timesteps[i]
+            base_timesteps = t.unsqueeze(-1).unsqueeze(-1).repeat(*latent_shape[:3])
 
-                base = i - take_time * S
-                j = torch.arange(L, device=self.device)
-                j_eff = torch.clamp(j - clear_reference_frame_count, min=0)
-                inner = torch.clamp(base - j_eff * S, min=0)
-                idx = torch.minimum(inner, torch.full_like(inner, base))
-                max_idx = T - 1
-                idx = torch.clamp(idx, 0, max_idx)
+            with_history_latents = latents
+            with_history_timesteps = base_timesteps
 
-                if frozen_ref_count > 0:
-                    clean_idx = max_idx
-                    idx[:frozen_ref_count] = clean_idx
-
-                timestep_indices = idx.view(1, -1, 1).repeat(
-                    latent_shape[0], 1, latent_shape[2]
+            if ref_source is not None and reference_frame_count > 0:
+                with_history_latents = torch.cat(
+                    [ref_condition, latents[:, reference_frame_count:]],
+                    dim=1
                 )
-                timesteps = self.test_scheduler.timesteps[timestep_indices]
-            else:
-                t = self.test_scheduler.timesteps[i]
-                timesteps = t.unsqueeze(-1).unsqueeze(-1)\
-                    .repeat(*latent_shape[:3])
+                with_history_timesteps = torch.cat(
+                    [ref_condition_timesteps, base_timesteps[:, reference_frame_count:]],
+                    dim=1
+                )
 
-            latent_model_input = latents
-            if not diffusion_forcing_mode and image_latents is not None:
-                # the reference frame injection for the full sequence denoising
-                latent_model_input = torch.cat([
-                    image_latents[:, :reference_frame_count],
-                    latent_model_input[:, reference_frame_count:]
-                ], 1)
-                timesteps = torch.cat([
-                    torch.zeros((
-                        timesteps.shape[0], reference_frame_count,
-                        timesteps.shape[2]
-                    ), dtype=timesteps.dtype, device=self.device),
-                    timesteps[:, reference_frame_count:]
-                ], 1)
+            with_history_latents = with_history_latents.to(dtype=self.model_dtype)
+            with_history_timesteps = with_history_timesteps.to(dtype=sched_timesteps.dtype)
 
-            latent_model_input = latent_model_input.to(dtype=self.model_dtype)
+            no_history_latents = None
+            no_history_timesteps = None
+            if do_history_guidance:
+                no_history_latents = latents.to(dtype=self.model_dtype)
+                no_history_timesteps = base_timesteps.to(dtype=sched_timesteps.dtype)
+
             if hasattr(self.test_scheduler, "scale_model_input"):
-                latent_model_input = self.test_scheduler\
-                    .scale_model_input(
-                        latent_model_input,
-                        timesteps if diffusion_forcing_mode else t)\
-                    .to(dtype=self.model_dtype)
+                with_history_latents = self.test_scheduler.scale_model_input(
+                    with_history_latents,
+                    with_history_timesteps
+                ).to(dtype=self.model_dtype)
 
-            if do_classifier_free_guidance:
+                if do_history_guidance:
+                    no_history_latents = self.test_scheduler.scale_model_input(
+                        no_history_latents,
+                        no_history_timesteps
+                    ).to(dtype=self.model_dtype)
+
+            if do_classifier_free_guidance and do_history_guidance:
                 latent_model_input = torch.cat(
-                    [latent_model_input, latent_model_input])
-                timesteps_input = torch.cat([timesteps, timesteps])
+                    [
+                        no_history_latents,
+                        no_history_latents,
+                        with_history_latents,
+                        with_history_latents,
+                    ],
+                    dim=0
+                )
+                timesteps_input = torch.cat(
+                    [
+                        no_history_timesteps,
+                        no_history_timesteps,
+                        with_history_timesteps,
+                        with_history_timesteps,
+                    ],
+                    dim=0
+                )
+
+                model_conditions_input = {}
+                for k, v in model_conditions.items():
+                    if v is None:
+                        model_conditions_input[k] = None
+                    elif torch.is_tensor(v) and v.shape[0] == batch_size * 2:
+                        model_conditions_input[k] = torch.cat([v, v], dim=0)
+                    else:
+                        model_conditions_input[k] = v
+
+            elif do_classifier_free_guidance:
+                latent_model_input = torch.cat(
+                    [with_history_latents, with_history_latents],
+                    dim=0
+                )
+                timesteps_input = torch.cat(
+                    [with_history_timesteps, with_history_timesteps],
+                    dim=0
+                )
+                model_conditions_input = model_conditions
+
+            elif do_history_guidance:
+                latent_model_input = torch.cat(
+                    [no_history_latents, with_history_latents],
+                    dim=0
+                )
+                timesteps_input = torch.cat(
+                    [no_history_timesteps, with_history_timesteps],
+                    dim=0
+                )
+
+                model_conditions_input = {}
+                for k, v in model_conditions.items():
+                    if v is None:
+                        model_conditions_input[k] = None
+                    elif torch.is_tensor(v) and v.shape[0] == batch_size:
+                        model_conditions_input[k] = torch.cat([v, v], dim=0)
+                    else:
+                        model_conditions_input[k] = v
+
             else:
-                timesteps_input = timesteps
-
-            ck("latent_model_input", latent_model_input)
-            ck("timesteps_input", timesteps_input)
-
+                latent_model_input = with_history_latents
+                timesteps_input = with_history_timesteps
+                model_conditions_input = model_conditions
 
             with self.get_autocast_context():
                 model_output, _, _ = self.model_wrapper(
-                    latent_model_input, timesteps_input, **model_conditions)
-                            
+                    latent_model_input,
+                    timesteps_input,
+                    **model_conditions_input
+                )
 
             noise_pred = model_output[0]
 
-            # 数值稳定
-            if not torch.isfinite(noise_pred).all():
-                def _fix(x, name):
-                    if (not torch.is_tensor(x)) or torch.isfinite(x).all(): return x
-                    fin = x[torch.isfinite(x)]
-                    if fin.numel() == 0: return torch.zeros_like(x)
-                    lo, hi, mean = fin.min(), fin.max(), fin.mean()
-                    print("SAN:", name, "nan", torch.isnan(x).sum().item(),
-                        "+inf", torch.isposinf(x).sum().item(),
-                        "-inf", torch.isneginf(x).sum().item(),
-                        "lo/hi", float(lo), float(hi))
-                    x = torch.nan_to_num(x, nan=float(mean), posinf=float(hi), neginf=float(lo))
-                    return x.clamp(lo, hi)
+            if do_classifier_free_guidance and do_history_guidance:
+                noise_pred_no_history_uncond, noise_pred_no_history_cond, \
+                    noise_pred_with_history_uncond, noise_pred_with_history_cond = \
+                    noise_pred.chunk(4)
 
-                def _hook(name):
-                    def _h(m, inp, out):
-                        if torch.is_tensor(out): return _fix(out, name)
-                        if isinstance(out, (list, tuple)):
-                            out = [_fix(o, f"{name}[{i}]") for i, o in enumerate(out)]
-                            return type(out)(out)
-                        if isinstance(out, dict):
-                            return {k: _fix(v, f"{name}.{k}") for k, v in out.items()}
-                    return _h
+                noise_pred_no_history = noise_pred_no_history_uncond + guidance_scale * (
+                    noise_pred_no_history_cond - noise_pred_no_history_uncond
+                )
+                noise_pred_with_history = noise_pred_with_history_uncond + guidance_scale * (
+                    noise_pred_with_history_cond - noise_pred_with_history_uncond
+                )
+                noise_pred = noise_pred_no_history + history_guidance_scale * (
+                    noise_pred_with_history - noise_pred_no_history
+                )
 
-                handles = [m.register_forward_hook(_hook(n)) for n, m in self.model_wrapper.named_modules()]
-                try:
-                    with torch.cuda.amp.autocast(enabled=False):
-                        model_output, _, _ = self.model_wrapper(latent_model_input.float(), timesteps_input, **model_conditions)
-                finally:
-                    for h in handles: h.remove()
+                if preview_depth and len(model_output) > 1:
+                    depth_features = model_output[1].chunk(4)[-1]
 
-                noise_pred = model_output[0]
-                    
-            if do_classifier_free_guidance:
+            elif do_classifier_free_guidance:
                 noise_pred_uncond, noise_pred_cond = noise_pred.chunk(2)
-                noise_pred = noise_pred_uncond + guidance_scale * \
-                    (noise_pred_cond - noise_pred_uncond)
+                noise_pred = noise_pred_uncond + guidance_scale * (
+                    noise_pred_cond - noise_pred_uncond
+                )
 
-            if diffusion_forcing_mode:
-                if hasattr(self.test_scheduler, "step_by_indices"):
-                    staging_latents = self.test_scheduler.step_by_indices(
-                        noise_pred, timestep_indices.cpu(), latents
-                    ).prev_sample
-                else:
-                    staging_latents = self.test_scheduler\
-                        .step(noise_pred, timesteps.cpu(), latents).prev_sample
-                
-                # only update the latents in the schedule range so finally the
-                # timesteps in the queue become progrssive
-                # fix 6
-                j = torch.arange(latent_shape[1], device=self.device)
+                if preview_depth and len(model_output) > 1:
+                    depth_features = model_output[1].chunk(2)[1]
 
-                j_eff = torch.clamp(j - clear_reference_frame_count, min=0)
-                raw_unclipped = base - j_eff * steps_per_inference
+            elif do_history_guidance:
+                noise_pred_no_history, noise_pred_with_history = noise_pred.chunk(2)
+                noise_pred = noise_pred_no_history + history_guidance_scale * (
+                    noise_pred_with_history - noise_pred_no_history
+                )
 
-                in_schedule_1d = (j >= frozen_ref_count) & (raw_unclipped >= 0)
-                in_schedule_range = in_schedule_1d.view(1, -1, 1, 1, 1, 1)
+                if preview_depth and len(model_output) > 1:
+                    depth_features = model_output[1].chunk(2)[1]
 
-                latents = torch.where(in_schedule_range, staging_latents, latents)
             else:
-                latents = self.test_scheduler.step(noise_pred, t, latents)\
-                    .prev_sample
+                if preview_depth and len(model_output) > 1:
+                    depth_features = model_output[1]
 
-            # update the depth visualization
-            if preview_depth and len(model_output) > 1:
-                depth_features = model_output[1].chunk(2)[1] \
-                    if do_classifier_free_guidance else model_output[1]
+            latents = self.test_scheduler.step(noise_pred, t, latents).prev_sample
+
+            if preview_depth and depth_features is not None:
+                if ref_source is not None and reference_frame_count > 0:
+                    preview_latents = torch.cat(
+                        [ref_source, latents[:, reference_frame_count:]],
+                        dim=1
+                    )
+                else:
+                    preview_latents = latents
+
+                if self.is_temporal_vae:
+                    decode_latents = einops.rearrange(
+                        preview_latents, "b t v c h w -> (b v) c t h w"
+                    ).to(dtype=self.vae.dtype)
+                    decode_view_count = preview_latents.shape[2]
+                else:
+                    decode_latents = preview_latents.flatten(0, 2).to(dtype=self.vae.dtype)
+                    decode_view_count = preview_latents.shape[2]
 
                 noisy_image_tensor = dwm.functional.memory_efficient_split_call(
-                    self.vae, latents.flatten(0, 2).to(dtype=self.vae.dtype),
+                    self.vae,
+                    decode_latents,
                     lambda block, tensor: block.decode(
                         tensor / block.config.scaling_factor + shift_factor,
                         return_dict=False
                     )[0],
-                    self.common_config.get("memory_efficient_batch", -1))
+                    self.common_config.get("memory_efficient_batch", -1)
+                )
+
+                if self.is_temporal_vae:
+                    noisy_image_tensor = einops.rearrange(
+                        noisy_image_tensor,
+                        "(b v) c t h w -> (b t v) c h w",
+                        v=decode_view_count
+                    )
+
                 noisy_images = self.image_processor.postprocess(
-                    noisy_image_tensor, output_type="pt")
+                    noisy_image_tensor,
+                    output_type="pt"
+                )
 
                 depth_images = (
                     1 - depth_features.argmax(-3) / depth_features.shape[-3]
                 ).flatten(0, 2).unsqueeze(1)
-                depth_images = torch.nn.functional.interpolate(
-                    depth_images, noisy_images.shape[-2:])
-                depth_images = depth_images.unflatten(0, latents.shape[:3])\
-                    .repeat_interleave(3, dim=-3).permute(3, 0, 1, 4, 2, 5)
-                noisy_images = noisy_images.unflatten(0, latents.shape[:3])\
-                    .permute(3, 0, 1, 4, 2, 5)
-                depth_result.append(
-                    torch.cat([noisy_images, depth_images], -3).flatten(-2)
-                    .flatten(-4, -2))
 
-        if diffusion_forcing_mode:
-            # NOTE if is_temporal_vae, the tranport of different duration is not straightforward
-            # which mean: for time-window_pos, [0-0, 1-1, 2-2] --(out 0-0)--> [1-0, 2-1, 3-2] is required
-            # this coming from that temporal vae is not position independent
-            cur_latents = latents[:, take_time].flatten(
-                0, 1).to(dtype=self.vae.dtype)
-            if self.is_temporal_vae:
-                view_count = latents.shape[2]
-                cur_latents = torch.cat(
-                    [cur_latents[:, :, None], cur_latents[:, :, None]*0], dim=2)
-            image_tensor = self.vae.decode(
-                cur_latents / self.vae.config.scaling_factor + shift_factor,
-                return_dict=False)[0]
-            if self.is_temporal_vae:
-                image_tensor = image_tensor.chunk(2, dim=2)[0]
-                image_tensor = einops.rearrange(
-                    image_tensor, "(b v) c t h w -> (b t v) c h w", v=view_count)
-            
-            ####数值稳定###########
-            # if not torch.isfinite(latents).all():
-            #     fin = latents[torch.isfinite(latents)]
-            #     lo, hi = (fin.min(), fin.max()) if fin.numel() else (-1.0, 1.0)
-            #     latents = torch.nan_to_num(latents, nan=0.0, posinf=float(hi), neginf=float(lo)).clamp(lo, hi)
-            ####数值稳定###########
-          
-        else:
-            if image_latents is not None:
-                latents = torch.cat([
-                    image_latents[:, :reference_frame_count],
-                    latents[:, reference_frame_count:]
-                ], 1)
-            if self.is_temporal_vae:
-                view_count = latents.shape[2]
-                cur_latents = einops.rearrange(
-                    latents, "b t v c h w -> (b v) c t h w")
-            else:
-                cur_latents = latents.flatten(0, 2)
+                depth_images = torch.nn.functional.interpolate(
+                    depth_images,
+                    noisy_images.shape[-2:]
+                )
+
+                depth_images = depth_images.unflatten(0, preview_latents.shape[:3]) \
+                    .repeat_interleave(3, dim=-3).permute(3, 0, 1, 4, 2, 5)
+
+                noisy_images = noisy_images.unflatten(0, preview_latents.shape[:3]) \
+                    .permute(3, 0, 1, 4, 2, 5)
+
+                depth_result.append(
+                    torch.cat([noisy_images, depth_images], -3)
+                    .flatten(-2)
+                    .flatten(-4, -2)
+                )
+
+        # decode / return 时仍然把 reference 区恢复成 clean source
+        if ref_source is not None and reference_frame_count > 0:
+            latents = torch.cat(
+                [ref_source, latents[:, reference_frame_count:]],
+                dim=1
+            )
+
+        if self.is_temporal_vae:
+            cur_latents = einops.rearrange(
+                latents,
+                "b t v c h w -> (b v) c t h w"
+            )
             image_tensor = dwm.functional.memory_efficient_split_call(
-                self.vae, cur_latents.to(dtype=self.vae.dtype),
+                self.vae,
+                cur_latents.to(dtype=self.vae.dtype),
                 lambda block, tensor: block.decode(
                     tensor / block.config.scaling_factor + shift_factor,
                     return_dict=False
                 )[0],
-                self.common_config.get("memory_efficient_batch", -1))
-            if self.is_temporal_vae:
-                image_tensor = einops.rearrange(
-                    image_tensor, "(b v) c t h w -> (b t v) c h w", v=view_count)
+                self.common_config.get("memory_efficient_batch", -1)
+            )
+            image_tensor = einops.rearrange(
+                image_tensor,
+                "(b v) c t h w -> (b t v) c h w",
+                v=view_count
+            )
+        else:
+            cur_latents = latents.flatten(0, 2)
+            image_tensor = dwm.functional.memory_efficient_split_call(
+                self.vae,
+                cur_latents.to(dtype=self.vae.dtype),
+                lambda block, tensor: block.decode(
+                    tensor / block.config.scaling_factor + shift_factor,
+                    return_dict=False
+                )[0],
+                self.common_config.get("memory_efficient_batch", -1)
+            )
+
+        images_pt = self.image_processor.postprocess(image_tensor, output_type="pt")
 
         result = {
-            "images": self.image_processor.postprocess(
-                image_tensor, output_type=output_type),
+            "images": images_pt if output_type == "pt"
+            else self.image_processor.postprocess(image_tensor, output_type=output_type),
             "latents": latents
         }
-        if preview_depth and len(model_output) > 1:
+
+        if preview_depth and depth_features is not None:
             result["depth"] = depth_result
             result["depth_features"] = depth_features
-        
-        return result
 
+        return result
+    
     def autoregressive_inference_pipeline(
         self, latent_shape, batch, output_type
     ):
         total_frame_count = batch["vae_images"].shape[1]
-        diffusion_forcing_mode = (
-            "frame_prediction_style" in self.common_config and
-            self.common_config["frame_prediction_style"] == "diffusion_forcing"
-        )
-        if diffusion_forcing_mode:
-            assert total_frame_count > \
-                self.inference_config["sequence_length_per_iteration"]
-            clear_reference_frame_count = self.inference_config.get(
-                "clear_reference_frame_count", 0)
-            steps_per_inference = \
-                self.inference_config["inference_steps"] // \
-                (latent_shape[1] - clear_reference_frame_count) 
-            print("clear_reference_frame_count:",clear_reference_frame_count, 
-                  "  steps_per_inference:", steps_per_inference)
+        window_frame_count = self.inference_config["sequence_length_per_iteration"]
+        reference_frame_count = self.inference_config.get("reference_frame_count", 1)
+        window_stride = self.inference_config.get("window_stride", 1)
 
+        assert window_frame_count > 0
+        assert reference_frame_count >= 0
+        assert window_stride > 0
+        assert reference_frame_count < window_frame_count, \
+            f"reference_frame_count={reference_frame_count} must be < window_frame_count={window_frame_count}"
+        assert reference_frame_count + window_stride <= window_frame_count, \
+            f"Need reference_frame_count + window_stride <= window_frame_count, but got {reference_frame_count}+{window_stride}>{window_frame_count}"
 
-        reference_frame_count = self.inference_config.get(
-            "reference_frame_count", 1)
-        if self.inference_config.get("generate_frames_for_reference", True):
-            image_latents = None
-            dataset_ref_left = 0 
-        else:
-            raw_image_tensor = \
-                batch["vae_images"][:, :reference_frame_count]
-            image_tensor = self.image_processor.preprocess(
-                raw_image_tensor.flatten(0, 2).to(self.device))
-            shift_factor = self.vae.config.shift_factor \
-                if self.vae.config.shift_factor is not None else 0
-            # use different shape for 3D and 2D vae
-            if self.is_temporal_vae:
-                image_tensor = einops.rearrange(image_tensor, "(b t v) c h w -> (b v) c t h w",
-                                                t=raw_image_tensor.shape[1], v=raw_image_tensor.shape[2])
-            image_latents = dwm.functional.memory_efficient_split_call(
-                self.vae, image_tensor,
-                lambda block, tensor: (
-                    block.encode(tensor).latent_dist.mode() - shift_factor
-                ) * block.config.scaling_factor,
-                self.common_config.get("memory_efficient_batch", -1))
-            if self.is_temporal_vae:
-                image_latents = einops.rearrange(
-                    image_latents, "(b v) c t h w -> b t v c h w", v=raw_image_tensor.shape[2])
-            else:
-                image_latents = image_latents.unflatten(
-                    0, raw_image_tensor.shape[:3])
-            # fix 4
-            dataset_ref_left = reference_frame_count 
-
-        result = {
-            "images": []
-        }
-        iteration_sequence_length = self.inference_config["sequence_length_per_iteration"]
         exception_for_take_sequence = self.inference_config.get(
-            "autoregression_data_exception_for_take_sequence", [])
-        if diffusion_forcing_mode:
-            if image_latents is None:
-                iteration_batch = {
-                    k: (
-                        v
-                        if k in exception_for_take_sequence
-                        else dwm.functional.take_sequence_clip(
-                            v, 0, iteration_sequence_length)
-                    )
-                    for k, v in batch.items()
-                }
-                stop_timestep = self.inference_config["inference_steps"] - \
-                    steps_per_inference
-                iteration_output = self.inference_pipeline(
-                    latent_shape, iteration_batch, output_type, image_latents,
-                    start_timestep=0,
-                    stop_timestep=stop_timestep)
-                image_latents = iteration_output["latents"]
-            else:
-                b = image_latents.shape[0]
-                ref_len = image_latents.shape[1]
-                assert ref_len == reference_frame_count
-                assert ref_len <= latent_shape[1]
+            "autoregression_data_exception_for_take_sequence", []
+        )
 
-                if ref_len < latent_shape[1]:
-                    tail_noise = torch.randn(
-                        (b, latent_shape[1] - ref_len) + latent_shape[2:],
-                        generator=self.generator,
-                    ).to(self.device) * getattr(
-                        self.test_scheduler, "init_noise_sigma", 1
-                    )
-                    image_latents = torch.cat([image_latents, tail_noise], dim=1)
-                    
-            
-        for i in range(
-            0, total_frame_count - iteration_sequence_length + 1,
-            iteration_sequence_length - reference_frame_count
-        ):
+        init_ref_frame_count = min(reference_frame_count, total_frame_count)
+
+        if self.inference_config.get("generate_frames_for_reference", True):
+            history_images = None
+            committed_until = 0
+        else:
+            history_images = batch["vae_images"][:, :init_ref_frame_count].to(self.device)
+            committed_until = init_ref_frame_count
+
+        result_images_pt = []
+        batch_size = latent_shape[0]
+        view_count = latent_shape[2]
+        iteration_output = None
+
+        start = 0
+        while True:
+            current_window_frame_count = min(
+                window_frame_count,
+                total_frame_count - start
+            )
+            if current_window_frame_count <= 0:
+                break
+
+            end = start + current_window_frame_count
+            is_last_window = (end >= total_frame_count)
+
+            current_latent_shape = (
+                latent_shape[0],
+                self.get_latent_sequence_length(current_window_frame_count),
+                latent_shape[2],
+                latent_shape[3],
+                latent_shape[4],
+                latent_shape[5],
+            )
+
             iteration_batch = {
                 k: (
                     v
                     if k in exception_for_take_sequence
-                    else dwm.functional.take_sequence_clip(
-                        v, i, i + iteration_sequence_length)
+                    else dwm.functional.take_sequence_clip(v, start, end)
                 )
                 for k, v in batch.items()
             }
 
-            this_ref_frame_count = 0 if image_latents is None \
-                else reference_frame_count
-            if diffusion_forcing_mode:
-                test_fn(latent_shape[1],
-                        self.inference_config["inference_steps"] // (latent_shape[1] - clear_reference_frame_count),
-                        self.inference_config["inference_steps"],
-                        clear_reference_frame_count,
-                        self.inference_config["inference_steps"]-steps_per_inference,
-                        self.inference_config["inference_steps"],
-                        0,
-                        dataset_ref_left)
-                iteration_output = self.inference_pipeline(
-                    latent_shape, iteration_batch, output_type, image_latents,
-                    # fix 2 
-                    start_timestep=(
-                        self.inference_config["inference_steps"] -
-                        steps_per_inference
-                    ),
-                    stop_timestep=(
-                        self.inference_config["inference_steps"]
-                    ),
-                    frozen_ref_count=dataset_ref_left)
-                if self.is_temporal_vae and i == 0:
-                    result["images"].append(
-                        iteration_output["images"].chunk(4)[-1])
-                else:
-                    result["images"].append(iteration_output["images"])
-                # for each step df
-                image_latents = iteration_output["latents"]
-                
-                if (
-                    i + iteration_sequence_length - reference_frame_count <
-                    total_frame_count - iteration_sequence_length + 1
-                ):
-                    # dequeue and enqueue
-                    image_latents = torch.cat([
-                        image_latents[:, 1:],
-                        torch.randn(
-                            (latent_shape[0], 1) + latent_shape[2:],
-                            generator=self.generator).to(self.device) *
-                        getattr(self.test_scheduler, "init_noise_sigma", 1)
-                    ], 1)
-                    if dataset_ref_left > clear_reference_frame_count:      
-                        dataset_ref_left -= 1
+            if history_images is not None and history_images.shape[1] > 0:
+                history_latents = self.encode_vae_images_to_latents(history_images)
+                history_latent_count = history_latents.shape[1]
             else:
-                iteration_output = self.inference_pipeline(
-                    latent_shape, iteration_batch, output_type, image_latents,
-                    reference_frame_count=self.get_latent_sequence_length(
-                        this_ref_frame_count))
-                result["images"].append(
-                    iteration_output["images"]
-                    [latent_shape[0] * this_ref_frame_count * latent_shape[2]:])
-                if (  
-                    i + iteration_sequence_length - reference_frame_count <
-                    total_frame_count - iteration_sequence_length + 1
-                ):
-                    reference_latent_count = self.get_latent_sequence_length(
-                        reference_frame_count)
-                    image_latents = iteration_output["latents"][
-                        :, -reference_latent_count:
-                    ]
+                history_latents = None
+                history_latent_count = 0
 
-        if diffusion_forcing_mode:
-            # flushing the tailing frames by reusing the last iteration_batch
-            flush_steps = latent_shape[1] - clear_reference_frame_count
-            for i in range(1, flush_steps):
-                frozen_i = min(dataset_ref_left + i, latent_shape[1])
-                print('flushing!!')
-                test_fn(latent_shape[1],
-                        self.inference_config["inference_steps"] // (latent_shape[1] - clear_reference_frame_count),
-                        self.inference_config["inference_steps"],
-                        clear_reference_frame_count,
-                        self.inference_config["inference_steps"] + (2 * i - 1 ) * steps_per_inference,
-                        self.inference_config["inference_steps"] + (2 * i ) * steps_per_inference,
-                        i,
-                        dataset_ref_left)
-                
-                iteration_output = self.inference_pipeline(
-                    latent_shape, iteration_batch, output_type, image_latents,
-                    reference_frame_count=latent_shape[1],
-                    start_timestep=(
-                        self.inference_config["inference_steps"] +
-                        (2 * i - 1 ) * steps_per_inference
-                    ),
-                    stop_timestep=(
-                        self.inference_config["inference_steps"] +
-                        (2 * i ) * steps_per_inference
-                    ),
-                    take_time=i,
-                    frozen_ref_count=frozen_i)
-                result["images"].append(iteration_output["images"])
-                is_finished = (torch.arange(latent_shape[1],
-                    device=self.device) < frozen_i) \
-                    .unflatten(0, (1, -1, 1, 1, 1, 1)) 
-                image_latents = torch.where(
-                    is_finished, image_latents, iteration_output["latents"])
+            iteration_output = self.inference_pipeline(
+                current_latent_shape,
+                iteration_batch,
+                "pt",
+                image_latents=history_latents,
+                reference_frame_count=history_latent_count
+            )
 
-        if output_type == "pt":
-            result["images"] = torch.cat(result["images"])
+            window_images = iteration_output["images"].unflatten(
+                0, (batch_size, -1, view_count)
+            )
+            decoded_window_frame_count = window_images.shape[1]
+
+            commit_global_start = max(committed_until, start)
+
+            if is_last_window:
+                commit_global_end = start + decoded_window_frame_count
+            else:
+                # 下一窗会拿当前窗的 [S:S+R] 当 history
+                # 所以当前窗里，直到 local = S+R 之前的内容都已经“定稿”
+                commit_global_end = start + min(
+                    decoded_window_frame_count,
+                    window_stride + reference_frame_count
+                )
+
+            local_start = max(0, commit_global_start - start)
+            local_end = max(0, commit_global_end - start)
+
+            if local_end > local_start:
+                result_images_pt.append(
+                    window_images[:, local_start:local_end].flatten(0, 2)
+                )
+                committed_until = commit_global_end
+
+            if is_last_window:
+                break
+
+            history_start = min(window_stride, decoded_window_frame_count)
+            history_end = min(
+                history_start + reference_frame_count,
+                decoded_window_frame_count
+            )
+
+            if history_end > history_start:
+                # 下一窗 history = 上一窗结果里的 [S:S+R]
+                history_images = window_images[:, history_start:history_end].detach()
+            else:
+                history_images = None
+
+            start += window_stride
+
+        if len(result_images_pt) > 0:
+            merged_images_pt = torch.cat(result_images_pt, dim=0)
+        else:
+            merged_images_pt = torch.empty(
+                0,
+                batch["vae_images"].shape[3],
+                batch["vae_images"].shape[4],
+                batch["vae_images"].shape[5],
+                device=self.device
+            )
+
+        result = {
+            "images": merged_images_pt if output_type == "pt"
+            else merged_images_pt
+        }
+
+        if iteration_output is not None and "depth" in iteration_output:
+            result["depth"] = iteration_output["depth"]
+            result["depth_features"] = iteration_output["depth_features"]
 
         return result
 
@@ -1972,60 +2126,120 @@ class CrossviewTemporalSD():
             (2 ** (len(self.vae.config.down_block_types) - 1))
         latent_width = batch["vae_images"].shape[-1] // \
             (2 ** (len(self.vae.config.down_block_types) - 1))
+
         if "sequence_length_per_iteration" in self.inference_config:
             latent_shape = (
                 batch_size,
                 self.get_latent_sequence_length(
                     self.inference_config["sequence_length_per_iteration"]),
-                view_count, self.vae.config.latent_channels, latent_height,
+                view_count,
+                self.vae.config.latent_channels,
+                latent_height,
                 latent_width
             )
             pipeline_output = self.autoregressive_inference_pipeline(
-                latent_shape, batch, "pt")
+                latent_shape, batch, "pt"
+            )
         else:
             latent_shape = (
-                batch_size, self.get_latent_sequence_length(
-                    sequence_length), view_count,
-                self.vae.config.latent_channels, latent_height,
+                batch_size,
+                self.get_latent_sequence_length(sequence_length),
+                view_count,
+                self.vae.config.latent_channels,
+                latent_height,
                 latent_width
             )
             pipeline_output = self.inference_pipeline(
-                latent_shape, batch, "pt")
+                latent_shape, batch, "pt"
+            )
 
         if self.should_save or (
             torch.distributed.is_initialized() and
             self.inference_config.get("all_rank_preview", False)
         ):
             os.makedirs(os.path.join(output_path, "preview"), exist_ok=True)
-            filename = (
-                "{}_{}".format(global_step, torch.distributed.get_rank())
-                if self.inference_config.get("all_rank_preview", False)
-                else str(global_step)
-            )
+            #os.makedirs(os.path.join(output_path, "preview_sampletok"), exist_ok=True)
+
+            filename = str(global_step)
+
+            preview_images = pipeline_output["images"]
+
+            if preview_images.ndim == 4:
+                preview_btvc = preview_images.cpu().unflatten(
+                    0, (batch_size, -1, view_count)
+                )
+            elif preview_images.ndim == 6:
+                preview_btvc = preview_images.cpu()
+            else:
+                raise ValueError(
+                    f"unexpected pipeline_output['images'] shape: {tuple(preview_images.shape)}"
+                )
+
+            if "sequence_length_per_iteration" in self.inference_config:
+                generate_frames_for_reference = self.inference_config.get(
+                    "generate_frames_for_reference", True
+                )
+                reference_frame_count = min(
+                    int(self.inference_config.get("reference_frame_count", 1)),
+                    batch["vae_images"].shape[1]
+                )
+
+                if not generate_frames_for_reference and reference_frame_count > 0:
+                    prefix_images = batch["vae_images"][:, :reference_frame_count].cpu()
+                    preview_btvc = torch.cat([prefix_images, preview_btvc], dim=1)
+
+            preview_frame_count = preview_btvc.shape[1]
+            preview_images = preview_btvc.flatten(0, 2)
+
             preview_tensor = dwm.utils.preview.make_ctsd_preview_tensor(
-                pipeline_output["images"], batch, self.inference_config)
-            if sequence_length == 1:
+                preview_images, batch, self.inference_config
+            )
+
+            if preview_frame_count == 1:
                 image_output_path = os.path.join(
-                    output_path, "preview", "{}.png".format(filename))
-                torchvision.transforms.functional.to_pil_image(preview_tensor)\
-                    .save(image_output_path)
+                    output_path, "preview", "{}.png".format(filename)
+                )
+                torchvision.transforms.functional.to_pil_image(preview_tensor).save(
+                    image_output_path
+                )
             else:
                 video_output_path = os.path.join(
-                    output_path, "preview", "{}.mp4".format(filename))
+                    output_path, "preview", "{}.mp4".format(filename)
+                )
                 dwm.utils.preview.save_tensor_to_video(
-                    video_output_path, "libx264", batch["fps"][0].item(),
-                    preview_tensor)
+                    video_output_path,
+                    "libx264",
+                    batch["fps"][0].item(),
+                    preview_tensor
+                )
+
+                if "segment_samples" in batch and batch["segment_samples"] is not None:
+                    os.makedirs(os.path.join(output_path, "preview_sampletok"), exist_ok=True)
+
+                    tok_list = []
+                    for t in batch["segment_samples"]:
+                        tok_list.append(t[0] if isinstance(t, tuple) else t)
+
+                    tok_list = [str(t) for t in tok_list[:preview_frame_count]]
+
+                    txt_path = os.path.join(
+                        output_path, "preview_sampletok", f"{filename}.txt"
+                    )
+                    with open(txt_path, "w", encoding="utf-8") as f:
+                        f.write("\n".join(tok_list) + "\n")
 
             preview_depth = self.model.depth_net is not None and \
                 "camera_intrinsics" in batch and "camera_transforms" in batch
+
             if preview_depth and "depth" in pipeline_output:
                 os.makedirs(os.path.join(
                     output_path, "preview_depth"), exist_ok=True)
                 video_output_path = os.path.join(
                     output_path, "preview_depth", "{}.mp4".format(filename))
                 dwm.utils.preview.save_tensor_to_video(
-                    video_output_path, "libx264", 5, pipeline_output["depth"])
-
+                    video_output_path, "libx264", 5, pipeline_output["depth"]
+                )
+                
     @torch.no_grad()
     def evaluate_pipeline(
         self, global_step: int, dataset_length: int,
@@ -2065,11 +2279,13 @@ class CrossviewTemporalSD():
                     latent_shape, batch, "pt")
             else:
                 latent_shape = (
-                    batch_size, self.get_latent_sequence_length(
-                        sequence_length), sequence_length, view_count,
-                    self.vae.config.latent_channels, latent_height,
-                    latent_width
-                )
+                batch_size,
+                self.get_latent_sequence_length(sequence_length),
+                view_count,
+                self.vae.config.latent_channels,
+                latent_height,
+                latent_width
+            )
                 pipeline_output = self.inference_pipeline(
                     latent_shape, batch, "pt")
 
@@ -2365,7 +2581,7 @@ class StreamingCrossviewTemporalSD(CrossviewTemporalSD):
     def fifo_inference_pipeline(
         self, latent_shape, batch, output_type
     ):
-        total_frame_count = batch["pts"].shape[1]
+        total_frame_count = batch["vae_images"].shape[1]
         assert (
             "frame_prediction_style" in self.common_config and
             self.common_config["frame_prediction_style"] == "diffusion_forcing"
