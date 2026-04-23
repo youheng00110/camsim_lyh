@@ -1,7 +1,7 @@
 source /inspire/ssd/project/wuliqifa/public/songbur/lyhdwm/bin/activate
 cd /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/src
 
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=0,1,
 export OMP_NUM_THREADS=1
 export TOKENIZERS_PARALLELISM=false
 unset ENABLE_DEBUGPY
@@ -15,5 +15,5 @@ torchrun \
   --nproc_per_node=2 \
   -m dwm.train \
   -c //inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/singlenusctest_copy.json\
-  -o /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output/train_2singlenusc \
+  -o /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output/train180000_2singlenusc \
   --log-steps 300

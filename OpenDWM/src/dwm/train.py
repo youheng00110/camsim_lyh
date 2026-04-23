@@ -22,10 +22,10 @@ def create_parser():
         "--log-steps", default=300, type=int,
         help="The step count to print log and update the tensorboard.")
     parser.add_argument(
-        "--preview-steps", default=800, type=int,
+        "--preview-steps", default=900, type=int,
         help="The step count to preview the pipeline result.")
     parser.add_argument(
-        "--checkpointing-steps", default=6000, type=int,
+        "--checkpointing-steps", default=7000, type=int,
         help="The step count to save the checkpoint.")
     parser.add_argument(
         "--evaluation-steps", default=10000, type=int,

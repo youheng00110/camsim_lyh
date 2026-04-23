@@ -1256,15 +1256,17 @@ class CrossviewTemporalSD():
 
         if self.is_temporal_vae:
             latents = einops.rearrange(
-                latents, "(b v) c t h w -> b t v c h w", v=view_count)
+                latents, "(b v) c t h w -> b t v c h w", v=view_count
+            )
         else:
             latents = einops.rearrange(
                 latents, "(b t v) c h w -> b t v c h w",
-                t=sequence_length, v=view_count)
+                t=sequence_length, v=view_count
+            )
 
-        # latents = latents.unflatten(0, batch["vae_images"].shape[:3])
         noise = torch.randn(
-            latents.shape, generator=self.generator).to(self.device)
+            latents.shape, generator=self.generator
+        ).to(self.device)
 
         if (
             "frame_prediction_style" in self.common_config and
@@ -1274,39 +1276,86 @@ class CrossviewTemporalSD():
         else:
             timestep_shape_range = 1
 
+        diffusion_forcing_timestep_mode = self.training_config.get(
+            "diffusion_forcing_timestep_mode", "per_frame"
+        )
+        if diffusion_forcing_timestep_mode not in [
+            "per_frame", "uniform_future"
+        ]:
+            raise ValueError(
+                "training_config.diffusion_forcing_timestep_mode "
+                f"must be 'per_frame' or 'uniform_future', got "
+                f"{diffusion_forcing_timestep_mode}"
+            )
+
+        use_uniform_future_timestep = (
+            self.common_config.get("frame_prediction_style") == "diffusion_forcing"
+            and diffusion_forcing_timestep_mode == "uniform_future"
+        )
+
+        timestep_sample_shape = latents.shape[:timestep_shape_range]
+        if use_uniform_future_timestep:
+            timestep_sample_shape = (batch_size, 1)
+
         if isinstance(self.model, diffusers.UNetSpatioTemporalConditionModel):
             timesteps = torch.randint(
-                0, self.train_scheduler.config.num_train_timesteps,
-                latents.shape[:timestep_shape_range], generator=self.generator
+                0,
+                self.train_scheduler.config.num_train_timesteps,
+                timestep_sample_shape,
+                generator=self.generator
             ).to(self.device)
+
+            if use_uniform_future_timestep:
+                timesteps = timesteps.repeat(1, sequence_length)
+
             noisy_latents = self.train_scheduler.add_noise(
-                latents, noise, timesteps)
+                latents, noise, timesteps
+            )
+
             if self.train_scheduler.config.prediction_type == "epsilon":
                 target = noise
             elif self.train_scheduler.config.prediction_type == "v_prediction":
                 target = self.train_scheduler.get_velocity(
-                    latents, noise, timesteps)
+                    latents, noise, timesteps
+                )
             else:
-                raise Exception("Unknown training target of the UNet.")
+                raise ValueError(
+                    f"Unknown prediction type "
+                    f"{self.train_scheduler.config.prediction_type}"
+                )
 
         elif isinstance(self.model, diffusers.SD3Transformer2DModel):
             u = CrossviewTemporalSD.sd3_compute_density_for_timestep_sampling(
-                weighting_scheme=self.training_config
-                .get("weighting_scheme", "logit_normal"),
-                size=latents.shape[:timestep_shape_range],
-                logit_mean=0.0, logit_std=1.0, mode_scale=1.29)
+                weighting_scheme=self.training_config.get(
+                    "weighting_scheme", "logit_normal"
+                ),
+                size=timestep_sample_shape,
+                logit_mean=0.0,
+                logit_std=1.0,
+                mode_scale=1.29
+            )
             timestep_indices = (
                 u * self.train_scheduler.config.num_train_timesteps
             ).long()
-            timesteps = self.train_scheduler.timesteps[timestep_indices]\
-                .to(self.device)
 
-            # Add noise according to flow matching.
+            if use_uniform_future_timestep:
+                timestep_indices = timestep_indices.repeat(1, sequence_length)
+
+            timesteps = self.train_scheduler.timesteps[timestep_indices].to(
+                self.device
+            )
+
             sigmas = CrossviewTemporalSD.sd3_get_sigmas(
-                self.train_scheduler, timestep_indices, n_dim=latents.ndim,
-                dtype=latents.dtype, device=latents.device)
+                self.train_scheduler,
+                timestep_indices,
+                n_dim=latents.ndim,
+                dtype=latents.dtype,
+                device=latents.device
+            )
             noisy_latents = sigmas * noise + (1.0 - sigmas) * latents
             target = latents
+
+            # 这里后面继续接你原来 SD3 分支剩余的 noisy_latents / target 逻辑
 
         # make sure the timesteps in the shape of (b, t, v)
         while len(timesteps.shape) < 3:
@@ -1387,7 +1436,7 @@ class CrossviewTemporalSD():
                 model_conditions.update(additional_conditions)
             if getattr(self.model_wrapper, "mask_module", None) is not None:
                 model_conditions["noise"] = noise
-
+                
             # forward and calculate the loss
             sd_pred, _, _ = self.model_wrapper(
                 noisy_latents, timesteps, **model_conditions)

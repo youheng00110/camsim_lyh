@@ -15,14 +15,25 @@ waymo_prepo/*.json
 avrgo2_json/*.json
 nuplan-devkit-master/
 mini_sensors/
-# 忽略整个 output 目录（所有内容都忽略）
-# 忽略 output 下所有 debug_* 目录里的 checkpoints、optimizer
-output/debug_*/checkpoints/
-output/debug_*/optimizer/
+# 1. 先忽略整个 output 目录（作为基础）
+output/
 
-# 忽略 log/ 目录（如果确实要忽略的话）
-output/debug_*/log/
+# 2. 强制保留你要的 preview 和 log（! 表示不忽略）
+!output/*/preview/
+!output/*/preview/**
+!output/*/log/
+!output/*/log/**
 
-# 强制保留 preview/ 目录（可选，防止被上层规则误杀）
-!output/debug_*/preview/
-!output/debug_*/preview/**
+# 3. 强制忽略大文件（即使在 preview/log 里也忽略，防止卡）
+output/**/*.pth
+output/**/*.pt
+output/**/*.ckpt
+output/**/*.pkl
+output/**/*.zip
+output/**/*.tar
+output/**/*.gz
+
+# 4. 强制忽略 checkpoints 和 optimizer（绝对不上传）
+output/**/checkpoints/
+output/**/optimizer/
+EOF
