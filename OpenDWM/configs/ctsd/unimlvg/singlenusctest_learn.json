@@ -16,7 +16,7 @@
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
-            "mesh_shape": [1, 2]
+            "mesh_shape": [1, 1]
         }
     },
     "optimizer": {
@@ -24,7 +24,7 @@
         "lr": 6e-5
     },
     "pipeline": {
-        "_class_name": "dwm.pipelines.camsim_diffusion.CrossviewTemporalSD",
+        "_class_name": "dwm.pipelines.camsim_diffusion_copy.CrossviewTemporalSD",
         "common_config": {
             "frame_prediction_style": "diffusion_forcing",
             "cat_condition": true,

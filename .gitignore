@@ -15,25 +15,27 @@ waymo_prepo/*.json
 avrgo2_json/*.json
 nuplan-devkit-master/
 mini_sensors/
-# 1. 先忽略整个 output 目录（作为基础）
-output/
-
-# 2. 强制保留你要的 preview 和 log（! 表示不忽略）
+# 先声明要保留 preview 和 log（Git 会优先处理这些）
 !output/*/preview/
 !output/*/preview/**
 !output/*/log/
 !output/*/log/**
 
-# 3. 强制忽略大文件（即使在 preview/log 里也忽略，防止卡）
+# 再忽略其他所有 output 目录
+output/*/
+# 上面的 output/*/ 只会忽略一级子目录，不会匹配 output/ 本身，也不会影响已经被 ! 保留的路径
+
+# 额外保险：强制忽略大文件/模型，即使在 preview/log 里也不上传
 output/**/*.pth
 output/**/*.pt
 output/**/*.ckpt
 output/**/*.pkl
+output/**/*.bin
+output/**/*.safetensors
 output/**/*.zip
 output/**/*.tar
 output/**/*.gz
 
-# 4. 强制忽略 checkpoints 和 optimizer（绝对不上传）
+# 强制忽略 checkpoints 和 optimizer（绝对不上传）
 output/**/checkpoints/
 output/**/optimizer/
-EOF
