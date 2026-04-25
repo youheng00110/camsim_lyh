@@ -16,7 +16,7 @@
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
-            "mesh_shape": [1, 2]
+            "mesh_shape": [1, 4]
         }
     },
     "optimizer": {
@@ -118,7 +118,7 @@
             "text_prompt_condition_ratio": 0.8,
             "3dbox_condition_ratio": 0.8,
             "hdmap_condition_ratio": 0.8,
-            "action_condition_mask": 0.8,
+            "action_condition_ratio": 0.8,
             "image_generation_ratio": 0.1,
             "reference_frame_scale_std": 0.01,
             "reference_frame_offset_std": 0.01,
@@ -140,6 +140,7 @@
             "sequence_length_per_iteration": 19,
             "clear_reference_frame_count": 0,
             "reference_frame_count": 3,
+            "window_stride": 16,
             "autoregression_data_exception_for_take_sequence": [
                 "crossview_mask",
                 "camera_names",

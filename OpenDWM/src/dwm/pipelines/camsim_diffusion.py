@@ -1680,7 +1680,7 @@ class CrossviewTemporalSD():
             self.vae,
             image_tensor,
             lambda block, tensor: (
-                block.encode(tensor).latent_dist.mode() - shift_factor
+                block.encode(tensor).latent_dist.sample() - shift_factor
             ) * block.config.scaling_factor,
             self.common_config.get("memory_efficient_batch", -1)
         )
@@ -1726,23 +1726,19 @@ class CrossviewTemporalSD():
         batch_size, latent_sequence_length, view_count = latent_shape[:3]
         reference_frame_count = min(reference_frame_count, latent_sequence_length)
 
-        history_low_noise_step = int(
-            self.inference_config.get("history_low_noise_step", 3)
-        )
         history_guidance_scale = self.inference_config.get(
             "history_guidance_scale", 1.0
         )
-        history_low_noise_step = int(self.inference_config.get("history_low_noise_step", 3))
-        history_high_noise_step = int(self.inference_config.get("history_high_noise_step",6))
-        history_clean_prob = self.inference_config.get("history_clean_prob", 0.0)
         do_history_guidance = (
             history_guidance_scale is not None and
             history_guidance_scale != 1.0 and
             image_latents is not None and
             reference_frame_count > 0
         )
+
         do_classifier_free_guidance = "guidance_scale" in self.inference_config
         guidance_scale = self.inference_config.get("guidance_scale", 1.0)
+
         preview_depth = self.model.depth_net is not None and \
             "camera_intrinsics" in batch and "camera_transforms" in batch
         depth_result = []
@@ -1755,58 +1751,6 @@ class CrossviewTemporalSD():
             self.inference_config["inference_steps"], self.device
         )
         sched_timesteps = self.test_scheduler.timesteps
-
-        max_step_index = len(sched_timesteps) - 1
-
-        history_low_noise_step = max(0, min(history_low_noise_step, max_step_index))
-        history_high_noise_step = max(0, min(history_high_noise_step, max_step_index))
-
-        low_jitter = 0
-        high_jitter = 1
-
-        low_min = max(0, history_low_noise_step - low_jitter)
-        low_max = min(max_step_index, history_low_noise_step + low_jitter)
-
-        high_min = max(0, history_high_noise_step - high_jitter)
-        high_max = min(max_step_index, history_high_noise_step + high_jitter)
-
-        history_low_noise_frame_count = int(
-            self.inference_config.get("history_low_noise_frame_count", 3)
-        )
-        history_low_noise_frame_count = max(
-            0, min(history_low_noise_frame_count, reference_frame_count)
-        )
-
-        sampled_steps = torch.empty(
-            reference_frame_count,
-            device=self.device,
-            dtype=torch.long
-        )
-
-        if history_low_noise_frame_count > 0:
-            sampled_steps[:history_low_noise_frame_count] = torch.randint(
-                low=low_min,
-                high=low_max + 1,
-                size=(history_low_noise_frame_count,),
-                generator=self.generator
-            ).to(device=self.device)
-
-        if reference_frame_count > history_low_noise_frame_count:
-            sampled_steps[history_low_noise_frame_count:] = torch.randint(
-                low=high_min,
-                high=high_max + 1,
-                size=(reference_frame_count - history_low_noise_frame_count,),
-                generator=self.generator
-            ).to(device=self.device)
-
-        history_pos = max_step_index - sampled_steps
-        history_timesteps_1d = sched_timesteps[history_pos]
-
-        history_timesteps = history_timesteps_1d.view(
-            1, reference_frame_count, 1
-        ).expand(
-            batch_size, reference_frame_count, view_count
-        ).to(dtype=sched_timesteps.dtype)
 
         init_noise_sigma = getattr(self.test_scheduler, "init_noise_sigma", 1.0)
         latents = torch.randn(
@@ -1823,56 +1767,15 @@ class CrossviewTemporalSD():
                 device=self.device,
                 dtype=self.model_dtype
             )
-
-            history_clean_mask = (
-                torch.rand(
-                    (batch_size, reference_frame_count, view_count),
-                    generator=self.generator
-                ).to(self.device) < history_clean_prob
+            ref_condition = ref_source
+            ref_condition_timesteps = torch.zeros(
+                (batch_size, reference_frame_count, view_count),
+                device=self.device,
+                dtype=sched_timesteps.dtype
             )
-
-            history_noise = torch.randn(
-                ref_source.shape,
-                generator=self.generator
-            ).to(device=self.device, dtype=ref_source.dtype)
-
-            history_timesteps = history_timesteps_1d.view(1, reference_frame_count, 1).expand(
-                batch_size, reference_frame_count, view_count
-            ).to(dtype=sched_timesteps.dtype)
-
-            stair_noised_history = self._make_noised_latents_from_timesteps(
-                ref_source,
-                history_timesteps,
-                history_noise
-            )
-            
-            if history_clean_prob > 0:
-                history_clean_mask = (
-                    torch.rand(
-                        (batch_size, reference_frame_count, view_count),
-                        generator=self.generator
-                    ).to(self.device) < history_clean_prob
-                )
-
-                ref_condition = torch.where(
-                    history_clean_mask[..., None, None, None],
-                    ref_source,
-                    stair_noised_history
-                )
-
-                ref_condition_timesteps = torch.where(
-                    history_clean_mask,
-                    torch.zeros_like(history_timesteps),
-                    history_timesteps
-                )
-            else:
-                ref_condition = stair_noised_history
-                ref_condition_timesteps = history_timesteps
-
         else:
             reference_frame_count = 0
-            
-        # 同一套 text/layout/camera 条件不变，只做有/无 history guidance
+
         model_conditions = CrossviewTemporalSD.get_conditions(
             self.model,
             self.text_encoders
@@ -1909,12 +1812,17 @@ class CrossviewTemporalSD():
                     dim=1
                 )
                 with_history_timesteps = torch.cat(
-                    [ref_condition_timesteps, base_timesteps[:, reference_frame_count:]],
+                    [
+                        ref_condition_timesteps,
+                        base_timesteps[:, reference_frame_count:]
+                    ],
                     dim=1
                 )
 
             with_history_latents = with_history_latents.to(dtype=self.model_dtype)
-            with_history_timesteps = with_history_timesteps.to(dtype=sched_timesteps.dtype)
+            with_history_timesteps = with_history_timesteps.to(
+                dtype=sched_timesteps.dtype
+            )
 
             no_history_latents = None
             no_history_timesteps = None
@@ -2064,7 +1972,9 @@ class CrossviewTemporalSD():
                     ).to(dtype=self.vae.dtype)
                     decode_view_count = preview_latents.shape[2]
                 else:
-                    decode_latents = preview_latents.flatten(0, 2).to(dtype=self.vae.dtype)
+                    decode_latents = preview_latents.flatten(0, 2).to(
+                        dtype=self.vae.dtype
+                    )
                     decode_view_count = preview_latents.shape[2]
 
                 noisy_image_tensor = dwm.functional.memory_efficient_split_call(
@@ -2098,11 +2008,13 @@ class CrossviewTemporalSD():
                     noisy_images.shape[-2:]
                 )
 
-                depth_images = depth_images.unflatten(0, preview_latents.shape[:3]) \
-                    .repeat_interleave(3, dim=-3).permute(3, 0, 1, 4, 2, 5)
+                depth_images = depth_images.unflatten(
+                    0, preview_latents.shape[:3]
+                ).repeat_interleave(3, dim=-3).permute(3, 0, 1, 4, 2, 5)
 
-                noisy_images = noisy_images.unflatten(0, preview_latents.shape[:3]) \
-                    .permute(3, 0, 1, 4, 2, 5)
+                noisy_images = noisy_images.unflatten(
+                    0, preview_latents.shape[:3]
+                ).permute(3, 0, 1, 4, 2, 5)
 
                 depth_result.append(
                     torch.cat([noisy_images, depth_images], -3)
@@ -2110,7 +2022,6 @@ class CrossviewTemporalSD():
                     .flatten(-4, -2)
                 )
 
-        # decode / return 时仍然把 reference 区恢复成 clean source
         if ref_source is not None and reference_frame_count > 0:
             latents = torch.cat(
                 [ref_source, latents[:, reference_frame_count:]],
@@ -2148,11 +2059,17 @@ class CrossviewTemporalSD():
                 self.common_config.get("memory_efficient_batch", -1)
             )
 
-        images_pt = self.image_processor.postprocess(image_tensor, output_type="pt")
+        images_pt = self.image_processor.postprocess(
+            image_tensor,
+            output_type="pt"
+        )
 
         result = {
             "images": images_pt if output_type == "pt"
-            else self.image_processor.postprocess(image_tensor, output_type=output_type),
+            else self.image_processor.postprocess(
+                image_tensor,
+                output_type=output_type
+            ),
             "latents": latents
         }
 

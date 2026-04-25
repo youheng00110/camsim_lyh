@@ -1,7 +1,7 @@
 source /inspire/ssd/project/wuliqifa/public/songbur/lyhdwm/bin/activate
 cd /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/src
 
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 export OMP_NUM_THREADS=1
 export TOKENIZERS_PARALLELISM=false
 unset ENABLE_DEBUGPY
@@ -12,8 +12,8 @@ export PYTHONPATH=$PYTHONPATH:/inspire/hdd/project/wuliqifa/chenxinyan-240108120
 export PYTHONPATH=$PYTHONPATH:/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/externals/waymo-open-dataset/src
 export PYTHONPATH=$PYTHONPATH:/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/externals/TATS/tats/fvd
 torchrun \
-  --nproc_per_node=2 \
+  --nproc_per_node=4 \
   -m dwm.train \
   -c //inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/singlenusctest_copy.json\
-  -o /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output/train_refunisingle \
+  -o /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output/train4_refunisingle \
   --log-steps 300

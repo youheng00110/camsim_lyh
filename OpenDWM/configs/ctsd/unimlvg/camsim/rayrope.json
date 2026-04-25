@@ -140,6 +140,7 @@
             "sequence_length_per_iteration": 19,
             "clear_reference_frame_count": 0,
             "reference_frame_count": 3,
+            "window_stride": 16,
             "autoregression_data_exception_for_take_sequence": [
                 "crossview_mask",
                 "camera_names",
