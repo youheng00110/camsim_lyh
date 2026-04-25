@@ -370,7 +370,20 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                 h=height,
                 w=width,
             )
+            if not hasattr(self, "_rayrope_model_debug_printed"):
+                self._rayrope_model_debug_printed = False
 
+            if not self._rayrope_model_debug_printed:
+                if (not torch.distributed.is_available()) or (not torch.distributed.is_initialized()) or torch.distributed.get_rank() == 0:
+                    print("[RayRoPEModel] entered")
+                    print("  perspective_modeling_type =", self.perspective_modeling_type)
+                    print("  crossview_attention_type  =", self.crossview_attention_type)
+                    print("  block class               =", type(crossview_block).__name__)
+                    print("  hidden                    =", tuple(crossview_hidden_states.shape))
+                    print("  K_token                   =", tuple(K_token.shape))
+                    print("  w2cs                      =", tuple(w2cs.shape))
+                    print("  row_indices               =", tuple(row_indices.shape), int(row_indices.min()), int(row_indices.max()))
+                self._rayrope_model_debug_printed = True
             if self.perspective_modeling_type == "rayrope":
                 K_token = camera_intrinsics_norm.clone()
                 K_token[..., 0, 0] = K_token[..., 0, 0] * width
@@ -652,24 +665,19 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
 
                 if self.training and self.temporal_gradient_checkpointing:
                     hidden_states = torch.utils.checkpoint.checkpoint(
-                        self.forward_crossview_block_and_mix_result,
-                        self.crossview_transformer_blocks[
-                            self.crossview_block_layers.index(i)],
-                        self.view_mixers[self.crossview_block_layers.index(i)]
-                        if self.view_mixers is not None else None,
+                        self.forward_temporal_block_and_mix_result,
+                        self.temporal_transformer_blocks[
+                            self.temporal_block_layers.index(i)],
+                        self.time_mixers[self.temporal_block_layers.index(i)],
                         hidden_states,
-                        view_emb,
+                        sequence_emb,
                         batch_size,
                         sequence_length,
                         view_count,
                         width,
-                        height,
-                        disable_crossview,
-                        crossview_attention_mask,
-                        crossview_attention_index,
-                        camera_intrinsics_norm,
-                        camera2referego,
-                        use_reentrant=False)
+                        disable_temporal,
+                        use_reentrant=False,
+                    )
                 else:
                     hidden_states = self.forward_temporal_block_and_mix_result(
                         self.temporal_transformer_blocks[
@@ -715,13 +723,21 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                     hidden_states = self.forward_crossview_block_and_mix_result(
                         self.crossview_transformer_blocks[
                             self.crossview_block_layers.index(i)],
-                        self.view_mixers[self.crossview_block_layers.index(
-                            i)]
+                        self.view_mixers[self.crossview_block_layers.index(i)]
                         if self.view_mixers is not None else None,
-                        hidden_states, view_emb,
-                        batch_size, sequence_length, view_count, width, height,
-                        disable_crossview, crossview_attention_mask,
-                        crossview_attention_index)
+                        hidden_states,
+                        view_emb,
+                        batch_size,
+                        sequence_length,
+                        view_count,
+                        width,
+                        height,
+                        disable_crossview,
+                        crossview_attention_mask,
+                        crossview_attention_index,
+                        camera_intrinsics_norm=camera_intrinsics_norm,
+                        camera2referego=camera2referego,
+                    )
 
         # debug code
         self.hidden_states_var = hidden_states.var().item()

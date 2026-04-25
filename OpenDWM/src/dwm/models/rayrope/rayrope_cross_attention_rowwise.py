@@ -21,32 +21,33 @@ MAX_ASINH_D_F = math.asinh(MAX_D_F)
 
 class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
     """
-    Cross-attention with RayRoPE positional encoding for multi-view patches.
+    Rowwise cross-attention with RayRoPE positional encoding for multi-view patches.
+
+    这个版本不是 full-grid 版，而是 rowwise 版：
+    - 一次 attention 只处理 token grid 里的单独一行
+    - 因此每个 camera 当前只有 patches_x 个 token
+    - 整个序列长度应为 num_cameras * patches_x
 
     Args:
-        head_dim: Dimension of each attention head.
-            need to be multiple of rope_coord_dim * 2
-            where rope_coord_dim = 3 * use_p0 + num_rays_per_patch * 3 * (use_pd + use_pinf)
-        pos_enc_type: Which point types and encodings to include. Format:
-            "<point>_<transform>[+<point>_<transform>...]" where <point> in {"0", "d", "inf"}
-            and <transform> in {"pj", "3d"}. Examples: "d_pj+0_3d", "0_pj+inf_pj".
-            <point>
-                "0": camera center
-                "d": point at predicted (or known) depth
-                "inf": point at infinity
-            <transform>
-                "pj": transform to query frame via projection
-                "3d": transform to query frame via SE(3) extrinsics
-            For the RayRoPE presented in the paper, use "d_pj+0_3d".
-        num_rays_per_patch: Number of rays sampled per patch. Supported values:
-            1 (center), 2 (corners), 3 (corners).
-        depth_type: Depth source: "predict_dsig" or "known+predict_dsig".
-            "known+predict_dsig" requires known depths to be provided for context views.
-        denc_type: Depth encoding: "inv_d" (disparity), "d" (depth), or
-            "asinh_d" (asinh depth).
-        freq_base: Multiplier between adjacent RoPE frequencies.
-        apply_vo: If True, apply RoPE to values and output (VO); else only Q/K.
-
+        head_dim:
+            每个 attention head 的维度。
+            当前实现支持 partial RoPE：
+            - 只对前 rope_head_dim 维做旋转
+            - 剩余维度 feats_tail 保持不变
+            所以 head_dim 不再要求必须被 rope_coord_dim * 2 整除，
+            但必须满足 head_dim >= rope_mat_dim 才能至少容纳 1 组 rope 频率。
+        pos_enc_type:
+            指定使用哪些几何点、以及如何变到 query frame。
+            例如 "d_pj+0_3d" 表示：
+            - d_pj: 使用预测深度点，并在 query 相机下做投影坐标表达
+            - 0_3d: 使用相机中心，并在 query 相机下做 3D SE(3) 表达
+        num_rays_per_patch:
+            每个 patch 采样几条 ray。
+        depth_type:
+            当前默认是 "predict_dsig"。
+            如果以后改成 "known+predict_dsig"，需要另外实现 rowwise 的 depth map sampling。
+        apply_vo:
+            True 时也对 V / output 做 rope；False 时只对 Q/K 做 rope。
     """
 
     def __init__(
@@ -66,9 +67,9 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
         super().__init__()
         self.head_dim = head_dim
         self.patches_x = patches_x
-        self.patches_y_total = patches_y_total
-        self.patches_y = 1
-        self.num_patches = patches_x
+        self.patches_y_total = patches_y_total   # 原始 token grid 的总高度
+        self.patches_y = 1                       # rowwise 模式下一次只处理 1 行
+        self.num_patches = patches_x             # 当前每个 camera 只含这一行上的 width 个 token
         self.image_width = image_width
         self.image_height = image_height
         self.pos_enc_type = pos_enc_type
@@ -81,7 +82,9 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
 
         # parse pos_enc_type
         self.parse_pos_enc_type(pos_enc_type)
-
+        # rope_coord_dim: 几何坐标维度，不是特征维度
+        # rope_mat_dim: 一组 rope 旋转需要占用的 head 维度 = 2 * rope_coord_dim
+        # num_rope_freqs: 当前 head_dim 最多能容纳多少组频率
         self.rope_coord_dim = 3 * self.use_p0 + self.num_rays_per_patch * 3 * (int(self.use_pd) + int(self.use_pinf))
         self.rope_mat_dim = 2 * self.rope_coord_dim
         self.num_rope_freqs = self.head_dim // self.rope_mat_dim
@@ -174,26 +177,31 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
         row_indices,
         context_depths=None,
     ):
+        # row_indices: 当前 batch 中每个 rowwise 样本，对应原始 token grid 的第几行
         self.row_indices = row_indices
+
         (batch, num_cameras, _, _) = w2cs.shape
         (batch_kv, num_cameras_kv, _, _) = w2cs_kv.shape
         assert batch == batch_kv, "Batch size for Q and KV must be the same."
-        
+
         self.batch = batch
         self.num_cameras = num_cameras
         self.num_cameras_kv = num_cameras_kv
 
-        # Note: different from rayrope.py, here we assume context_depths are for KV views
+        # 注意：context_depths 是给 KV 视角组的，不是给 Q 组的
         self.context_depths = context_depths
 
-        self.w2cs = w2cs  # (batch, cameras, 4, 4)
-        self.c2ws = _invert_SE3(w2cs)  # (batch, cameras, 4, 4)
+        # Q 组几何
+        self.w2cs = w2cs
+        self.c2ws = _invert_SE3(w2cs)
         Ks_norm = normalize_K(Ks, self.image_width, self.image_height)
-        self.w2cs_kv = w2cs_kv  # (batch, cameras_kv, 4, 4)
-        self.c2ws_kv = _invert_SE3(w2cs_kv)  # (batch, cameras_kv, 4, 4)
+
+        # KV 组几何
+        self.w2cs_kv = w2cs_kv
+        self.c2ws_kv = _invert_SE3(w2cs_kv)
         Ks_norm_kv = normalize_K(Ks_kv, self.image_width, self.image_height)
 
-        # Compute the camera projection matrices we use in PRoPE.
+        # PRoPE / RayRoPE 使用的齐次投影矩阵
         self.P = torch.einsum("...ij,...jk->...ik", _lift_K(Ks_norm), w2cs)
         self.P_T = self.P.transpose(-1, -2)
         self.P_inv = torch.einsum(
@@ -201,6 +209,7 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
             self.c2ws,
             _lift_K(_invert_K(Ks_norm)),
         )
+
         self.P_kv = torch.einsum("...ij,...jk->...ik", _lift_K(Ks_norm_kv), w2cs_kv)
         self.P_T_kv = self.P_kv.transpose(-1, -2)
         self.P_inv_kv = torch.einsum(
@@ -208,13 +217,13 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
             self.c2ws_kv,
             _lift_K(_invert_K(Ks_norm_kv)),
         )
-        # 相机中心，对应 pos_enc_type 里的 0_3d
+
+        # 这里先缓存与 predicted_d 无关的静态几何量
+        # pd_world / pd_world_kv 依赖当前 forward 的 predicted_d，
+        # 所以要放到 _prepare_apply_fns() 里动态计算
         self.p0_world = _get_cam_centers(self.c2ws, self.num_patches)
         self.p0_world_kv = _get_cam_centers(self.c2ws_kv, self.num_patches)
 
-        # 射线无穷远点，对应 pinf
-
-        # get the ray segments in world coordinates
         self.pinf_world = _get_point_coords_rowwise(
             self.P_inv,
             self.patches_x,
@@ -230,6 +239,26 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
             self.row_indices,
             self.offsets,
         )
+        if not hasattr(self, "_rayrope_precompute_debug_printed"):
+            self._rayrope_precompute_debug_printed = False
+
+        if not self._rayrope_precompute_debug_printed:
+            if (not torch.distributed.is_available()) or (not torch.distributed.is_initialized()) or torch.distributed.get_rank() == 0:
+                print("[RayRoPECore] precompute")
+                print("  num_cameras      =", self.num_cameras)
+                print("  num_cameras_kv   =", self.num_cameras_kv)
+                print("  patches_x        =", self.patches_x)
+                print("  patches_y_total  =", self.patches_y_total)
+                print("  num_patches      =", self.num_patches)
+                print("  head_dim         =", self.head_dim)
+                print("  rope_coord_dim   =", self.rope_coord_dim)
+                print("  rope_mat_dim     =", self.rope_mat_dim)
+                print("  rope_head_dim    =", self.rope_head_dim)
+                print("  num_rope_freqs   =", self.num_rope_freqs)
+                print("  p0_world         =", tuple(self.p0_world.shape))
+                print("  pinf_world       =", tuple(self.pinf_world.shape))
+            self._rayrope_precompute_debug_printed = True
+        
 
     def rayrope_dot_product_attention(
         self,
@@ -244,15 +273,33 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
         timing_enabled: bool = False,
         **kwargs,
     ) -> torch.Tensor:
-        """Similar to torch.nn.functional.scaled_dot_product_attention, but applies PRoPE-style
-        positional encoding.
+        """
+        Similar to torch.nn.functional.scaled_dot_product_attention, but applies
+        RayRoPE positional encoding before attention.
 
-        Currently, we assume that the sequence length is equal to:
+        This is the rowwise version.
 
-            cameras * patches_x * patches_y
+        Assumptions:
+            1. The input sequence is camera-major.
+            2. Each camera contributes tokens from exactly one row of the token grid.
+            3. Therefore, the sequence length is:
 
-        And token ordering allows the `(seqlen,)` axis to be reshaped into
-        `(cameras, patches_x, patches_y)`.
+                seqlen = num_cameras * patches_x
+
+            rather than num_cameras * patches_x * patches_y.
+
+        Token layout:
+            For the current rowwise sample, the `(seqlen,)` axis is interpreted as
+
+                (num_cameras, patches_x)
+
+            where each contiguous block of length `num_patches` belongs to one camera.
+
+        In particular, for camera `cam_idx`, its query slice is:
+
+            [cam_idx * num_patches : (cam_idx + 1) * num_patches]
+
+        where `num_patches = patches_x` in the current rowwise implementation.
         """
         # We're going to assume self-attention: all inputs are the same shape.
         (batch, num_heads, seqlen, head_dim) = q.shape
@@ -304,8 +351,13 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
         # debug: bool = False,
         # positions_collector: Optional[dict] = None,
     ) -> list[Callable[[torch.Tensor], torch.Tensor]]:
-        """Prepare transforms for PRoPE-style positional encoding."""
+        """Prepare transforms for PRoPE-style positional encoding.
         # (batch, num_cameras, _, _) = w2cs.shape
+        
+        基于当前 forward 的 predicted_d / predicted_d_kv，
+        现算与深度相关的几何点，并为每个 query camera 构造一组 apply_fn_kv。
+        """
+
         batch = self.batch
         num_cameras = self.num_cameras
         num_cameras_kv = self.num_cameras_kv
@@ -313,7 +365,8 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
         patches_y = self.patches_y
         num_rays_per_patch = self.num_rays_per_patch
         num_patches = patches_x * patches_y
-
+        # Q 组 / KV 组的预测深度，shape 会在 _prepare_depths 内整理成
+        # (2, batch, cameras, num_patches, num_rays_per_patch, 1)
         depths = _prepare_depths(predicted_d, None, self.depth_type, 
                 batch=batch, num_cameras=num_cameras, num_patches=num_patches, 
                 patches_x=patches_x, patches_y=patches_y, 
@@ -322,7 +375,8 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
                 batch=batch, num_cameras=num_cameras_kv, num_patches=num_patches, 
                 patches_x=patches_x, patches_y=patches_y, 
                 num_rays_per_patch=num_rays_per_patch, offsets=self.offsets)
-        
+        # rowwise 版必须用 row_indices 来恢复当前真实行号
+        # 不能再回退到 full-grid 的 _get_point_coords()
         pd_world = _get_point_coords_rowwise(
             self.P_inv,
             self.patches_x,
@@ -482,7 +536,18 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
 
         # if (not torch.isfinite(cos_Q).all()) or (not torch.isfinite(sin_Q).all()):
         #     raise ValueError("NaN/inf values found in rope_matrices_Q.")
+        if not hasattr(self, "_rayrope_coeff_debug_printed"):
+            self._rayrope_coeff_debug_printed = False
 
+        if not self._rayrope_coeff_debug_printed:
+            if (not torch.distributed.is_available()) or (not torch.distributed.is_initialized()) or torch.distributed.get_rank() == 0:
+                print("[RayRoPECoeff] prepared")
+                print("  Q keys           =", list(positions_Q.keys()))
+                print("  num_apply_fns_kv =", len(all_apply_fns_kv))
+                print("  num_patches      =", num_patches)
+                print("  cos_Q shape      =", tuple(cos_Q.shape))
+                print("  sin_Q shape      =", tuple(sin_Q.shape))
+            self._rayrope_coeff_debug_printed = True
         return apply_fn_q, all_apply_fns_kv, apply_fn_o
 
 
@@ -523,16 +588,19 @@ def _transform_to_query_frame(
         
 
 def _get_cam_centers(
-    c2ws: torch.Tensor,  # (batch, num_cameras, 4, 4)
+    c2ws: torch.Tensor,
     num_patches: int,
 ) -> torch.Tensor:
-    # return the camera centers in homogenous coordinates
     device = c2ws.device
     batches = c2ws.shape[0]
     num_cameras = c2ws.shape[1]
 
     cam_centers = c2ws[:, :, :, 3]  # (batch, num_cameras, 4)
-    cam_centers = cam_centers.view(batches, num_cameras, 1, 4).expand(batches, num_cameras, num_patches, 4)
+    cam_centers = cam_centers.view(
+        batches, num_cameras, 1, 1, 4
+    ).expand(
+        batches, num_cameras, num_patches, 1, 4
+    )
     return cam_centers
     
 def _get_point_coords(
@@ -543,6 +611,14 @@ def _get_point_coords(
         depths: torch.Tensor = None,  # (2, batch, num_cameras, num_patches, num_rays_per_patch, 1)
     ) -> torch.Tensor:
     # return the pixel space 3d homogenous coordinates
+    """
+    为 rowwise attention 构造当前这一行的 patch 几何点。
+
+    与 full-grid 版本不同：
+    - x 仍然在 [0, patches_x) 上展开
+    - y 不再自己扫完整张图
+    - y 由 row_indices 指定当前 batch 样本对应原始 token grid 的哪一行
+    """
     device = P_inv.device
     batches = P_inv.shape[0]
     num_cameras = P_inv.shape[1]
@@ -686,6 +762,15 @@ def _prepare_rope_coeff_uniformd(
     num_cameras: int,
     num_patches: int,
 ):
+    """
+    对特征前缀应用 rope，尾部维度保持不变。
+
+    这是 partial RoPE：
+    - feats[..., :rope_dim] 做旋转
+    - feats[..., rope_dim:] 原样保留
+
+    这样可以兼容 head_dim 不能整除 rope_mat_dim 的情况。
+    """
     coord_dim = 0
     for key, value in positions.items():
         coord_dim += value.shape[-1]

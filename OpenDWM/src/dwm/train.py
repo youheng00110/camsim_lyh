@@ -4,6 +4,18 @@ import json
 import os
 import time
 import torch
+
+if os.environ.get("ENABLE_DEBUGPY", "0") == "1":
+    import debugpy
+
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    if local_rank == 0:
+        debugpy.listen(("0.0.0.0", 9876))
+        print(
+            "[debugpy] listening on 0.0.0.0:9876, waiting for VS Code to attach...",
+            flush=True,
+        )
+        debugpy.wait_for_client()
 from tqdm import tqdm
 from dwm.utils.sampler import VariableVideoBatchSampler
 

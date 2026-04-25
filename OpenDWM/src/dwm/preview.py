@@ -1,9 +1,21 @@
-import argparse
-import dwm.common
-import json
 import os
+
+if os.environ.get("ENABLE_DEBUGPY", "0") == "1":
+    import debugpy
+
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    if local_rank == 0:
+        debugpy.listen(("0.0.0.0", 9876))
+        print(
+            "[debugpy] listening on 0.0.0.0:9876, waiting for VS Code to attach...",
+            flush=True,
+        )
+        debugpy.wait_for_client()
+
+import argparse
+import json
 import torch
-import debugpy  # 新增调试库
+import dwm.common
 
 
 def customize_text(clip_text, preview_config):
@@ -84,13 +96,6 @@ def create_parser():
 
 
 def main():  # ========= 你要的 main 函数 + debug 在这里 =========
-    # ========= 开启远程调试（端口 9876） =========
-    #local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-    #if local_rank == 0:
-    #    debugpy.listen(("0.0.0.0", 9876))
-    #    print("[debugpy] listening on 0.0.0.0:9876, waiting for VS Code to attach...")
-    #    debugpy.wait_for_client()
-
     # ========= 下面是你原来的全部代码，原封不动放进来 =========
     parser = create_parser()
     args = parser.parse_args()
