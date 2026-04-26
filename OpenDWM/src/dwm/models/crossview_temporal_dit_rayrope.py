@@ -702,7 +702,8 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                 view_emb = view_emb + view_cam_emb
 
                 if self.training and self.crossview_gradient_checkpointing:
-                    hidden_states = self.forward_crossview_block_and_mix_result(
+                    hidden_states = torch.utils.checkpoint.checkpoint(
+                        self.forward_crossview_block_and_mix_result,
                         self.crossview_transformer_blocks[
                             self.crossview_block_layers.index(i)],
                         self.view_mixers[self.crossview_block_layers.index(i)]
@@ -717,8 +718,9 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                         disable_crossview,
                         crossview_attention_mask,
                         crossview_attention_index,
-                        camera_intrinsics_norm=camera_intrinsics_norm,
-                        camera2referego=camera2referego,
+                        camera_intrinsics_norm,
+                        camera2referego,
+                        use_reentrant=False,
                     )
                 else:
                     hidden_states = self.forward_crossview_block_and_mix_result(

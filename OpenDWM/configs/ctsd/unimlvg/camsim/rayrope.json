@@ -83,6 +83,10 @@
                         {
                             "_class_name": "get_class",
                             "class_name": "dwm.models.crossview_temporal.VTSelfAttentionBlock"
+                        },
+                        {
+                        "_class_name": "get_class",
+                        "class_name": "dwm.models.rayrope_rowwise_block.VTRayRoPERowwiseAttentionBlock"
                         }
                     ]
                 },
