@@ -179,7 +179,11 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
     ):
         # row_indices: 当前 batch 中每个 rowwise 样本，对应原始 token grid 的第几行
         self.row_indices = row_indices
-
+        geo_dtype = torch.float32
+        w2cs = w2cs.to(dtype=geo_dtype)
+        Ks = Ks.to(dtype=geo_dtype)
+        w2cs_kv = w2cs_kv.to(dtype=geo_dtype)
+        Ks_kv = Ks_kv.to(dtype=geo_dtype)
         (batch, num_cameras, _, _) = w2cs.shape
         (batch_kv, num_cameras_kv, _, _) = w2cs_kv.shape
         assert batch == batch_kv, "Batch size for Q and KV must be the same."
@@ -309,29 +313,57 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
         
 
         out = torch.zeros_like(q)
-        # with time_block("apply_enc", timing_enabled):
         q = apply_fn_q(q)
+        attn_mask = kwargs.pop("attn_mask", None)
 
-        # assert not (torch.isinf(q).any()), "Inf values found in encoded q."
+        if not hasattr(self, "_rayrope_attn_debug_printed"):
+            self._rayrope_attn_debug_printed = False
+
         for cam_idx, apply_fn_kv in enumerate(all_apply_fns_kv):
-            # with time_block("apply_enc", timing_enabled):
             k_idx = apply_fn_kv(k)
             if apply_vo:
                 v_idx = apply_fn_kv(v)
             else:
                 v_idx = v
-            # assert not (torch.isinf(k_idx).any()), f"Inf values found in encoded k for cam_idx={cam_idx}."
-            # assert not (torch.isinf(v_idx).any()), f"Inf values found in encoded v for cam_idx={cam_idx}."
 
-            # with time_block("attention", timing_enabled):
-            q_idx = q[:, :, cam_idx * num_patches : (cam_idx + 1) * num_patches, :]
+            q_start = cam_idx * num_patches
+            q_end = (cam_idx + 1) * num_patches
+            q_idx = q[:, :, q_start:q_end, :]
+
+            attn_mask_idx = None
+            if attn_mask is not None:
+                attn_mask_idx = attn_mask[..., q_start:q_end, :]
+                if attn_mask_idx.ndim == 3:
+                    attn_mask_idx = attn_mask_idx.unsqueeze(1)
+
             out_idx = F.scaled_dot_product_attention(
                 query=q_idx.contiguous(),
                 key=k_idx.contiguous(),
                 value=v_idx.contiguous(),
+                attn_mask=attn_mask_idx,
                 **kwargs,
             )
-            out[:, :, cam_idx * num_patches : (cam_idx + 1) * num_patches, :] = out_idx
+            out[:, :, q_start:q_end, :] = out_idx
+
+            if (cam_idx == 0) and (not self._rayrope_attn_debug_printed):
+                if (not torch.distributed.is_available()) or (not torch.distributed.is_initialized()) or torch.distributed.get_rank() == 0:
+                    print("[RayRoPEAttn] shapes")
+                    print("  q            =", tuple(q.shape))
+                    print("  k            =", tuple(k.shape))
+                    print("  v            =", tuple(v.shape))
+                    print("  q_idx        =", tuple(q_idx.shape))
+                    print("  k_idx        =", tuple(k_idx.shape))
+                    print("  v_idx        =", tuple(v_idx.shape))
+                    print("  attn_mask    =", None if attn_mask is None else tuple(attn_mask.shape))
+                    print("  attn_mask_idx=", None if attn_mask_idx is None else tuple(attn_mask_idx.shape))
+                self._rayrope_attn_debug_printed = True
+        # assert not (torch.isinf(q).any()), "Inf values found in encoded q."
+            # with time_block("apply_enc", timing_enabled):
+           
+            # assert not (torch.isinf(k_idx).any()), f"Inf values found in encoded k for cam_idx={cam_idx}."
+            # assert not (torch.isinf(v_idx).any()), f"Inf values found in encoded v for cam_idx={cam_idx}."
+
+            # with time_block("attention", timing_enabled):
             # assert not (torch.isinf(out_idx).any()), "Inf values found in attention out_idx."
         if apply_vo:
             # with time_block("apply_enc", timing_enabled):
@@ -340,6 +372,10 @@ class RayRoPE_DotProductAttention_Cross_Rowwise(torch.nn.Module):
         # assert not (torch.isnan(out).any()), "NaN values found in attention output."
         # assert not (torch.isinf(out).any()), "Inf values found in attention output."
         # assert out.shape == (batch, num_heads, seqlen, head_dim)
+        if not hasattr(self, "_rayrope_attn_debug_printed"):
+            self._rayrope_attn_debug_printed = False
+
+        
         return out.contiguous()
 
 
@@ -931,8 +967,8 @@ def _apply_rope_coeffs(
     feats_rope = feats[..., :rope_dim]
     feats_tail = feats[..., rope_dim:]
 
-    cos = cos.unsqueeze(1)
-    sin = sin.unsqueeze(1)
+    cos = cos.to(dtype=feats.dtype).unsqueeze(1)
+    sin = sin.to(dtype=feats.dtype).unsqueeze(1)
 
     if interleaved:
         x1 = feats_rope[..., 0::2]
@@ -972,13 +1008,15 @@ def _invert_SE3(transforms: torch.Tensor) -> torch.Tensor:
 
 
 def _lift_K(Ks: torch.Tensor) -> torch.Tensor:
-    """Lift 3x3 matrices to homogeneous 4x4 matrices."""
     assert Ks.shape[-2:] == (3, 3)
-    out = torch.zeros(Ks.shape[:-2] + (4, 4), device=Ks.device)
+    out = torch.zeros(
+        Ks.shape[:-2] + (4, 4),
+        device=Ks.device,
+        dtype=Ks.dtype,
+    )
     out[..., :3, :3] = Ks
     out[..., 3, 3] = 1.0
     return out
-
 
 def _invert_K(Ks: torch.Tensor) -> torch.Tensor:
     """Invert 3x3 intrinsics matrices. Assumes no skew."""

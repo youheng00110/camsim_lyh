@@ -3,7 +3,8 @@
 source /inspire/ssd/project/wuliqifa/public/songbur/lyhdwm/bin/activate
 cd /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/src
 
-export ENABLE_DEBUGPY=1
+unset ENABLE_DEBUGPY
+unset DEBUGPY_PORT
 export CUDA_VISIBLE_DEVICES=0,1
 export OMP_NUM_THREADS=1
 export TOKENIZERS_PARALLELISM=false

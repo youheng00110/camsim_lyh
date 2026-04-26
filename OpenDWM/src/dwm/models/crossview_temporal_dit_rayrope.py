@@ -442,7 +442,7 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
             )
 
         else:
-            raise f"Not support {self.crossview_attention_type}"
+            raise ValueError(f"Not support {self.crossview_attention_type}")
 
         return mixer(
             hidden_states.view(
