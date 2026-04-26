@@ -370,20 +370,6 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                 h=height,
                 w=width,
             )
-            if not hasattr(self, "_rayrope_model_debug_printed"):
-                self._rayrope_model_debug_printed = False
-
-            if not self._rayrope_model_debug_printed:
-                if (not torch.distributed.is_available()) or (not torch.distributed.is_initialized()) or torch.distributed.get_rank() == 0:
-                    print("[RayRoPEModel] entered")
-                    print("  perspective_modeling_type =", self.perspective_modeling_type)
-                    print("  crossview_attention_type  =", self.crossview_attention_type)
-                    print("  block class               =", type(crossview_block).__name__)
-                    print("  hidden                    =", tuple(crossview_hidden_states.shape))
-                    print("  K_token                   =", tuple(K_token.shape))
-                    print("  w2cs                      =", tuple(w2cs.shape))
-                    print("  row_indices               =", tuple(row_indices.shape), int(row_indices.min()), int(row_indices.max()))
-                self._rayrope_model_debug_printed = True
             if self.perspective_modeling_type == "rayrope":
                 K_token = camera_intrinsics_norm.clone()
                 K_token[..., 0, 0] = K_token[..., 0, 0] * width
@@ -415,6 +401,21 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                     device=hidden_states.device,
                     dtype=torch.long,
                 ).repeat(batch_size * sequence_length)
+
+                if not hasattr(self, "_rayrope_model_debug_printed"):
+                    self._rayrope_model_debug_printed = False
+
+                if not self._rayrope_model_debug_printed:
+                    if (not torch.distributed.is_available()) or (not torch.distributed.is_initialized()) or torch.distributed.get_rank() == 0:
+                        print("[RayRoPEModel] entered")
+                        print("  perspective_modeling_type =", self.perspective_modeling_type)
+                        print("  crossview_attention_type  =", self.crossview_attention_type)
+                        print("  block class               =", type(crossview_block).__name__)
+                        print("  hidden                    =", tuple(crossview_hidden_states.shape))
+                        print("  K_token                   =", tuple(K_token.shape))
+                        print("  w2cs                      =", tuple(w2cs.shape))
+                        print("  row_indices               =", tuple(row_indices.shape), int(row_indices.min()), int(row_indices.max()))
+                    self._rayrope_model_debug_printed = True
 
                 crossview_hidden_states = crossview_block(
                     crossview_hidden_states,

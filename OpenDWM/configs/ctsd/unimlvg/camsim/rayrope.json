@@ -32,6 +32,7 @@
             "condition_on_all_frames": true,
             "uncondition_image_color": 0.1255,
             "added_time_ids": "fps_camera_transforms_action",
+            "explicit_view_modeling": true,
             "camera_intrinsic_embedding_indices": [
                 0,
                 4,
@@ -53,7 +54,14 @@
                 11
             ],
             "camera_ego_sensor_indices": [
-                0
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7
             ],
             "distribution_framework": "fsdp",
             "ddp_wrapper_settings": {
