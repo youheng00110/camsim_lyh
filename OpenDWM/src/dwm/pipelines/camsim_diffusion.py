@@ -737,15 +737,11 @@ class CrossviewTemporalSD():
                 reference_latent_count_indicator
             )
 
-            made_noisy_input = torch.where(
-                disable_temporal.view(batch_size, 1, 1, 1, 1, 1).to(latents.device),
-                noisy_input,
-                noisy_input * rf_scale + rf_offset
-            )
+            made_noisy_input = noisy_input
 
             made_noisy_input = torch.where(
                 reference_frame_indicator.view(*latents.shape[:3], 1, 1, 1),
-                latents * rf_scale + rf_offset,
+                latents,
                 made_noisy_input
             )
 

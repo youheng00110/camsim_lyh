@@ -24,9 +24,9 @@
         "lr": 6e-5
     },
     "pipeline": {
-        "_class_name": "dwm.pipelines.camsim_diffusion.CrossviewTemporalSD",
+        "_class_name": "dwm.pipelines.ctsd.CrossviewTemporalSD",
         "common_config": {
-            "frame_prediction_style": "diffusion_forcing",
+            "frame_prediction_style": "ctsd",
             "cat_condition": true,
             "cond_with_action": false,
             "condition_on_all_frames": true,
@@ -120,8 +120,9 @@
             "hdmap_condition_ratio": 0.8,
             "action_condition_ratio": 0.8,
             "image_generation_ratio": 0.1,
-            "reference_frame_scale_std": 0.01,
-            "reference_frame_offset_std": 0.01,
+            "generation_task_ratio": 0.2,
+            "all_reference_visible_ratio": 0.8,
+            "reference_visible_rate": 0.5,
             "enable_grad_scaler": true,
             "disable_reference_frame_loss": true,
             "reference_frame_count": 3,
@@ -140,7 +141,7 @@
             "sequence_length_per_iteration": 19,
             "clear_reference_frame_count": 0,
             "reference_frame_count": 3,
-            "window_stride": 16,
+            "autoregressive_stride": 16,
             "autoregression_data_exception_for_take_sequence": [
                 "crossview_mask",
                 "camera_names",
