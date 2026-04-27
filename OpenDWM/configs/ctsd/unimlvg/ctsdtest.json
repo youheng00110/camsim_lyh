@@ -21,10 +21,10 @@
     },
     "optimizer": {
         "_class_name": "torch.optim.AdamW",
-        "lr": 6e-5
+        "lr": 8e-5
     },
     "pipeline": {
-        "_class_name": "dwm.pipelines.ctsd.CrossviewTemporalSD",
+        "_class_name": "dwm.pipelines.camsim.CrossviewTemporalSD",
         "common_config": {
             "frame_prediction_style": "ctsd",
             "cat_condition": true,
@@ -117,15 +117,16 @@
         "training_config": {
             "text_prompt_condition_ratio": 0.8,
             "3dbox_condition_ratio": 0.8,
-            "hdmap_condition_ratio": 0.8,
-            "action_condition_ratio": 0.8,
-            "image_generation_ratio": 0.1,
+            "explicit_view_modeling_ratio": 0.8,
+            "reference_frame_count": 3,
             "generation_task_ratio": 0.2,
+            "image_generation_ratio": 0.5,
             "all_reference_visible_ratio": 0.8,
             "reference_visible_rate": 0.5,
-            "enable_grad_scaler": true,
             "disable_reference_frame_loss": true,
-            "reference_frame_count": 3,
+            "enable_grad_scaler": true,
+            "hdmap_condition_ratio": 0.8,
+            "action_condition_ratio": 0.8,
             "diffusion_forcing_timestep_mode": "uniform_future"
         },
         "inference_config": {
@@ -237,7 +238,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output/train_2singlenusc/checkpoints/18000.pth",
+        "model_checkpoint_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/opendwm-models/ctsd_35_df16_tirda_bm_nwao_40k.pth",
         "model_load_state_args": {
             "strict": false
         },

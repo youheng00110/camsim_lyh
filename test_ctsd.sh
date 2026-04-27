@@ -15,5 +15,5 @@ torchrun \
   --nproc_per_node=2 \
   -m dwm.train \
   -c //inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/ctsdtest.json\
-  -o /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output/test_ctsd \
+  -o /inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output/stage1_ctsd \
   --log-steps 300

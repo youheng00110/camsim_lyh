@@ -186,7 +186,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/stable-diffusion-3-medium",
-        "model_checkpoint_path": null
+        "model_checkpoint_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/opendwm-models/ctsd_35_df16_tirda_bm_nwao_40k.pth"
         
     },
     "training_dataset": {
