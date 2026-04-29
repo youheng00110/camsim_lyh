@@ -32,7 +32,7 @@ do
         --matmul_size "$MATMUL_SIZE" \
         --inner_iters "$INNER_ITERS" \
         --minutes "$RUN_MINUTES" \
-        > "$BASE/gpu_check_logs/gpu0_${NOW}.log" 2>&1 &
+        > /dev/null 2>&1 &
 
     PID0=$!
 
@@ -42,7 +42,8 @@ do
         --matmul_size "$MATMUL_SIZE" \
         --inner_iters "$INNER_ITERS" \
         --minutes "$RUN_MINUTES" \
-        > "$BASE/gpu_check_logs/gpu1_${NOW}.log" 2>&1 &
+        > /dev/null 2>&1 &
+
     PID1=$!
 
     wait "$PID0"
