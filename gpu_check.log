@@ -1,0 +1,17 @@
+nohup: ignoring input
+===== 2026-04-29 14:33:28 start gpu check =====
+gpu0 status: 0
+gpu1 status: 0
+===== 2026-04-29 14:43:30 gpu check finished =====
+sleep 300s
+===== 2026-04-29 14:48:30 start gpu check =====
+gpu0 status: 0
+gpu1 status: 0
+===== 2026-04-29 14:58:33 gpu check finished =====
+sleep 300s
+===== 2026-04-29 15:03:33 start gpu check =====
+gpu0 status: 0
+gpu1 status: 0
+===== 2026-04-29 15:13:35 gpu check finished =====
+sleep 300s
+===== 2026-04-29 15:18:35 start gpu check =====
