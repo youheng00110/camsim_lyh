@@ -20,7 +20,7 @@ mini_sensors/
 !output/*/preview/**
 !output/*/log/
 !output/*/log/**
-
+*.pth
 # 再忽略其他所有 output 目录
 # 上面的 output/*/ 只会忽略一级子目录，不会匹配 output/ 本身，也不会影响已经被 ! 保留的路径
 

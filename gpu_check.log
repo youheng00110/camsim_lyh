@@ -15,3 +15,28 @@ gpu1 status: 0
 ===== 2026-04-29 15:13:35 gpu check finished =====
 sleep 300s
 ===== 2026-04-29 15:18:35 start gpu check =====
+gpu0 status: 0
+gpu1 status: 0
+===== 2026-04-29 15:28:38 gpu check finished =====
+sleep 300s
+===== 2026-04-29 15:33:38 start gpu check =====
+gpu0 status: 0
+gpu1 status: 0
+===== 2026-04-29 15:43:41 gpu check finished =====
+sleep 300s
+===== 2026-04-29 15:48:41 start gpu check =====
+gpu0 status: 0
+gpu1 status: 0
+===== 2026-04-29 15:58:43 gpu check finished =====
+sleep 300s
+===== 2026-04-29 16:03:43 start gpu check =====
+gpu0 status: 0
+gpu1 status: 0
+===== 2026-04-29 16:13:46 gpu check finished =====
+sleep 300s
+===== 2026-04-29 16:18:46 start gpu check =====
+gpu0 status: 0
+gpu1 status: 0
+===== 2026-04-29 16:28:49 gpu check finished =====
+sleep 300s
+===== 2026-04-29 16:33:49 start gpu check =====
