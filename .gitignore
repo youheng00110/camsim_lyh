@@ -37,4 +37,4 @@ output/**/*.gz
 
 # 强制忽略 checkpoints 和 optimizer（绝对不上传）
 output/**/checkpoints/
-output/**/optimizer/
+output/**/optimizer/lyhmigration.tar.gz
