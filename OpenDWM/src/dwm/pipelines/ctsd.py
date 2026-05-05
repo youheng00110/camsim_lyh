@@ -444,8 +444,7 @@ class CrossviewTemporalSD():
             if common_config.get("explicit_view_modeling", False) else None,
 
             "added_time_ids": added_time_ids
-            if "added_time_ids" in common_config else None,
-
+            if "added_time_ids" in common_config else None
         }
 
         if (

@@ -16,12 +16,12 @@
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
-            "mesh_shape": [1, 2]
+            "mesh_shape": [1, 4]
         }
     },
     "optimizer": {
         "_class_name": "torch.optim.AdamW",
-        "lr": 8e-5
+        "lr": 6e-5
     },
     "pipeline": {
         "_class_name": "dwm.pipelines.camsim.CrossviewTemporalSD",
@@ -30,6 +30,7 @@
             "cat_condition": true,
             "cond_with_action": false,
             "condition_on_all_frames": true,
+            "explicit_view_modeling": true,
             "uncondition_image_color": 0.1255,
             "added_time_ids": "fps_camera_transforms_action",
             "camera_intrinsic_embedding_indices": [
@@ -148,27 +149,12 @@
                 "camera_names",
                 "distortion",
                 "angle",
-                "dist"
-            
-            ]
+                "dist"            
+            ],
+            "evaluation_item_count": 480
         },
         "model": {
             "_class_name": "dwm.models.crossview_temporal_dit.DiTCrossviewTemporalConditionModel",
-            "dual_attention_layers": [
-                0,
-                1,
-                2,
-                3,
-                4,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12
-            ],
             "attention_head_dim": 64,
             "caption_projection_dim": 1536,
             "in_channels": 16,
@@ -178,12 +164,9 @@
             "out_channels": 16,
             "patch_size": 2,
             "pooled_projection_dim": 2048,
-            "pos_embed_max_size": 384,
-            "qk_norm": "rms_norm",
-            "qk_norm_on_additional_modules": "rms_norm",
+            "pos_embed_max_size": 192,
             "sample_size": 128,
-            "perspective_modeling_type": "implicit",
-            "projection_class_embeddings_input_dim": 3328,
+            "perspective_modeling_type": "explicit",
             "enable_crossview": false,
             "crossview_attention_type": "rowwise",
             "crossview_block_layers": [
@@ -194,22 +177,16 @@
                 17,
                 21
             ],
-            "crossview_gradient_checkpointing": false,
+            "crossview_gradient_checkpointing": true,
             "enable_temporal": true,
-            "temporal_attention_type": "pointwise",
+            "temporal_attention_type": "full",
             "temporal_block_layers": [
-                2,
-                3,
-                6,
-                7,
-                10,
-                11,
-                14,
-                15,
-                18,
-                19,
-                22,
-                23
+                1,
+                5,
+                9,
+                13,
+                17,
+                21
             ],
             "temporal_gradient_checkpointing": true,
             "mixer_type": "AlphaBlender",
@@ -238,7 +215,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/ggearth/ckpts/models/opendwm-models/ctsd_35_df16_tirda_bm_nwao_40k.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output/stage1_ctsd6/checkpoints/28000.pth",
         "model_load_state_args": {
             "strict": false
         },
