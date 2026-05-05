@@ -21,7 +21,7 @@
     },
     "optimizer": {
         "_class_name": "torch.optim.AdamW",
-        "lr": 5e-5
+        "lr": 8e-6
     },
     "pipeline": {
         "_class_name": "dwm.pipelines.camsim.CrossviewTemporalSD",
