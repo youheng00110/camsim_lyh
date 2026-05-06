@@ -5,7 +5,7 @@ from torchvision import transforms as T
 from PIL import Image, ImageFile
 import debugpy
 import sys
-src_dir = "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/src"
+src_dir = "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/src"
 sys.path.append(src_dir)
 # ========= nuplanDataset =========
 from dwm.datasets.nuplan import MotionDataset
@@ -51,15 +51,15 @@ def _shape_nested(nested):
     x = nested[0][0] if (Tn and Vn) else None
     return f"[T={Tn}, V={Vn}, {tuple(x.shape)}]" if torch.is_tensor(x) else f"[T={Tn}, V={Vn}]"
 
-def make_base_ds(train=False):
+def make_base_ds(train=True):
     data_pkl = train_data_pkl if train else val_data_pkl
     return MotionDataset(
-        sensor_root="/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_prepo/mini_sensorss",
-        pkl_path=data_pkl,
-        balanced_json_path=BALANCED_JSON_PATH,
-        cache_root='/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/newpas/ggearth_files/nuplan-test/mini_cache',
-        dataset_root='/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_link/plan_data/mini',
-        map_root='/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_link/maps',
+                    sensor_root="/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_sensors",
+                    pkl_path="/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_infos_train.pkl",
+                    balanced_json_path="/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/balanced_windows_metadata.json",
+                    cache_root= "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
+                    dataset_root= "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
+                    map_root="/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
         sequence_length=20,
         fps_stride_tuples=[(6, 2,0.5)],
         sensor_channels=['CAM_L1','CAM_L0','CAM_F0','CAM_R0','CAM_R1','CAM_R2','CAM_B0','CAM_L2'],
@@ -79,7 +79,7 @@ def make_base_ds(train=False):
             ]
         },
         image_description_settings={
-        "path": "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/newpas/ggearth_files/nuplan-test/nuplan_scene.json",
+        "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/nuplan_scene.json",
         "align_keys": [
             "time",
             "weather"

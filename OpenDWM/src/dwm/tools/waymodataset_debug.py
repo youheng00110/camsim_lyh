@@ -103,7 +103,7 @@ def make_base_ds():
 
         sequence_length=20,
 
-        fps_stride_tuples=[(6, 2,0.91)],
+        fps_stride_tuples=[(4, 2,0.8)],
 
         sensor_channels=[
             "CAM_FRONT",

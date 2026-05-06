@@ -59,7 +59,231 @@ def ck(name, x):
         raise RuntimeError(name)
 
 ############ ck func #########################
+###########debug nan###########################
+def tensor_debug_line(name, x):
+    if not torch.is_tensor(x):
+        return "{}: not tensor, value={}\n".format(name, x)
 
+    x_detach = x.detach()
+
+    if not torch.is_floating_point(x_detach):
+        x_float = x_detach.float()
+    else:
+        x_float = x_detach.float()
+
+    finite_mask = torch.isfinite(x_float)
+    bad_count = finite_mask.logical_not().sum().item()
+
+    if finite_mask.any():
+        finite_values = x_float[finite_mask]
+        min_value = finite_values.min().item()
+        mean_value = finite_values.mean().item()
+        max_value = finite_values.max().item()
+    else:
+        min_value = float("nan")
+        mean_value = float("nan")
+        max_value = float("nan")
+
+    return (
+        "{}: shape={}, dtype={}, bad_count={}, min={:.6f}, "
+        "mean={:.6f}, max={:.6f}\n"
+    ).format(
+        name,
+        tuple(x_detach.shape),
+        x_detach.dtype,
+        bad_count,
+        min_value,
+        mean_value,
+        max_value,
+    )
+
+
+def save_nan_batch_visualization(
+    batch,
+    model_conditions,
+    sd_pred,
+    sd_pred_latent,
+    target,
+    noise,
+    latents,
+    sigmas,
+    timesteps,
+    reference_frame_indicator,
+    global_step,
+    reason,
+    root="/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_nan_batch",
+):
+    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+
+    if "dataset_tag" in batch:
+        tag_value = int(batch["dataset_tag"].detach().cpu().flatten()[0].item())
+    else:
+        tag_value = -1
+
+    save_root = os.path.join(
+        root,
+        "step{:06d}_rank{}_tag{}_{}".format(
+            global_step + 1,
+            rank,
+            tag_value,
+            reason,
+        ),
+    )
+    os.makedirs(save_root, exist_ok=True)
+
+    t_candidates = [0, 1, 2, 3, 5, 10, 19]
+    if "vae_images" in batch:
+        sequence_length = batch["vae_images"].shape[1]
+    else:
+        sequence_length = 0
+
+    t_list = [t for t in t_candidates if t < sequence_length]
+
+    for t in t_list:
+        if "vae_images" in batch:
+            rgb_grid = batch["vae_images"][0, t].detach().float().cpu()
+            rgb_grid = torch.nan_to_num(
+                rgb_grid, nan=0.0, posinf=1.0, neginf=0.0
+            ).clamp(0.0, 1.0)
+
+            torchvision.utils.save_image(
+                rgb_grid,
+                os.path.join(save_root, "grid_t{:02d}_rgb.png".format(t)),
+                nrow=rgb_grid.shape[0],
+            )
+
+        if "3dbox_images" in batch:
+            box_grid = batch["3dbox_images"][0, t].detach().float().cpu()
+            box_grid = torch.nan_to_num(
+                box_grid, nan=0.0, posinf=1.0, neginf=0.0
+            ).clamp(0.0, 1.0)
+
+            torchvision.utils.save_image(
+                box_grid,
+                os.path.join(save_root, "grid_t{:02d}_box.png".format(t)),
+                nrow=box_grid.shape[0],
+            )
+
+        if "hdmap_images" in batch:
+            hdmap_grid = batch["hdmap_images"][0, t].detach().float().cpu()
+            hdmap_grid = torch.nan_to_num(
+                hdmap_grid, nan=0.0, posinf=1.0, neginf=0.0
+            ).clamp(0.0, 1.0)
+
+            torchvision.utils.save_image(
+                hdmap_grid,
+                os.path.join(save_root, "grid_t{:02d}_hdmap.png".format(t)),
+                nrow=hdmap_grid.shape[0],
+            )
+
+        if model_conditions.get("condition_image_tensor", None) is not None:
+            cond_grid = model_conditions["condition_image_tensor"][0, t] \
+                .detach().float().cpu()
+            cond_grid = torch.nan_to_num(
+                cond_grid, nan=0.0, posinf=1.0, neginf=0.0
+            ).clamp(0.0, 1.0)
+
+            if cond_grid.shape[1] >= 3:
+                cond_box_grid = cond_grid[:, :3]
+                torchvision.utils.save_image(
+                    cond_box_grid,
+                    os.path.join(
+                        save_root,
+                        "grid_t{:02d}_cond_box.png".format(t),
+                    ),
+                    nrow=cond_box_grid.shape[0],
+                )
+
+            if cond_grid.shape[1] >= 6:
+                cond_hdmap_grid = cond_grid[:, 3:6]
+                torchvision.utils.save_image(
+                    cond_hdmap_grid,
+                    os.path.join(
+                        save_root,
+                        "grid_t{:02d}_cond_hdmap.png".format(t),
+                    ),
+                    nrow=cond_hdmap_grid.shape[0],
+                )
+
+    geo_path = os.path.join(save_root, "debug.txt")
+    with open(geo_path, "w") as f:
+        f.write("reason={}\n".format(reason))
+        f.write("step={}\n".format(global_step + 1))
+        f.write("rank={}\n".format(rank))
+        f.write("dataset_tag={}\n".format(tag_value))
+
+        if "camera_names" in batch:
+            f.write("camera_names={}\n".format(batch["camera_names"]))
+
+        if "crossview_mask" in batch:
+            crossview_mask = batch["crossview_mask"].detach().cpu()
+            f.write("crossview_mask={}\n".format(crossview_mask.tolist()))
+            f.write(
+                "crossview_row_sum={}\n".format(
+                    crossview_mask.bool().sum(-1).tolist()
+                )
+            )
+
+        if "image_size" in batch:
+            f.write(tensor_debug_line("batch.image_size", batch["image_size"]))
+
+        if "camera_intrinsics" in batch:
+            f.write(tensor_debug_line(
+                "batch.camera_intrinsics",
+                batch["camera_intrinsics"],
+            ))
+
+        if "camera_transforms" in batch:
+            f.write(tensor_debug_line(
+                "batch.camera_transforms",
+                batch["camera_transforms"],
+            ))
+
+        if "ego_transforms" in batch:
+            f.write(tensor_debug_line(
+                "batch.ego_transforms",
+                batch["ego_transforms"],
+            ))
+
+        f.write(tensor_debug_line("latents", latents))
+        f.write(tensor_debug_line("noise", noise))
+        f.write(tensor_debug_line("timesteps", timesteps.float()))
+        f.write(tensor_debug_line("reference_frame_indicator", reference_frame_indicator.float()))
+
+        if sigmas is not None:
+            f.write(tensor_debug_line("sigmas", sigmas))
+
+        if sd_pred is not None and len(sd_pred) > 0:
+            f.write(tensor_debug_line("sd_pred[0]", sd_pred[0]))
+
+        if sd_pred_latent is not None:
+            f.write(tensor_debug_line("sd_pred_latent", sd_pred_latent))
+
+        if target is not None:
+            f.write(tensor_debug_line("target", target))
+
+        for key in [
+            "added_time_ids",
+            "condition_image_tensor",
+            "camera_intrinsics_norm",
+            "camera2referego",
+            "crossview_attention_mask",
+        ]:
+            if model_conditions.get(key, None) is not None:
+                value = model_conditions[key]
+                if torch.is_tensor(value):
+                    f.write(tensor_debug_line("model_conditions." + key, value))
+
+    print(
+        "[NAN_BATCH_SAVED] rank={} step={} reason={} path={}".format(
+            rank,
+            global_step + 1,
+            reason,
+            save_root,
+        ),
+        flush=True,
+    )
+    ###########################################################
 class CrossviewTemporalSD():
 
     @staticmethod
@@ -428,7 +652,79 @@ class CrossviewTemporalSD():
                 camera2referego[
                     explicit_view_modeling_mask.logical_not().to(device)] = \
                     torch.eye(4).to(batch["camera_transforms"])
+                # ---- fp16 / explicit geometry safety clamp 防止Nan----
+                explicit_clip_cfg = common_config.get("explicit_geometry_clip", {})
 
+                if explicit_clip_cfg.get("enabled", False):
+                    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+
+                    if "dataset_tag" in batch:
+                        dataset_tag_debug = batch["dataset_tag"].detach().cpu().flatten().tolist()
+                    else:
+                        dataset_tag_debug = None
+
+                    # 这个才是关键：不要等到 65504，Waymo 这种 150~200m 就可能让 Plucker/fp16 炸
+                    trans_clip = float(explicit_clip_cfg.get("translation_clip", 100.0))
+
+                    # 这个只是 hard guard，防止 inf/nan 继续进模型
+                    fp16_max = float(torch.finfo(torch.float16).max)
+                    hard_clip = float(explicit_clip_cfg.get("hard_clip", 4096.0))
+                    hard_clip = min(hard_clip, fp16_max)
+
+                    # intrinsics norm 通常不应该很大，给一个宽松上限
+                    intrinsics_clip = float(explicit_clip_cfg.get("intrinsics_clip", 8.0))
+
+                    trans = camera2referego[..., :3, 3]
+                    trans_abs_max_before = trans.detach().float().abs().max().item()
+
+                    if trans_abs_max_before > trans_clip and explicit_clip_cfg.get("log", True):
+                        print(
+                            "[EXPLICIT_GEOM_CLIP] rank={} tag={} trans_abs_max_before={:.6f} "
+                            "translation_clip={:.6f}".format(
+                                rank,
+                                dataset_tag_debug,
+                                trans_abs_max_before,
+                                trans_clip,
+                            ),
+                            flush=True,
+                        )
+
+                    camera2referego[..., :3, 3] = trans.clamp(
+                        min=-trans_clip,
+                        max=trans_clip,
+                    )
+
+                    camera2referego = torch.nan_to_num(
+                        camera2referego,
+                        nan=0.0,
+                        posinf=hard_clip,
+                        neginf=-hard_clip,
+                    )
+                    camera2referego = camera2referego.clamp(
+                        min=-hard_clip,
+                        max=hard_clip,
+                    )
+
+                    # 保持齐次矩阵最后一行，不让 clamp / nan_to_num 污染
+                    camera2referego[..., 3, :] = camera2referego.new_tensor(
+                        [0.0, 0.0, 0.0, 1.0]
+                    )
+
+                    camera_intrinsics_norm = torch.nan_to_num(
+                        camera_intrinsics_norm,
+                        nan=0.0,
+                        posinf=intrinsics_clip,
+                        neginf=-intrinsics_clip,
+                    )
+                    camera_intrinsics_norm = camera_intrinsics_norm.clamp(
+                        min=-intrinsics_clip,
+                        max=intrinsics_clip,
+                    )
+
+                    # 保持 K 的最后一行
+                    camera_intrinsics_norm[..., 2, :] = camera_intrinsics_norm.new_tensor(
+                        [0.0, 0.0, 1.0]
+                    )
             if do_classifier_free_guidance:
                 camera_intrinsics_norm = torch.cat(
                     [camera_intrinsics_norm, camera_intrinsics_norm], 0)
@@ -1237,6 +1533,51 @@ class CrossviewTemporalSD():
         batch_size, sequence_length, view_count = batch["vae_images"].shape[:3]
         image_tensor = self.image_processor.preprocess(
             batch["vae_images"].flatten(0, 2).to(self.device))
+        rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+
+        if "dataset_tag" in batch:
+            tag_value = int(batch["dataset_tag"].detach().cpu().flatten()[0].item())
+        else:
+            tag_value = -1
+
+        if tag_value == 0 and global_step < 5 and rank == 0:
+
+
+            save_root = "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_nuplan_black"
+            os.makedirs(save_root, exist_ok=True)
+
+            for t in [0, 1, 2, 5, 10, 19]:
+                if t >= batch["vae_images"].shape[1]:
+                    continue
+
+                rgb_grid = batch["vae_images"][0, t].detach().cpu().float()
+                torchvision.utils.save_image(
+                    rgb_grid,
+                    os.path.join(save_root, "step{:04d}_t{:02d}_rgb.png".format(
+                        global_step + 1, t
+                    )),
+                    nrow=8
+                )
+
+                if "3dbox_images" in batch:
+                    box_grid = batch["3dbox_images"][0, t].detach().cpu().float()
+                    torchvision.utils.save_image(
+                        box_grid,
+                        os.path.join(save_root, "step{:04d}_t{:02d}_box.png".format(
+                            global_step + 1, t
+                        )),
+                        nrow=8
+                    )
+
+                if "hdmap_images" in batch:
+                    hdmap_grid = batch["hdmap_images"][0, t].detach().cpu().float()
+                    torchvision.utils.save_image(
+                        hdmap_grid,
+                        os.path.join(save_root, "step{:04d}_t{:02d}_hdmap.png".format(
+                            global_step + 1, t
+                        )),
+                        nrow=8
+                    )
 
         # prepare the training target
         # use different shape for 3D and 2D vae
@@ -1395,7 +1736,145 @@ class CrossviewTemporalSD():
             sd_pred_latent = sd_pred[0] * (-sigmas) + noisy_latents \
                 if isinstance(self.model, diffusers.SD3Transformer2DModel) \
                 else sd_pred[0]
+            nan_reason = None
 
+            if not torch.isfinite(latents).all():
+                nan_reason = "latents"
+
+            elif not torch.isfinite(noise).all():
+                nan_reason = "noise"
+
+            elif not torch.isfinite(noisy_latents).all():
+                nan_reason = "noisy_latents"
+
+            elif isinstance(self.model, diffusers.SD3Transformer2DModel) and not torch.isfinite(sigmas).all():
+                nan_reason = "sigmas"
+
+            elif not torch.isfinite(sd_pred[0]).all():
+                nan_reason = "sd_pred0"
+
+            elif not torch.isfinite(sd_pred_latent).all():
+                nan_reason = "sd_pred_latent"
+
+            elif not torch.isfinite(target).all():
+                nan_reason = "target"
+
+            if nan_reason is not None:
+                save_nan_batch_visualization(
+                    batch=batch,
+                    model_conditions=model_conditions,
+                    sd_pred=sd_pred,
+                    sd_pred_latent=sd_pred_latent,
+                    target=target,
+                    noise=noise,
+                    latents=latents,
+                    sigmas=sigmas if isinstance(self.model, diffusers.SD3Transformer2DModel) else None,
+                    timesteps=timesteps,
+                    reference_frame_indicator=reference_frame_indicator,
+                    global_step=global_step,
+                    reason=nan_reason,
+                )
+
+                raise RuntimeError(
+                    "[NAN_DETECTED_BEFORE_LOSS] rank={} step={} reason={}".format(
+                        torch.distributed.get_rank() if torch.distributed.is_initialized() else 0,
+                        global_step + 1,
+                        nan_reason,
+                    )
+                )
+            if isinstance(self.model, diffusers.SD3Transformer2DModel):
+                fm_target = noise - latents
+                fm_mse = (sd_pred[0].float() - fm_target.float()).square()
+
+                x0_mse = (sd_pred_latent.float() - target.float()).square()
+
+                if self.training_config.get("disable_reference_frame_loss", False):
+                    non_ref_mask = ~reference_frame_indicator.view(
+                        *sd_pred_latent.shape[:3], 1, 1, 1
+                    ).to(sd_pred_latent.device)
+
+                    non_ref_mask = non_ref_mask.expand_as(fm_mse)
+
+                    if non_ref_mask.any():
+                        fm_loss_debug = fm_mse[non_ref_mask].mean()
+                        x0_loss_debug = x0_mse[non_ref_mask].mean()
+                    else:
+                        fm_loss_debug = fm_mse.mean()
+                        x0_loss_debug = x0_mse.mean()
+                else:
+                    fm_loss_debug = fm_mse.mean()
+                    x0_loss_debug = x0_mse.mean()
+                '''
+                if global_step < 300:
+                    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+                    sigma_flat = sigmas.detach().float().flatten()
+
+                    print(
+                        "[rank={}] [step={}] sigma_min={:.6f}, sigma_mean={:.6f}, sigma_max={:.6f}, "
+                        "x0_loss={:.6f}, fm_loss={:.6f}, ref_ratio={:.4f}".format(
+                            rank,
+                            global_step + 1,
+                            sigma_flat.min().item(),
+                            sigma_flat.mean().item(),
+                            sigma_flat.max().item(),
+                            x0_loss_debug.item(),
+                            fm_loss_debug.item(),
+                            reference_frame_indicator.float().mean().item(),
+                        ),
+                        flush=True,
+                    )
+                if global_step < 300:
+                    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+
+                    dataset_tag = batch.get("dataset_tag", None)
+                    if dataset_tag is not None:
+                        dataset_tag_str = dataset_tag.detach().cpu().flatten().tolist()
+                    else:
+                        dataset_tag_str = None
+
+                    print(
+                        "[COND_DEBUG] rank={} step={} dataset_tag={} text={} box={} hdmap={} action={} explicit={}".format(
+                            rank,
+                            global_step + 1,
+                            dataset_tag_str,
+                            text_condition_mask,
+                            _3dbox_condition_mask.detach().cpu().tolist(),
+                            hdmap_condition_mask.detach().cpu().tolist(),
+                            action_condition_mask.detach().cpu().tolist(),
+                            None if explicit_view_modeling_mask is None
+                            else explicit_view_modeling_mask.detach().cpu().tolist(),
+                        ),
+                        flush=True,
+                    )
+
+                    if "added_time_ids" in model_conditions and model_conditions["added_time_ids"] is not None:
+                        a = model_conditions["added_time_ids"].detach().float()
+                        print(
+                            "[ACTION_DEBUG] rank={} step={} added_min={:.3f} added_mean={:.3f} added_max={:.3f} neg1000_count={}".format(
+                                rank,
+                                global_step + 1,
+                                a.min().item(),
+                                a.mean().item(),
+                                a.max().item(),
+                                (a <= -999).sum().item(),
+                            ),
+                            flush=True,
+                        )
+
+                    if model_conditions.get("condition_image_tensor", None) is not None:
+                        ci = model_conditions["condition_image_tensor"].detach().float()
+                        print(
+                            "[COND_IMG_DEBUG] rank={} step={} cond_img_shape={} min={:.4f} mean={:.4f} max={:.4f}".format(
+                                rank,
+                                global_step + 1,
+                                tuple(ci.shape),
+                                ci.min().item(),
+                                ci.mean().item(),
+                                ci.max().item(),
+                            ),
+                            flush=True,
+                        )
+                        '''
             if self.training_config.get("disable_reference_frame_loss", False):
                 reference_frame_loss_mask = ~reference_frame_indicator.view(
                     *sd_pred_latent.shape[:3], 1, 1, 1).to(sd_pred_latent.device)
@@ -1405,7 +1884,29 @@ class CrossviewTemporalSD():
             loss_dict["sd_loss"] = torch.nn.functional.mse_loss(
                 sd_pred_latent.float(), target.float(), reduction="mean"
             ) * self.get_loss_coef("sd")
+            if not torch.isfinite(loss_dict["sd_loss"]).all():
+                save_nan_batch_visualization(
+                    batch=batch,
+                    model_conditions=model_conditions,
+                    sd_pred=sd_pred,
+                    sd_pred_latent=sd_pred_latent,
+                    target=target,
+                    noise=noise,
+                    latents=latents,
+                    sigmas=sigmas if isinstance(self.model, diffusers.SD3Transformer2DModel) else None,
+                    timesteps=timesteps,
+                    reference_frame_indicator=reference_frame_indicator,
+                    global_step=global_step,
+                    reason="sd_loss",
+                )
 
+                raise RuntimeError(
+                    "[NAN_DETECTED_IN_LOSS] rank={} step={} loss={}".format(
+                        torch.distributed.get_rank() if torch.distributed.is_initialized() else 0,
+                        global_step + 1,
+                        loss_dict["sd_loss"].item(),
+                    )
+                )
         if len(sd_pred) > 1:
             depth_features = sd_pred[1]
             loss_dict["depth_loss"] = \

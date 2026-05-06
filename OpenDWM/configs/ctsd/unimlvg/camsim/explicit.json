@@ -8,22 +8,22 @@
     "global_state": {
         "nuscenes_fs": {
             "_class_name": "fsspec.implementations.dirfs.DirFileSystem",
-            *"path":"/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_link",
+            "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh",
             "fs": {
                 "_class_name": "dwm.fs.dirfs.DirFileSystem"
             }
-        },
+            },
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
-            "mesh_shape": [1, 2]
+            "mesh_shape": [1, 4]
         }
     },
     "optimizer": {
         "_class_name": "torch.optim.AdamW",
-        "lr": 8e-5
+        "lr": 8e-6
     },
-    "pipeline": {
+        "pipeline": {
         "_class_name": "dwm.pipelines.camsim.CrossviewTemporalSD",
         "common_config": {
                     "frame_prediction_style": "ctsd",
@@ -223,7 +223,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        *"model_checkpoint_path": null,
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/ckpt/28000.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -251,7 +251,7 @@
                     "sensor_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_sensors",
                     "pkl_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_infos_train.pkl",
                     "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/balanced_windows_metadata.json",
-                    "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/nuplan_cache",
+                    "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
                     "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
                     "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
 
@@ -313,7 +313,7 @@
                     "sensor_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_sensors",
                     "pkl_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_infos_train.pkl",
                     "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/balanced_windows_metadata.json",
-                    "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/nuplan_cache",
+                    "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
                     "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
                     "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
 
@@ -375,7 +375,7 @@
                     "sensor_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_sensors",
                     "pkl_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_infos_train.pkl",
                     "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/balanced_windows_metadata.json",
-                    "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/nuplan_cache",
+                    "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
                     "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
                     "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
 
@@ -655,7 +655,7 @@
                         "_class_name": "dwm.fs.dirfs.DirFileSystem",
                         "fs": {
                             "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                            "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_link",
+                            "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_link"
                         },
                         "enable_cached_info": true
                     },
@@ -815,12 +815,9 @@
                         },
                         "dataset_name": "interp_12Hz_trainval",
                         "split": "val",
-                        "sequence_length": 48,
+                        "sequence_length": 20,
                         "fps_stride_tuples": [
-                            [
-                                12,
-                                1
-                            ]
+                            [6,2]
                         ],
                         "sensor_channels": [
                             "LIDAR_TOP",
@@ -840,8 +837,8 @@
                         "_3dbox_image_settings": {},
                         "hdmap_image_settings": {},
                         "image_description_settings": {
-                            "path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_link/nuscenes_v1.0-trainval_caption_v2_val.json",
-                            "time_list_dict_path": "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuscenes_link/nuscenes_v1.0-trainval_caption_v2_times_val.json",
+                            "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuscenes_caption/nuscenes_v1.0-trainval_caption_v2_val.json",
+                            "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuscenes_caption/nuscenes_v1.0-trainval_caption_v2_times_val.json",
                             "align_keys": [
                                 "time",
                                 "weather"

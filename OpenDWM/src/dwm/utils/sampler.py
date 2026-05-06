@@ -216,3 +216,130 @@ class VariableVideoBatchSampler(DistributedSampler):
 
     def load_state_dict(self, state_dict: dict) -> None:
         self.__dict__.update(state_dict)
+
+class SameDatasetDistributedSampler(torch.utils.data.Sampler):
+    def __init__(
+        self,
+        dataset,
+        batch_size: int,
+        num_replicas=None,
+        rank=None,
+        shuffle: bool = True,
+        seed: int = 0,
+        drop_last: bool = False,
+    ):
+        if num_replicas is None:
+            num_replicas = torch.distributed.get_world_size()
+        if rank is None:
+            rank = torch.distributed.get_rank()
+
+        self.dataset = dataset
+        self.batch_size = int(batch_size)
+        self.num_replicas = int(num_replicas)
+        self.rank = int(rank)
+        self.shuffle = shuffle
+        self.seed = int(seed)
+        self.drop_last = drop_last
+        self.epoch = 0
+
+        self.group_ranges = self._infer_concat_group_ranges(dataset)
+        self.num_samples = self._compute_num_samples()
+
+    def _infer_concat_group_ranges(self, dataset):
+        queue = [dataset]
+        visited = set()
+        concat_dataset = None
+
+        while len(queue) > 0:
+            current = queue.pop(0)
+            current_id = id(current)
+            if current_id in visited:
+                continue
+            visited.add(current_id)
+
+            if isinstance(current, torch.utils.data.ConcatDataset):
+                concat_dataset = current
+                break
+
+            if hasattr(current, "base_dataset"):
+                queue.append(current.base_dataset)
+            if hasattr(current, "dataset"):
+                queue.append(current.dataset)
+
+            if hasattr(current, "__dict__"):
+                for value in vars(current).values():
+                    if isinstance(value, torch.utils.data.Dataset):
+                        queue.append(value)
+
+        if concat_dataset is None:
+            return [(0, 0, len(dataset))]
+
+        group_ranges = []
+        start = 0
+        for group_id, end in enumerate(concat_dataset.cumulative_sizes):
+            group_ranges.append((group_id, start, end))
+            start = end
+
+        return group_ranges
+
+    def _compute_num_samples(self):
+        global_batch_size = self.batch_size * self.num_replicas
+        local_count = 0
+
+        for _, start, end in self.group_ranges:
+            n = end - start
+            remainder = n % global_batch_size
+
+            if remainder > 0:
+                if self.drop_last:
+                    n = n - remainder
+                else:
+                    n = n + global_batch_size - remainder
+
+            local_count += n // self.num_replicas
+
+        return local_count
+
+    def __iter__(self):
+        generator = torch.Generator()
+        generator.manual_seed(self.seed + self.epoch)
+
+        global_batch_size = self.batch_size * self.num_replicas
+        global_batches = []
+
+        for _, start, end in self.group_ranges:
+            indices = list(range(start, end))
+
+            if self.shuffle:
+                order = torch.randperm(len(indices), generator=generator).tolist()
+                indices = [indices[i] for i in order]
+
+            remainder = len(indices) % global_batch_size
+            if remainder > 0:
+                if self.drop_last:
+                    indices = indices[:-remainder]
+                else:
+                    pad_count = global_batch_size - remainder
+                    indices = indices + indices[:pad_count]
+
+            for offset in range(0, len(indices), global_batch_size):
+                global_batches.append(indices[offset:offset + global_batch_size])
+
+        if self.shuffle:
+            order = torch.randperm(len(global_batches), generator=generator).tolist()
+            global_batches = [global_batches[i] for i in order]
+
+        rank_indices = []
+        local_start = self.rank * self.batch_size
+        local_end = local_start + self.batch_size
+
+        for global_batch in global_batches:
+            rank_indices.extend(global_batch[local_start:local_end])
+
+        return iter(rank_indices)
+
+    def __len__(self):
+        return self.num_samples
+
+    def set_epoch(self, epoch):
+        self.epoch = int(epoch)

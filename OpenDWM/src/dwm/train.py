@@ -17,8 +17,126 @@ if os.environ.get("ENABLE_DEBUGPY", "0") == "1":
         )
         debugpy.wait_for_client()
 from tqdm import tqdm
-from dwm.utils.sampler import VariableVideoBatchSampler
+from dwm.utils.sampler import VariableVideoBatchSampler, SameDatasetDistributedSampler
+def check_tensor_finite(name, x, step, local_rank):
+    if not torch.is_tensor(x):
+        return
 
+    if torch.isfinite(x).all():
+        return
+
+    finite_mask = torch.isfinite(x)
+    bad_count = finite_mask.logical_not().sum().item()
+
+    x_float = x.detach().float()
+    finite_values = x_float[finite_mask]
+
+    if finite_values.numel() > 0:
+        finite_min = finite_values.min().item()
+        finite_max = finite_values.max().item()
+    else:
+        finite_min = None
+        finite_max = None
+
+    raise RuntimeError(
+        "[rank={}] [step={}] non-finite in {}, "
+        "shape={}, dtype={}, bad_count={}, finite_min={}, finite_max={}".format(
+            local_rank,
+            step,
+            name,
+            tuple(x.shape),
+            x.dtype,
+            bad_count,
+            finite_min,
+            finite_max,
+        )
+    )
+
+
+def check_batch_finite(batch, step, local_rank):
+    keys = [
+        "vae_images",
+        "camera_intrinsics",
+        "camera_transforms",
+        "ego_transforms",
+        "image_size",
+        "fps",
+        "crossview_mask",
+    ]
+
+    for k in keys:
+        if k in batch:
+            check_tensor_finite(k, batch[k], step, local_rank)
+
+    if "image_size" in batch:
+        image_size = batch["image_size"].float()
+        if not (image_size > 0).all():
+            raise RuntimeError(
+                "[rank={}] [step={}] non-positive image_size: {}".format(
+                    local_rank,
+                    step,
+                    image_size,
+                )
+            )
+
+    if "camera_intrinsics" in batch:
+        K = batch["camera_intrinsics"].float()
+        if not (K[..., 0, 0] > 0).all():
+            raise RuntimeError(
+                "[rank={}] [step={}] bad fx: {}".format(
+                    local_rank,
+                    step,
+                    K[..., 0, 0],
+                )
+            )
+        if not (K[..., 1, 1] > 0).all():
+            raise RuntimeError(
+                "[rank={}] [step={}] bad fy: {}".format(
+                    local_rank,
+                    step,
+                    K[..., 1, 1],
+                )
+            )
+
+    if "crossview_mask" in batch:
+        m = batch["crossview_mask"].bool()
+        if not m.any(dim=-1).all():
+            bad_rows = m.any(dim=-1).logical_not().nonzero()
+            raise RuntimeError(
+                "[rank={}] [step={}] all-false crossview_mask rows: {}".format(
+                    local_rank,
+                    step,
+                    bad_rows[:20],
+                )
+            )
+
+
+def check_latest_loss_finite(pipeline, step, local_rank):
+    if len(pipeline.loss_report_list) == 0:
+        return
+
+    latest = pipeline.loss_report_list[-1]
+
+    if isinstance(latest, dict):
+        for k, v in latest.items():
+            if not torch.isfinite(torch.tensor(float(v))):
+                raise RuntimeError(
+                    "[rank={}] [step={}] non-finite loss {}: {}".format(
+                        local_rank,
+                        step,
+                        k,
+                        v,
+                    )
+                )
+    else:
+        if not torch.isfinite(torch.tensor(float(latest))):
+            raise RuntimeError(
+                "[rank={}] [step={}] non-finite loss: {}".format(
+                    local_rank,
+                    step,
+                    latest,
+                )
+            )
 
 def create_parser():
     parser = argparse.ArgumentParser(
@@ -31,16 +149,16 @@ def create_parser():
         "-o", "--output-path", type=str, default=None,
         help="The path to save checkpoint files.")
     parser.add_argument(
-        "--log-steps", default=300, type=int,
+        "--log-steps", default=200, type=int,
         help="The step count to print log and update the tensorboard.")
     parser.add_argument(
-        "--preview-steps", default=800, type=int,
+        "--preview-steps", default=500, type=int,
         help="The step count to preview the pipeline result.")
     parser.add_argument(
-        "--checkpointing-steps", default=7000, type=int,
+        "--checkpointing-steps", default=2000, type=int,
         help="The step count to save the checkpoint.")
     parser.add_argument(
-        "--evaluation-steps", default=10000, type=int,
+        "--evaluation-steps", default=8000, type=int,
         help="The step count to preview the pipeline result.")
     parser.add_argument(
         "--resume-from", default=None, type=int,
@@ -113,10 +231,32 @@ if __name__ == "__main__":
     validation_dataset = dwm.common.create_instance_from_config(
         config["validation_dataset"])
     if ddp:
-
-        if "mix_config" in config.keys():
+        if config.get("same_dataset_per_global_batch", False):
             process_group = torch.distributed.group.WORLD
+            train_loader_kwargs = dwm.common.instantiate_config(
+                config["training_dataloader"]
+            )
 
+            train_batch_size = train_loader_kwargs.get("batch_size", 1)
+
+            training_datasampler = SameDatasetDistributedSampler(
+                training_dataset,
+                batch_size=train_batch_size,
+                num_replicas=process_group.size(),
+                rank=process_group.rank(),
+                shuffle=config["data_shuffle"],
+                seed=config["generator_seed"],
+                drop_last=False,
+            )
+
+            training_dataloader = torch.utils.data.DataLoader(
+                training_dataset,
+                **train_loader_kwargs,
+                sampler=training_datasampler,
+            )
+
+        elif "mix_config" in config.keys():
+            process_group = torch.distributed.group.WORLD
             training_datasampler = VariableVideoBatchSampler(
                 training_dataset,
                 config["mix_config"],
@@ -125,7 +265,6 @@ if __name__ == "__main__":
                 shuffle=config["data_shuffle"],
                 seed=config["generator_seed"]
             )
-
             training_dataloader = torch.utils.data.DataLoader(
                 training_dataset,
                 **dwm.common.instantiate_config(config["training_dataloader"]),
@@ -133,8 +272,10 @@ if __name__ == "__main__":
 
         else:
             training_datasampler = torch.utils.data.distributed.DistributedSampler(
-                training_dataset, shuffle=config["data_shuffle"],
+                training_dataset,
+                shuffle=config["data_shuffle"],
                 seed=config["generator_seed"])
+
             training_dataloader = torch.utils.data.DataLoader(
                 training_dataset,
                 **dwm.common.instantiate_config(config["training_dataloader"]),
@@ -205,8 +346,14 @@ if __name__ == "__main__":
 
         for batch_idx, batch in enumerate(loader, start=1):
             step_start_time = time.time()
+            debug_step = global_step + 1
+
+            #check_batch_finite(batch, debug_step, local_rank)
 
             pipeline.train_step(batch, global_step)
+
+            #check_latest_loss_finite(pipeline, debug_step, local_rank)
+
             global_step += 1
 
             step_time = time.time() - step_start_time
