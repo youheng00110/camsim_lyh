@@ -1,10 +1,13 @@
 # 忽略克隆的 OpenDWM 仓库（整目录忽略）
 
+*.png
 
 # 忽略 waymo_link 符号链接（无论指向文件还是目录）
 /waymo_link
 #忽略pkl文件
-*.pkl          
+*.pkl
+*.png
+nuplan_cache/          
 !utils/valid.pkl  
 # 只忽略特定目录下的大 json 文件（示例，根据你的实际路径改）
 waymo_balanced/*.json

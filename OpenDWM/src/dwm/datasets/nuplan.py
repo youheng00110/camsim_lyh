@@ -837,10 +837,38 @@ class MotionDataset(torch.utils.data.Dataset):
     # paths + calib
     # ---------------------------
     def _get_sensor_paths(self, info):
-        img = info.get('img_filename') or []
+        img = info.get("img_filename") or []
         m = {p.split("/")[-2]: p for p in img}
-        return [os.path.join(self.sensor_root, m.get(ch, "")) for ch in self.sensor_channels]
 
+        paths = []
+        for ch in self.sensor_channels:
+            rel = m.get(ch, "")
+            path = os.path.join(self.sensor_root, rel)
+            """
+            print(
+                "[NUPLAN_PATH_DEBUG] ch={} rel={} path={} exists={} isfile={}".format(
+                    ch,
+                    rel,
+                    path,
+                    os.path.exists(path),
+                    os.path.isfile(path),
+                ),
+                flush=True,
+            )"""
+
+            if rel == "" or not os.path.isfile(path):
+                raise FileNotFoundError(
+                    "[NUPLAN_IMAGE_MISSING] ch={} rel={} path={} img_filename_keys={}".format(
+                        ch,
+                        rel,
+                        path,
+                        list(m.keys()),
+                    )
+                )
+
+            paths.append(path)
+
+        return paths    
     def _get_cam_info(self, info, cam_ch):
         cam = info.get(self.cam_key) or {}
         return cam.get(cam_ch)

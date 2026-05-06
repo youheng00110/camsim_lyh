@@ -1,0 +1,23 @@
+reason=sd_pred0
+step=17
+rank=0
+dataset_tag=2
+crossview_mask=[[[True, True, False, False, False, False, False, False], [True, True, True, False, False, False, False, False], [False, True, True, True, False, False, False, False], [False, False, True, True, True, False, False, False], [False, False, False, True, True, False, False, False], [False, False, False, False, False, True, False, False], [False, False, False, False, False, False, True, False], [False, False, False, False, False, False, False, True]]]
+crossview_row_sum=[[2, 3, 3, 3, 2, 1, 1, 1]]
+batch.image_size: shape=(1, 20, 8, 2), dtype=torch.int64, bad_count=0, min=288.000000, mean=400.000000, max=512.000000
+batch.camera_intrinsics: shape=(1, 20, 8, 3, 3), dtype=torch.float32, bad_count=0, min=0.000000, mean=171.335373, max=670.900696
+batch.camera_transforms: shape=(1, 20, 8, 4, 4), dtype=torch.float32, bad_count=0, min=-0.999992, mean=0.225340, max=2.115960
+batch.ego_transforms: shape=(1, 20, 8, 4, 4), dtype=torch.float32, bad_count=0, min=-0.026431, mean=183.975067, max=1658.898438
+latents: shape=(1, 20, 8, 16, 36, 64), dtype=torch.float32, bad_count=0, min=-4.482361, mean=-0.237896, max=3.042452
+noise: shape=(1, 20, 8, 16, 36, 64), dtype=torch.float32, bad_count=0, min=-5.014395, mean=-0.000968, max=5.131412
+timesteps: shape=(1, 20, 8), dtype=torch.float32, bad_count=0, min=773.255737, mean=773.255737, max=773.255737
+reference_frame_indicator: shape=(1, 20, 8), dtype=torch.float32, bad_count=0, min=0.000000, mean=0.000000, max=0.000000
+sigmas: shape=(1, 1, 1, 1, 1, 1), dtype=torch.float32, bad_count=0, min=0.773256, mean=0.773256, max=0.773256
+sd_pred[0]: shape=(1, 20, 8, 16, 36, 64), dtype=torch.float16, bad_count=5898240, min=nan, mean=nan, max=nan
+sd_pred_latent: shape=(1, 20, 8, 16, 36, 64), dtype=torch.float32, bad_count=5898240, min=nan, mean=nan, max=nan
+target: shape=(1, 20, 8, 16, 36, 64), dtype=torch.float32, bad_count=0, min=-4.482361, mean=-0.237896, max=3.042452
+model_conditions.added_time_ids: shape=(1, 20, 8, 11), dtype=torch.float32, bad_count=0, min=-0.999956, mean=1.014477, max=2.329516
+model_conditions.condition_image_tensor: shape=(1, 20, 8, 6, 288, 512), dtype=torch.float32, bad_count=0, min=0.000000, mean=0.066647, max=1.000000
+model_conditions.camera_intrinsics_norm: shape=(1, 20, 8, 3, 3), dtype=torch.float32, bad_count=0, min=0.000000, mean=0.564651, max=2.329352
+model_conditions.camera2referego: shape=(1, 20, 8, 4, 4), dtype=torch.float32, bad_count=0, min=-1.091431, mean=6.184220, max=193.166138
+model_conditions.crossview_attention_mask: shape=(1, 8, 8), dtype=torch.bool, bad_count=0, min=0.000000, mean=0.250000, max=1.000000
