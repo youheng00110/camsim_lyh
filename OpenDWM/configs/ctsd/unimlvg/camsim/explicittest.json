@@ -363,69 +363,7 @@
                         ]
                     }
                 },
-                {
-                    "_class_name": "dwm.datasets.nuplan.MotionDataset",
-                    "sensor_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_sensors",
-                    "pkl_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_infos_train.pkl",
-                    "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/balanced_windows_metadata.json",
-                    "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/nuplan_cache",
-                    "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
-                    "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
-
-
-                    "sequence_length": 20,
-                    "fps_stride_tuples": [
-                        [6, 2,0.5],[2,2.5,0.39]
-                    ],
-
-                    "sensor_channels": [
-                        "CAM_R1",
-                        "CAM_R2",
-                        "CAM_B0",
-                        "CAM_L2",
-                        "CAM_L1",
-                        "CAM_B0",
-                        "CAM_L2",
-                        "CAM_R2"
-                    ],
-
-                    "enable_camera_transforms": true,
-                    "enable_ego_transforms": true,
-                    "enable_synchronization_check": true,
-
-                    "_3dbox_image_settings": {},
-                    "hdmap_image_settings": {},
-
-                    "image_description_settings": {
-                        "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/nuplan_scene.json",
-                        "align_keys": [
-                            "time",
-                            "weather"
-                        ],
-                        "reorder_keys": true,
-                        "drop_rates": {
-                            "environment": 0.04,
-                            "objects": 0.08,
-                            "image_description": 0.16
-                        }
-                    },
-
-                    "stub_key_data_dict": {
-                        "crossview_mask": ["content", {
-                            "_class_name": "torch.tensor",
-                            "data": { "_class_name": "json.loads", "s": "[[1,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]" },
-                            "dtype": { "_class_name": "get_class", "class_name": "torch.bool" }
-                        }],
-                    "dataset_tag": [
-                        "content",
-                        {
-                            "_class_name": "torch.tensor",
-                            "data": 0,
-                            "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
-                        }
-                        ]
-                    }
-                },
+                
                 {
                     "_class_name": "dwm.datasets.waymo.MotionDataset",
                     "fs": {
@@ -799,6 +737,69 @@
             
             "_class_name": "torch.utils.data.ConcatDataset",
             "datasets": [
+                {
+                    "_class_name": "dwm.datasets.nuplan.MotionDataset",
+                    "sensor_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_sensors",
+                    "pkl_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_infos_train.pkl",
+                    "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/balanced_windows_metadata.json",
+                    "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/nuplan_cache",
+                    "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
+                    "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
+
+
+                    "sequence_length": 20,
+                    "fps_stride_tuples": [
+                         [6,2,0.5],[10,3,0.8],[2,2.5,0.35]
+                    ],
+
+                    "sensor_channels": [
+                        "CAM_R1",
+                        "CAM_R2",
+                        "CAM_B0",
+                        "CAM_L2",
+                        "CAM_L1",
+                        "CAM_B0",
+                        "CAM_L2",
+                        "CAM_R2"
+                    ],
+
+                    "enable_camera_transforms": true,
+                    "enable_ego_transforms": true,
+                    "enable_synchronization_check": true,
+
+                    "_3dbox_image_settings": {},
+                    "hdmap_image_settings": {},
+
+                    "image_description_settings": {
+                        "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/nuplan_scene.json",
+                        "align_keys": [
+                            "time",
+                            "weather"
+                        ],
+                        "reorder_keys": true,
+                        "drop_rates": {
+                            "environment": 0.04,
+                            "objects": 0.08,
+                            "image_description": 0.16
+                        }
+                    },
+
+                    "stub_key_data_dict": {
+                        "crossview_mask": ["content", {
+                            "_class_name": "torch.tensor",
+                            "data": { "_class_name": "json.loads", "s": "[[1,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]" },
+                            "dtype": { "_class_name": "get_class", "class_name": "torch.bool" }
+                        }],
+                    "dataset_tag": [
+                        "content",
+                        {
+                            "_class_name": "torch.tensor",
+                            "data": 0,
+                            "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
+                        }
+                        ]
+                    }
+                },
                 {
                     "_class_name": "dwm.datasets.argoverse.MotionDataset",
                     "fs": {

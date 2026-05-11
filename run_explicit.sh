@@ -15,4 +15,6 @@ torchrun \
   --nproc_per_node=4 \
   -m dwm.train \
   -c //inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/explicit.json\
-  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_explicit
+  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_explicit\
+  --log-steps  150 \
+  --preview-steps 300
