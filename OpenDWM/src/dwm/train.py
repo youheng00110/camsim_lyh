@@ -158,7 +158,7 @@ def create_parser():
         "--checkpointing-steps", default=2000, type=int,
         help="The step count to save the checkpoint.")
     parser.add_argument(
-        "--evaluation-steps", default=8000, type=int,
+        "--evaluation-steps", default=10000, type=int,
         help="The step count to preview the pipeline result.")
     parser.add_argument(
         "--resume-from", default=None, type=int,

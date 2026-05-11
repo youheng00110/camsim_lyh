@@ -4,9 +4,9 @@ cd /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/
 export PYTHONPATH=$(pwd):$PYTHONPATH
 export PYTHONPATH=/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/externals/TATS/tats/fvd
 export PYTHONPATH=$PYTHONPATH:/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/externals/waymo-open-dataset/src
-export ENABLE_DEBUGPY=1
+unset ENABLE_DEBUGPY
 PYTHONUNBUFFERED=1 torchrun \
-  --nproc_per_node=4 \
+  --nproc_per_node=2 \
   -m dwm.preview \
-  -c /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/explicittest.json \
-  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/firstpreview
+  -c //inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/pluckercopy.json \
+  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/longpreview\

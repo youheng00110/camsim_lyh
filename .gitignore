@@ -41,3 +41,11 @@ output/**/*.gz
 # 强制忽略 checkpoints 和 optimizer（绝对不上传）
 output/**/checkpoints/
 output/**/optimizer/
+# training outputs
+output/
+*.pth
+*.pt
+*.ckpt
+*.mp4
+events.out.tfevents.*
+__pycache__/

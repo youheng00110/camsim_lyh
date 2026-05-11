@@ -3,6 +3,7 @@
     "ddp_backend": "nccl",
     "train_epochs": 4,
     "generator_seed": 0,
+    "same_dataset_per_global_batch": true,
     "data_shuffle": true,
     "fix_training_data_order": true,
     "global_state": {
@@ -21,7 +22,7 @@
     },
     "optimizer": {
         "_class_name": "torch.optim.AdamW",
-        "lr": 8e-6
+        "lr": 6e-5
     },
         "pipeline": {
         "_class_name": "dwm.pipelines.camsim.CrossviewTemporalSD",
@@ -29,10 +30,18 @@
                     "frame_prediction_style": "ctsd",
                     "cat_condition": true,
                     "cond_with_action": false,
+                    "print_load_state_info": true,
                     "condition_on_all_frames": true,
                     "explicit_view_modeling": true,
             "uncondition_image_color": 0.1255,
-            "added_time_ids": "fps_camera_transforms_action",
+            "added_time_ids": "fps_camera_transforms",
+            "explicit_geometry_clip": {
+                "enabled": true,
+                "translation_clip": 100.0,
+                "hard_clip": 4096.0,
+                "intrinsics_clip": 8.0,
+                "log": true
+            },
             "camera_intrinsic_embedding_indices": [
                 0,
                 4,
@@ -134,7 +143,7 @@
             "disable_reference_frame_loss": true,
             "enable_grad_scaler": true,
             "hdmap_condition_ratio": 0.8,
-            "action_condition_ratio": 0.8
+            "action_condition_ratio": 0.0
 
         },
         "inference_config": {
@@ -187,7 +196,7 @@
             ],
             "crossview_gradient_checkpointing": true,
             "enable_temporal": true,
-            "temporal_attention_type": "full",
+            "temporal_attention_type": "rowwise",
             "temporal_block_layers": [
                 1,
                 5,

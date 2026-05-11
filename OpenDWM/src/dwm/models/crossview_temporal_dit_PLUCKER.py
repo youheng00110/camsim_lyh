@@ -287,7 +287,7 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         self.crossview_gradient_checkpointing = crossview_gradient_checkpointing
         self.temporal_gradient_checkpointing = temporal_gradient_checkpointing
         self.disable_view_emb_on_temporal_module = disable_view_emb_on_temporal_module
-
+        perspective_modeling_type = self.config.perspective_modeling_type
         # image condition adapter
         if condition_image_adapter_config is not None:
             self.condition_image_adapter = \
@@ -613,34 +613,34 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
             raymap = self.rayencoder(rays_d, rays_m)
             view_cam_emb = raymap.flatten(1, 2)
 
-            if not hasattr(self, "_saved_plucker_vis"):
-                save_plucker_debug_visuals(
-                    save_root="/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output",
-                    batch_size=batch_size,
-                    sequence_length=sequence_length,
-                    view_count=view_count,
-                    height=height,
-                    width=width,
-                    rays_o=rays_o,
-                    rays_d=rays_d,
-                    rays_m=rays_m,
-                    raymap=raymap,
-                    view_cam_emb=view_cam_emb,
-                )
-                self._saved_plucker_vis = True
+            # if not hasattr(self, "_saved_plucker_vis"):
+            #     save_plucker_debug_visuals(
+            #         save_root="/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/output",
+            #         batch_size=batch_size,
+            #         sequence_length=sequence_length,
+            #         view_count=view_count,
+            #         height=height,
+            #         width=width,
+            #         rays_o=rays_o,
+            #         rays_d=rays_d,
+            #         rays_m=rays_m,
+            #         raymap=raymap,
+            #         view_cam_emb=view_cam_emb,
+            #     )
+            #     self._saved_plucker_vis = True
 
-            if not hasattr(self, "_printed_plucker_shape"):
-                print("rays_o:", rays_o.shape)
-                print("rays_d:", rays_d.shape)
-                print("rays_m:", rays_m.shape)
-                print("raymap:", raymap.shape)
-                print("view_cam_emb:", view_cam_emb.shape)
-                self._printed_plucker_shape = True
+            # # if not hasattr(self, "_printed_plucker_shape"):
+            # #     print("rays_o:", rays_o.shape)
+            # #     print("rays_d:", rays_d.shape)
+            # #     print("rays_m:", rays_m.shape)
+            # #     print("raymap:", raymap.shape)
+            # #     print("view_cam_emb:", view_cam_emb.shape)
+            # #     self._printed_plucker_shape = True
 
-            if not hasattr(self, "_printed_plucker_stat"):
-                orth = (rays_d * rays_m).sum(dim=-1).abs().mean()
-                print("plucker orth mean:", orth.item())
-                self._printed_plucker_stat = True
+            # # if not hasattr(self, "_printed_plucker_stat"):
+            # #     orth = (rays_d * rays_m).sum(dim=-1).abs().mean()
+            # #     print("plucker orth mean:", orth.item())
+            # #     self._printed_plucker_stat = True
 
         condition_residuals = None if \
             self.condition_image_adapter is None or \
