@@ -49,3 +49,29 @@ output/
 *.mp4
 events.out.tfevents.*
 __pycache__/
+
+# large local models / migrated weights
+/lyhmigration/
+/lyhimigration/
+
+# large nuScenes 12Hz data
+/interp_12Hz_trainval/
+/nusc12hz/
+
+# archives / weights
+/lyhdwm.tar.gz
+*.safetensors
+*.pth
+*.pt
+*.ckpt
+*.tar.gz
+
+# training outputs
+/output/
+*.mp4
+events.out.tfevents.*
+
+# python cache
+__pycache__/
+*.pyc
+.cache/
