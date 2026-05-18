@@ -63,14 +63,7 @@
                 11
             ],
             "camera_ego_sensor_indices": [
-                0,
-                1,
-                2,
-                3,
-                4,
-                5,
-                6,
-                7
+                0
             ],
             "distribution_framework": "fsdp",
             "ddp_wrapper_settings": {
@@ -170,7 +163,7 @@
             "evaluation_item_count": 480
         },
         "model": {
-            "_class_name": "dwm.models.crossview_temporal_dit_PLUCKER.DiTCrossviewTemporalConditionModel",
+            "_class_name": "dwm.models.crossview_temporal_dit.DiTCrossviewTemporalConditionModel",
             "attention_head_dim": 64,
             "caption_projection_dim": 1536,
             "in_channels": 16,
@@ -180,10 +173,10 @@
             "out_channels": 16,
             "patch_size": 2,
             "pooled_projection_dim": 2048,
-             "pos_embed_max_size": 192,
+            "pos_embed_max_size": 192,
             "sample_size": 128,
             "perspective_modeling_type": "explicit",
-            "enable_crossview": true,
+            "enable_crossview": false,
             "crossview_attention_type": "rowwise",
             "crossview_block_layers": [
                 1,
@@ -231,7 +224,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplansingle2/checkpoints/20000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplansingle/checkpoints/30000.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -243,7 +236,7 @@
             "fvd": {
                 "_class_name": "dwm.metrics.fvd.FrechetVideoDistance",
                 "inception_3d_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/i3d_pretrained_400.pt",
-                "sequence_count": 35
+                "sequence_count": 16
             }
         }
     },
@@ -266,18 +259,11 @@
                     "info_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_balanced/training.info.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [10,3,0.91],[6,2,0.95],[2,2.5,0.39]
+                        [10,3,0.81],[6,2,0.85],[2,2.5,0.35]
                     ],
                     "sensor_channels": [
                         "LIDAR_TOP",
-                        "CAM_SIDE_LEFT",
-                        "CAM_FRONT_LEFT",
-                        "CAM_FRONT",
-                        "CAM_FRONT_RIGHT",
-                        "CAM_SIDE_RIGHT",
-                        "CAM_FRONT",
-                        "CAM_FRONT_LEFT",
-                        "CAM_FRONT_RIGHT"
+                        "CAM_FRONT"
                     ],
                     "enable_camera_transforms": true,
                     "enable_ego_transforms": true,
@@ -331,20 +317,13 @@
                         },
                         "dataset_name": "interp_12Hz_trainval",
                         "split": "train",
+                        "balanced_json_path":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuscenes_train_balanced/balanced_windows_metadata.json",
                         "sequence_length": 20,
                         "fps_stride_tuples": [
-                            [6,2,0.5],[10,3,0.9],[2,2,0.39]
-                        ],
+                            [10,3,0.8],[2,2,0.35],[6,2,0.5]],
                         "sensor_channels": [
                             "LIDAR_TOP",
-                            "CAM_FRONT_LEFT",
-                            "CAM_FRONT",
-                            "CAM_FRONT_RIGHT",
-                            "CAM_BACK_RIGHT",
-                            "CAM_BACK",
-                            "CAM_BACK_LEFT",
-                            "CAM_FRONT",
-                            "CAM_FRONT_LEFT"
+                            "CAM_FRONT"
                         ],
                         "keyframe_only": true,
                         "enable_synchronization_check": false,
@@ -402,17 +381,10 @@
                     "balanced_json_path":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_balanced/balanced_windows.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [6,2,0.95],[2,1.5,0.39]
+                        [6,2,0.9],[2,1.5,0.35],[10,3,0.9]
                     ],
                     "sensor_channels": [
                         "lidar",
-                        "cameras/ring_front_left",
-                        "cameras/ring_front_center",
-                        "cameras/ring_front_right",
-                        "cameras/ring_side_right",
-                        "cameras/ring_rear_right",
-                        "cameras/ring_rear_left",
-                        "cameras/ring_side_left",
                         "cameras/ring_front_center"
                         
                     ],
@@ -458,154 +430,8 @@
                             }
                             ]
                     }
-                },
-                {
-                    "_class_name": "dwm.datasets.argoverse.MotionDataset",
-                    "fs": {
-                        "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                        "fs": {
-                            "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                            "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_link"
-                        },
-
-                        "enable_cached_info": true
-                    },
-                    "split":"train",
-                    "dataset_root":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_link",
-                    "index_json_path":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_json",
-                    "balanced_json_path":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_balanced/balanced_windows.json",
-                    "sequence_length": 20,
-                    "fps_stride_tuples": [
-                        [10,3,0.9],[6,2,0.95]
-                    ],
-                    "sensor_channels": [
-                        "lidar",
-                        "cameras/ring_front_left",
-                        "cameras/ring_front_center",
-                        "cameras/ring_front_right",
-                        "cameras/ring_rear_right",
-                        "cameras/ring_rear_left",
-                        "cameras/ring_front_left",
-                        "cameras/ring_front_center",
-                        "cameras/ring_front_right"
-                        
-                    ],
-                    "enable_camera_transforms": true,
-                    "enable_ego_transforms": true,
-                    "_3dbox_image_settings": {},
-                    "hdmap_image_settings": {},
-                    "image_description_settings": {
-                       "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_train.json",
-                        "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_times_train.json",
-                        "align_keys": [
-                            "time",
-                            "weather"
-                        ],
-                        "reorder_keys": true,
-                        "drop_rates": {
-                            "environment": 0.04,
-                            "objects": 0.08,
-                            "image_description": 0.16
-                        }
-                    },
-                    "stub_key_data_dict": {
-                        "crossview_mask": [
-                            "content",
-                            {
-                                "_class_name": "torch.tensor",
-                                "data": {
-                                    "_class_name": "json.loads",
-                                    "s": "[[1,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]"
-                                },
-                                "dtype": {
-                                    "_class_name": "get_class",
-                                    "class_name": "torch.bool"
-                                }
-                            }
-                        ],
-                        "dataset_tag": [
-                            "content",
-                            {
-                                "_class_name": "torch.tensor",
-                                "data": 3,
-                                "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
-                            }
-                            ]
-                    }
-                },
-                {
-                    "_class_name": "dwm.datasets.argoverse.MotionDataset",
-                    "fs": {
-                        "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                        "fs": {
-                            "_class_name": "dwm.fs.dirfs.DirFileSystem",
-                            "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_link"
-                        },
-                        "enable_cached_info": true
-                    },
-                    "split":"train",
-                    "dataset_root":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_link",
-                    "index_json_path":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_json",
-                    "balanced_json_path":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_balanced/balanced_windows.json",
-                    "sequence_length": 20,
-                    "fps_stride_tuples": [
-                        [6,2,0.95],[2,1.5,0.39]
-                    ],
-                    "sensor_channels": [
-                        "lidar",
-                        "cameras/ring_side_left",
-                        "cameras/ring_front_center",
-                        "cameras/ring_side_right",
-                        "cameras/ring_rear_right",
-                        "cameras/ring_rear_left",
-                        "cameras/ring_side_left",
-                        "cameras/ring_front_center",
-                        "cameras/ring_side_right"
-                        
-                    ],
-                    "enable_camera_transforms": true,
-                    "enable_ego_transforms": true,
-                    "_3dbox_image_settings": {},
-                    "hdmap_image_settings": {},
-                    "image_description_settings": {
-                        "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_train.json",
-                        "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_times_train.json",
-                        "align_keys": [
-                            "time",
-                            "weather"
-                        ],
-                        "reorder_keys": true,
-                        "drop_rates": {
-                            "environment": 0.04,
-                            "objects": 0.08,
-                            "image_description": 0.16
-                        }
-                    },
-                    "stub_key_data_dict": {
-                        "crossview_mask": [
-                            "content",
-                            {
-                                "_class_name": "torch.tensor",
-                                "data": {
-                                    "_class_name": "json.loads",
-                                    "s": "[[1,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]"
-                                },
-                                "dtype": {
-                                    "_class_name": "get_class",
-                                    "class_name": "torch.bool"
-                                }
-                            }
-                        ],
-                        "dataset_tag": [
-                            "content",
-                            {
-                                "_class_name": "torch.tensor",
-                                "data": 3,
-                                "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
-                            }
-                            ]
-                    }
                 }
+                
                 
             ]
         },
@@ -705,14 +531,7 @@
                     ],
 
                     "sensor_channels": [
-                        "CAM_L2",
-                        "CAM_L1",
-                        "CAM_L0",
-                        "CAM_F0",
-                        "CAM_R0",
-                        "CAM_R1",
-                        "CAM_R2",
-                        "CAM_B0"
+                        "CAM_F0"
                     ],
 
                     "enable_camera_transforms": true,
@@ -752,7 +571,6 @@
                         ]
                     }
                 }
-                
                 
             ]
         },
