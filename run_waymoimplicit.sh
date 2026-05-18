@@ -1,5 +1,3 @@
-4卡：
-
 source /inspire/ssd/project/advanced-machine-learning/public/inspire_shared/envs/lyhdwm/bin/activate
 cd /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/src
 
@@ -16,9 +14,9 @@ export PYTHONPATH=$PYTHONPATH:/inspire/qb-ilm/project/advanced-machine-learning/
 torchrun \
   --nproc_per_node=4 \
   -m dwm.train \
-  -c //inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/waymopetr_pvlayout.json\
-  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplanplucker\
-  --log-steps  1 \
-  --preview-steps 1 \
-  --checkpointing-steps 5000
-
+  -c /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/waymoimplicit.json\
+  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_waymoimplicit\
+  --log-steps  150 \
+  --preview-steps 400 \
+  --checkpointing-steps 5000 \
+  --evaluation-steps 5000 \

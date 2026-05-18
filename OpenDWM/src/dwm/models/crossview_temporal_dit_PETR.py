@@ -6,6 +6,7 @@ import math
 
 import dwm.models.adapters
 from dwm.models.crossview_temporal import VTSelfAttentionBlock, AlphaBlender, Mixer
+from dwm.models.petr_camera_encoder import PETRCameraEncoder
 
 
 class PositionalEncoding(torch.nn.Module):
@@ -146,6 +147,7 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         disable_view_emb_on_temporal_module: bool = False,
         qk_norm_on_additional_modules=None,
         mask_module=None,
+        petr_config: Optional[dict] = None,
         **kwargs
     ):
         super().__init__(
@@ -177,7 +179,15 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         if perspective_modeling_type == "explicit":
             # Explicit Perspective Modeling
             self.rayencoder = RayEncoder(
-                cond_proj_dim=72, in_channels=self.inner_dim)   
+                cond_proj_dim=72, in_channels=self.inner_dim)
+        elif perspective_modeling_type == "petr":
+            if petr_config is None:
+                petr_config = {}
+
+            self.petr_encoder = PETRCameraEncoder(
+                in_channels=self.inner_dim,
+                **petr_config,
+            )   
         elif perspective_modeling_type == "implicit":
             # Implicit Perspective Modeling
             self.view_cam_proj = diffusers.models.embeddings.Timesteps(
@@ -410,18 +420,37 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         return_dict: bool = False
     ):
         should_add_dim = len(sample.shape) < 6
+
         if should_add_dim:
             sample = sample.unsqueeze(2)
-            timestep = timestep.unsqueeze(2)
+
+            if timestep is not None:
+                timestep = timestep.unsqueeze(2)
+
             if condition_image_tensor is not None:
                 condition_image_tensor = condition_image_tensor.unsqueeze(2)
+
             if encoder_hidden_states is not None:
                 encoder_hidden_states = encoder_hidden_states.unsqueeze(2)
+
             if disable_temporal is not None:
                 disable_temporal = disable_temporal.unsqueeze(2)
+
             if pooled_projections is not None:
                 pooled_projections = pooled_projections.unsqueeze(2)
 
+            # camera tensors: [B,T,3,3] -> [B,T,1,3,3]
+            if camera_intrinsics_norm is not None and camera_intrinsics_norm.ndim == 4:
+                camera_intrinsics_norm = camera_intrinsics_norm.unsqueeze(2)
+
+            if camera2referego is not None and camera2referego.ndim == 4:
+                camera2referego = camera2referego.unsqueeze(2)
+
+            if camera_intrinsics is not None and camera_intrinsics.ndim == 4:
+                camera_intrinsics = camera_intrinsics.unsqueeze(2)
+
+            if camera_transforms is not None and camera_transforms.ndim == 4:
+                camera_transforms = camera_transforms.unsqueeze(2)
         hidden_states = sample
         batch_size, sequence_length, view_count, _, height, width = \
             hidden_states.shape
@@ -475,6 +504,73 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
             )
             raymap = self.rayencoder(rays_o, rays_d)
             view_cam_emb = raymap.flatten(1, 2)
+
+        elif self.perspective_modeling_type == "petr":
+            if camera_intrinsics_norm is None or camera2referego is None:
+                raise ValueError(
+                    "PETR camera encoding requires camera_intrinsics_norm and camera2referego. "
+                    "Please keep common_config['explicit_view_modeling']=true."
+                )
+
+            camera_intrinsics_norm = camera_intrinsics_norm.clone()
+            camera_intrinsics_norm[..., 0, 0] = \
+                camera_intrinsics_norm[..., 0, 0] * width
+            camera_intrinsics_norm[..., 1, 1] = \
+                camera_intrinsics_norm[..., 1, 1] * height
+            camera_intrinsics_norm[..., 0, 2] = \
+                camera_intrinsics_norm[..., 0, 2] * width
+            camera_intrinsics_norm[..., 1, 2] = \
+                camera_intrinsics_norm[..., 1, 2] * height
+
+            petr_map = self.petr_encoder(
+                camera_intrinsics_norm.flatten(0, 2),
+                camera2referego.flatten(0, 2),
+                height,
+                width,
+            )
+            expected_petr_shape = (
+                batch_size * sequence_length * view_count,
+                height,
+                width,
+                self.inner_dim,
+            )
+
+            if tuple(petr_map.shape) != expected_petr_shape:
+                raise RuntimeError(
+                    f"PETR map shape mismatch: got {tuple(petr_map.shape)}, "
+                    f"expected {expected_petr_shape}."
+                )
+
+            view_cam_emb = petr_map.flatten(1, 2).to(dtype=hidden_states.dtype)
+
+            if tuple(view_cam_emb.shape) != tuple(hidden_states.shape):
+                raise RuntimeError(
+                    f"view_cam_emb shape mismatch: got {tuple(view_cam_emb.shape)}, "
+                    f"hidden_states {tuple(hidden_states.shape)}."
+                )
+
+            if hasattr(self, "petr_encoder") and getattr(self.petr_encoder, "debug", False):
+                rank = int(__import__("os").environ.get("RANK", "0"))
+                debug_step = int(self.petr_encoder._debug_step.item())
+
+                if rank == 0 and debug_step % self.petr_encoder.debug_interval == 0:
+                    with torch.no_grad():
+                        k_token = camera_intrinsics_norm.reshape(-1, 3, 3)[0]
+
+                        print("\n[PETR-Model][after encoder]")
+                        print("hidden_states:", tuple(hidden_states.shape), hidden_states.dtype)
+                        print("petr_map:", tuple(petr_map.shape), petr_map.dtype)
+                        print("view_cam_emb:", tuple(view_cam_emb.shape), view_cam_emb.dtype)
+                        print(
+                            "view_cam_emb mean/std/min/max:",
+                            float(view_cam_emb.float().mean()),
+                            float(view_cam_emb.float().std()),
+                            float(view_cam_emb.float().min()),
+                            float(view_cam_emb.float().max()),
+                        )
+                        print("token H,W:", height, width)
+                        print("K_token[0]:")
+                        print(k_token.detach().cpu())
 
         condition_residuals = None if \
             self.condition_image_adapter is None or \
@@ -640,11 +736,14 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
             )
         )
 
-        result = [output,]
         if should_add_dim:
             output = output.squeeze(2)
+
+        result = [output]
+
         if return_dict:
             return {
                 "noise_pred": output,
             }
-        return result, _, _
+
+        return result, None, None
