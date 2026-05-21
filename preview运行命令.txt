@@ -1,12 +1,15 @@
 source /inspire/ssd/project/advanced-machine-learning/public/inspire_shared/envs/lyhdwm/bin/activate
+
 cd /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/src
 
-export PYTHONPATH=$(pwd):$PYTHONPATH
 export PYTHONPATH=/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/externals/TATS/tats/fvd
+export PYTHONPATH=/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan-devkit-master:$PYTHONPATH
 export PYTHONPATH=$PYTHONPATH:/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/externals/waymo-open-dataset/src
 unset ENABLE_DEBUGPY
-PYTHONUNBUFFERED=1 torchrun \
-  --nproc_per_node=2 \
+export PYTHONUNBUFFERED=1
+
+torchrun --standalone \
+  --nproc_per_node=1 \
   -m dwm.preview \
-  -c //inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/pluckercopy.json \
-  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/longpreview\
+  -c //inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplancamtoken.json\
+  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_mdtoken
