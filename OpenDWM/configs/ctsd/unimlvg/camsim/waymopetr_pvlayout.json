@@ -35,6 +35,17 @@
             "condition_on_all_frames": true,
             "uncondition_image_color": 0.1255,
             "added_time_ids": "fps_camera_transforms",
+            "zero_missing_crossview_weights": false,
+            "petr_visualize_geometry": false,
+            "petr_visualize_once": false,
+            "petr_visualize_all_ranks": false,
+            "petr_visualize_output_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_petr_vis",
+            "petr_visualize_batch_index": 0,
+            "petr_visualize_time_index": 0,
+            "petr_visualize_max_views": 8,
+            "petr_visualize_ray_depth": 30.0,
+            "petr_visualize_frustum_depth": 20.0,
+            "petr_visualize_ray_grid_size": 3,
             "explicit_geometry_clip": {
                 "enabled": true,
                 "translation_clip": 100.0,
@@ -192,7 +203,7 @@
                 "block_out_channels": [256, 256],
                 "use_valid_mask": true,
                 "output_scale": 1.0,
-                "debug": true,
+                "debug": false,
                 "debug_interval": 1
             },
             "enable_crossview": true,
@@ -831,7 +842,7 @@
                     "split":"validation",
                     "dataset_root":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_link",
                     "info_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_balanced/validation.info.json",
-                    "sequence_length": 20,
+                    "sequence_length": 35,
                     "fps_stride_tuples": [
                         [6,2]
                     ],
@@ -994,7 +1005,7 @@
         "batch_size": 1,
         "num_workers": 1,
         "prefetch_factor": 1,
-        "shuffle": true,
+        "shuffle": false,
         "drop_last": true,
         "collate_fn": {
             "_class_name": "dwm.datasets.common.CollateFnIgnoring",

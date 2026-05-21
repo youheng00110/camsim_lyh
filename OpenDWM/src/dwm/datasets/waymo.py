@@ -530,6 +530,66 @@ class MotionDataset(torch.utils.data.Dataset):
             time_list_dict[scene_key], timestamp, return_item=True)
         key = "{}|{}|{}".format(scene_key, nearest_time, camera_id)
         return image_descriptions[key]
+    def get_layout_token_boxes(self, frame):
+        max_boxes = self.layout_token_settings.get("max_boxes", 64)
+
+        corners = torch.zeros(max_boxes, 8, 3, dtype=torch.float32)
+        classes = torch.zeros(max_boxes, dtype=torch.long)
+        masks = torch.zeros(max_boxes, dtype=torch.float32)
+
+        corner_template = torch.tensor(
+            self.default_3dbox_corner_template,
+            dtype=torch.float32,
+        )
+
+        kept = 0
+        for label in frame.laser_labels:
+            if kept >= max_boxes:
+                break
+
+            if int(label.type) <= 0:
+                continue
+
+            box = label.box
+            scale = torch.tensor(
+                [box.length, box.width, box.height],
+                dtype=torch.float32,
+            )
+
+            yaw = float(box.heading)
+            cos_yaw = torch.tensor(np.cos(yaw), dtype=torch.float32)
+            sin_yaw = torch.tensor(np.sin(yaw), dtype=torch.float32)
+
+            rot = torch.tensor([
+                [cos_yaw, -sin_yaw, 0.0],
+                [sin_yaw,  cos_yaw, 0.0],
+                [0.0,      0.0,     1.0],
+            ], dtype=torch.float32)
+
+            local_corners = corner_template[:, :3] * scale.view(1, 3)
+            ego_corners = local_corners @ rot.t()
+            ego_corners = ego_corners + torch.tensor(
+                [box.center_x, box.center_y, box.center_z],
+                dtype=torch.float32,
+            ).view(1, 3)
+
+            corners[kept] = ego_corners
+            classes[kept] = self.get_layout_token_class_id(label.type)
+            masks[kept] = 1.0
+            kept += 1
+
+        return corners, classes, masks
+    def get_layout_token_class_id(self, label_type):
+        if int(label_type) == 1:
+            return 0      # vehicle
+        if int(label_type) == 2:
+            return 8      # pedestrian
+        if int(label_type) == 3:
+            return 9      # sign / cone-like, if used
+        if int(label_type) == 4:
+            return 7      # cyclist
+
+        return 0
     ###增加筛选平衡后的json########
     def __init__(
         self,
@@ -548,6 +608,7 @@ class MotionDataset(torch.utils.data.Dataset):
         stub_key_data_dict=None,
         balanced_json_path=None,
         dataset_root=None,
+        layout_token_settings: dict = None,
         split: str = "train" 
     ):
 
@@ -565,6 +626,7 @@ class MotionDataset(torch.utils.data.Dataset):
         self.image_description_settings = image_description_settings
         self.stub_key_data_dict = stub_key_data_dict
         self.split =split
+        self.layout_token_settings = layout_token_settings
         self.items = []
 
         # ===============================
@@ -1083,16 +1145,13 @@ class MotionDataset(torch.utils.data.Dataset):
         # HD map 的 BEV 图
         # ---------------------------
         if self.hdmap_bev_settings is not None:
-            # 同样依赖 scene_frame.map_features
             result["hdmap_bev_images"] = [
                 MotionDataset.get_hdmap_bev_image(
                     scene_frame.map_features,
                     i.pose,
-                    self.hdmap_bev_settings
+                    self.hdmap_bev_settings,
                 )
                 for i in frames
-                for j in self.sensor_channels
-                if j.startswith("LIDAR")
             ]
 
         # ---------------------------
@@ -1130,8 +1189,32 @@ class MotionDataset(torch.utils.data.Dataset):
 
         # 给缺失字段补 stub，和其他数据集对齐
         dwm.datasets.common.add_stub_key_data(self.stub_key_data_dict, result)
+        if self.layout_token_settings is not None:
+            bbox_token_corners_list = []
+            bbox_token_classes_list = []
+            bbox_token_masks_list = []
 
-        # 再次写入 angle / dist
+            for frame in frames:
+                bbox_corners, bbox_classes, bbox_masks = \
+                    self.get_layout_token_boxes(frame)
+
+                bbox_token_corners_list.append(bbox_corners)
+                bbox_token_classes_list.append(bbox_classes)
+                bbox_token_masks_list.append(bbox_masks)
+
+            result["bbox_token_corners"] = torch.stack(
+                bbox_token_corners_list,
+                dim=0,
+            )
+            result["bbox_token_classes"] = torch.stack(
+                bbox_token_classes_list,
+                dim=0,
+            )
+            result["bbox_token_masks"] = torch.stack(
+                bbox_token_masks_list,
+                dim=0,
+            )
+                # 再次写入 angle / dist
         # 这两项前面已经写过，这里保留你当前逻辑，不改动
         if "angle" in item:
             result["angle"] = torch.tensor(item["angle"]).float()

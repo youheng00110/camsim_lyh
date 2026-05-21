@@ -294,7 +294,47 @@ class CrossviewTemporalSD():
             state = torch.load(path, map_location="cpu", weights_only=True)
 
         return state
+    @staticmethod
+    def zero_missing_crossview_weights(
+        model,
+        missing_keys,
+        include_mixers: bool = False,
+    ):
+        target_model = model.module if hasattr(model, "module") else model
 
+        param_dict = dict(target_model.named_parameters())
+        buffer_dict = dict(target_model.named_buffers())
+
+        crossview_markers = [
+            "view_pos_embeds.",
+            "crossview_transformer_blocks.",
+        ]
+
+        if include_mixers:
+            crossview_markers.append("view_mixers.")
+
+        zeroed_keys = []
+
+        with torch.no_grad():
+            for key in missing_keys:
+                if not any(marker in key for marker in crossview_markers):
+                    continue
+
+                tensor = param_dict.get(key, None)
+
+                if tensor is None:
+                    tensor = buffer_dict.get(key, None)
+
+                if tensor is None:
+                    continue
+
+                if not torch.is_floating_point(tensor):
+                    continue
+
+                tensor.zero_()
+                zeroed_keys.append(key)
+
+        return zeroed_keys
     @staticmethod
     def flatten_clip_text(
         clip_text, flattened_clip_text: list, parsed_shape: list,
@@ -340,7 +380,34 @@ class CrossviewTemporalSD():
 
         if isinstance(clip_text, list):
             parsed_shape[level] = level_count
+    @staticmethod
+    def get_camera_param_token(batch, common_config):
+        """
+        return: [B, T, V, 3, 7]
+        """
+        K = batch["camera_intrinsics"].clone()
+        image_size = batch["image_size"].to(K)
 
+        # normalize intrinsics
+        # image_size[..., 0] = W, image_size[..., 1] = H
+        K[..., 0, 0] = K[..., 0, 0] / image_size[..., 0]
+        K[..., 1, 1] = K[..., 1, 1] / image_size[..., 1]
+        K[..., 0, 2] = K[..., 0, 2] / image_size[..., 0]
+        K[..., 1, 2] = K[..., 1, 2] / image_size[..., 1]
+
+        # camera_transforms: camera -> ego / sensor -> ego
+        E = batch["camera_transforms"].clone()
+
+        # 只取前 3 行，和 MagicDrive-V2 的 3x7 对齐
+        E = E[..., :3, :4]
+
+        # 平移归一化，避免 Fourier embedding 被米制尺度冲爆
+        scale = common_config.get("camera_token_translation_scale", 10.0)
+        E[..., :3, 3] = E[..., :3, 3] / scale
+
+        cam_param = torch.cat([K[..., :3, :3], E], dim=-1)
+
+        return cam_param
     @staticmethod
     def get_camera_transform_ids(batch, common_config):
         return torch.cat([
@@ -414,7 +481,132 @@ class CrossviewTemporalSD():
             action_ids = action_ids.chunk(2, dim=1)[-1]
 
         return action_ids
+    @staticmethod
+    def get_camera_param_token(batch, common_config):
+        """
+        Returns:
+            camera_param_token: [B, T, V, 3, 7]
+        """
+        K = batch["camera_intrinsics"].clone().float()
+        image_size = batch["image_size"].to(K)
 
+        K[..., 0, 0] = K[..., 0, 0] / image_size[..., 0]
+        K[..., 1, 1] = K[..., 1, 1] / image_size[..., 1]
+        K[..., 0, 2] = K[..., 0, 2] / image_size[..., 0]
+        K[..., 1, 2] = K[..., 1, 2] / image_size[..., 1]
+
+        E = batch["camera_transforms"].clone().float()
+        E = E[..., :3, :4]
+
+        scale = common_config.get("camera_token_translation_scale", 10.0)
+        E[..., :3, 3] = E[..., :3, 3] / scale
+
+        camera_param_token = torch.cat([K[..., :3, :3], E], dim=-1)
+        return camera_param_token
+
+    @staticmethod
+    def get_bbox_token_inputs(batch, common_config, device, dtype,
+                              do_classifier_free_guidance=False):
+        """
+        Expected batch fields:
+            bbox_token_corners: [B, T, S, 8, 3]
+            bbox_token_classes: [B, T, S]
+            bbox_token_masks:   [B, T, S]
+        mask meaning:
+             1 = keep real box
+             0 = null / padded box
+            -1 = masked box
+        """
+        corners_key = common_config.get(
+            "bbox_token_corners_key", "bbox_token_corners")
+        classes_key = common_config.get(
+            "bbox_token_classes_key", "bbox_token_classes")
+        masks_key = common_config.get(
+            "bbox_token_masks_key", "bbox_token_masks")
+
+        require_bbox = common_config.get("require_bbox_token_input", False)
+        if corners_key not in batch:
+            if require_bbox:
+                raise KeyError(
+                    f"bbox_token_modeling=True but `{corners_key}` is missing. "
+                    "You need to add raw box token fields in dataset."
+                )
+            return None, None, None
+
+        if classes_key not in batch:
+            raise KeyError(
+                f"`{corners_key}` exists but `{classes_key}` is missing."
+            )
+
+        bbox_token_input = batch[corners_key].to(device=device, dtype=dtype)
+        bbox_class_input = batch[classes_key].to(device=device)
+
+        if masks_key in batch:
+            bbox_mask_input = batch[masks_key].to(device=device, dtype=dtype)
+        else:
+            bbox_mask_input = torch.ones(
+                bbox_class_input.shape,
+                device=device,
+                dtype=dtype,
+            )
+
+        if do_classifier_free_guidance:
+            bbox_token_input = torch.cat(
+                [bbox_token_input, bbox_token_input],
+                dim=0,
+            )
+            bbox_class_input = torch.cat(
+                [bbox_class_input, bbox_class_input],
+                dim=0,
+            )
+            bbox_mask_input = torch.cat(
+                [torch.zeros_like(bbox_mask_input), bbox_mask_input],
+                dim=0,
+            )
+
+        return bbox_token_input, bbox_class_input, bbox_mask_input
+
+    @staticmethod
+    def get_map_token_input(batch, common_config, device, dtype,
+                            do_classifier_free_guidance=False):
+        """
+        Default map source:
+            hdmap_bev_images: [B, T, C, H, W]
+        This is BEV map, not PV map.
+        """
+        map_key = common_config.get("map_token_key", "hdmap_bev_images")
+        require_map = common_config.get("require_map_token_input", False)
+
+        if map_key not in batch:
+            if require_map:
+                raise KeyError(
+                    f"map_token_modeling=True but `{map_key}` is missing. "
+                    "Enable hdmap_bev_settings or provide BEV map tokens."
+                )
+            return None
+
+        map_token_input = batch[map_key].to(device=device, dtype=dtype)
+
+        if map_token_input.ndim == 6 and map_token_input.shape[2] == 1:
+            map_token_input = map_token_input.squeeze(2)
+
+        if map_token_input.ndim == 6 and map_token_input.shape[2] != 1:
+            b, t, n, c, h, w = map_token_input.shape
+            map_token_input = map_token_input.reshape(b, t, n * c, h, w)
+
+        if map_token_input.ndim != 5:
+            raise ValueError(
+                f"`{map_key}` should be [B, T, C, H, W] or [B, T, N, C, H, W], "
+                f"but got {tuple(map_token_input.shape)}."
+            )
+
+        if do_classifier_free_guidance:
+            map_token_input = torch.cat(
+                [torch.zeros_like(map_token_input), map_token_input],
+                dim=0,
+            )
+
+        return map_token_input
     @staticmethod
     def get_conditions(
         model, text_encoder, tokenizer, common_config: dict, latent_shape,
@@ -518,43 +710,85 @@ class CrossviewTemporalSD():
             "condition_on_all_frames", False)
         uncondition_image_color = common_config.get(
             "uncondition_image_color", 0)
-        if "3dbox_images" in batch:
-            if condition_on_all_frames:
-                _3dbox_images = batch["3dbox_images"].to(device)
-            else:
-                _3dbox_images = batch["3dbox_images"][:, :1].to(device)
 
-            if _3dbox_condition_mask is not None:
-                _3dbox_images[
-                    _3dbox_condition_mask.logical_not().to(device)
-                ] = uncondition_image_color
+        # hard switch for PV layout condition.
+        # True: original OpenDWM behavior.
+        # False: do not feed 3dbox_images / hdmap_images into condition_image_adapter.
+        use_pv_layout_condition = common_config.get(
+            "use_pv_layout_condition", True)
 
-            if do_classifier_free_guidance:
-                _3dbox_images = torch.cat([
-                    torch.ones_like(_3dbox_images) * uncondition_image_color,
-                    _3dbox_images
-                ])
+        debug_pv_layout_condition = common_config.get(
+            "debug_pv_layout_condition", False)
 
-            condition_image_list.append(_3dbox_images)
+        if debug_pv_layout_condition:
+            is_rank0 = (
+                (not torch.distributed.is_available()) or
+                (not torch.distributed.is_initialized()) or
+                (torch.distributed.get_rank() == 0)
+            )
+            if is_rank0:
+                print(
+                    "[PV_LAYOUT_DEBUG] "
+                    f"use_pv_layout_condition={use_pv_layout_condition}, "
+                    f"has_3dbox_images={'3dbox_images' in batch}, "
+                    f"has_hdmap_images={'hdmap_images' in batch}",
+                    flush=True,
+                )
 
-        if "hdmap_images" in batch:
-            if condition_on_all_frames:
-                hdmap_images = batch["hdmap_images"].to(device)
-            else:
-                hdmap_images = batch["hdmap_images"][:, :1].to(device)
+        if use_pv_layout_condition:
+            if "3dbox_images" in batch:
+                if condition_on_all_frames:
+                    _3dbox_images = batch["3dbox_images"].to(device)
+                else:
+                    _3dbox_images = batch["3dbox_images"][:, :1].to(device)
 
-            if hdmap_condition_mask is not None:
-                hdmap_images[
-                    hdmap_condition_mask.logical_not().to(device)
-                ] = uncondition_image_color
+                if _3dbox_condition_mask is not None:
+                    _3dbox_images[
+                        _3dbox_condition_mask.logical_not().to(device)
+                    ] = uncondition_image_color
 
-            if do_classifier_free_guidance:
-                hdmap_images = torch.cat([
-                    torch.ones_like(hdmap_images) * uncondition_image_color,
-                    hdmap_images
-                ])
+                if do_classifier_free_guidance:
+                    _3dbox_images = torch.cat([
+                        torch.ones_like(_3dbox_images) * uncondition_image_color,
+                        _3dbox_images
+                    ])
 
-            condition_image_list.append(hdmap_images)
+                condition_image_list.append(_3dbox_images)
+
+            if "hdmap_images" in batch:
+                if condition_on_all_frames:
+                    hdmap_images = batch["hdmap_images"].to(device)
+                else:
+                    hdmap_images = batch["hdmap_images"][:, :1].to(device)
+
+                if hdmap_condition_mask is not None:
+                    hdmap_images[
+                        hdmap_condition_mask.logical_not().to(device)
+                    ] = uncondition_image_color
+
+                if do_classifier_free_guidance:
+                    hdmap_images = torch.cat([
+                        torch.ones_like(hdmap_images) * uncondition_image_color,
+                        hdmap_images
+                    ])
+
+                condition_image_list.append(hdmap_images)
+
+        else:
+            if debug_pv_layout_condition:
+                is_rank0 = (
+                    (not torch.distributed.is_available()) or
+                    (not torch.distributed.is_initialized()) or
+                    (torch.distributed.get_rank() == 0)
+                )
+                if is_rank0:
+                    print(
+                        "[PV_LAYOUT_DEBUG] hard no-PV is enabled. "
+                        "Skip 3dbox_images and hdmap_images. "
+                        "condition_image_tensor should become None unless other image "
+                        "conditions are appended later.",
+                        flush=True,
+                    )
 
         if len(condition_embedding_list) > 0:
             encoder_hidden_states = torch.cat(condition_embedding_list, -2)\
@@ -566,6 +800,25 @@ class CrossviewTemporalSD():
             condition_image_tensor = torch.cat(condition_image_list, -3)
         else:
             condition_image_tensor = None
+
+        if debug_pv_layout_condition:
+            is_rank0 = (
+                (not torch.distributed.is_available()) or
+                (not torch.distributed.is_initialized()) or
+                (torch.distributed.get_rank() == 0)
+            )
+            if is_rank0:
+                if condition_image_tensor is None:
+                    print(
+                        "[PV_LAYOUT_DEBUG] final condition_image_tensor=None",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        "[PV_LAYOUT_DEBUG] final condition_image_tensor.shape="
+                        f"{tuple(condition_image_tensor.shape)}",
+                        flush=True,
+                    )
 
         # additional numeric condition
         if "added_time_ids" in common_config:
@@ -706,7 +959,54 @@ class CrossviewTemporalSD():
                 camera_intrinsics_norm[..., 2, :] = camera_intrinsics_norm.new_tensor(
                     [0.0, 0.0, 1.0]
                 )
+            if (
+                common_config.get("petr_visualize_geometry", False)
+                and latents_shape is not None
+            ):
+                rank = (
+                    torch.distributed.get_rank()
+                    if torch.distributed.is_initialized()
+                    else 0
+                )
 
+                run_this_rank = (
+                    rank == 0
+                    or common_config.get("petr_visualize_all_ranks", False)
+                )
+
+                if run_this_rank:
+                    vis_root = common_config.get(
+                        "petr_visualize_output_root",
+                        "./debug_petr_vis",
+                    )
+                    os.makedirs(vis_root, exist_ok=True)
+
+                    done_flag = os.path.join(
+                        vis_root,
+                        f"_petr_vis_done_rank{rank}.txt",
+                    )
+
+                    should_visualize = (
+                        not common_config.get("petr_visualize_once", True)
+                        or not os.path.exists(done_flag)
+                    )
+
+                    if should_visualize:
+                        from dwm.utils.petr_visualizer import visualize_petr_geometry
+
+                        visualize_petr_geometry(
+                            model=model,
+                            batch=batch,
+                            camera_intrinsics_norm=camera_intrinsics_norm,
+                            camera2referego=camera2referego,
+                            latents_shape=latents_shape,
+                            common_config=common_config,
+                            tag="conditions",
+                        )
+
+                        if common_config.get("petr_visualize_once", True):
+                            with open(done_flag, "w") as f:
+                                f.write("done\n")
             if do_classifier_free_guidance:
                 camera_intrinsics_norm = torch.cat(
                     [camera_intrinsics_norm, camera_intrinsics_norm], 0
@@ -729,6 +1029,65 @@ class CrossviewTemporalSD():
                     [camera_intrinsics, camera_intrinsics])
                 camera_transforms = torch.cat(
                     [camera_transforms, camera_transforms])
+        camera_param_token = None
+        camera_token_mask = None
+        bbox_token_input = None
+        bbox_class_input = None
+        bbox_mask_input = None
+
+        map_token_input = None
+
+        if common_config.get("camera_token_modeling", False):
+            camera_param_token = CrossviewTemporalSD.get_camera_param_token(
+                batch,
+                common_config,
+            ).to(device=device, dtype=dtype)
+
+            if do_classifier_free_guidance:
+                b, t, v = camera_param_token.shape[:3]
+
+                uncond_camera_token_mask = torch.zeros(
+                    b,
+                    t,
+                    v,
+                    device=device,
+                    dtype=dtype,
+                )
+                cond_camera_token_mask = torch.ones(
+                    b,
+                    t,
+                    v,
+                    device=device,
+                    dtype=dtype,
+                )
+
+                camera_param_token = torch.cat(
+                    [camera_param_token, camera_param_token],
+                    dim=0,
+                )
+                camera_token_mask = torch.cat(
+                    [uncond_camera_token_mask, cond_camera_token_mask],
+                    dim=0,
+                )
+
+        if common_config.get("bbox_token_modeling", False):
+            bbox_token_input, bbox_class_input, bbox_mask_input = \
+                CrossviewTemporalSD.get_bbox_token_inputs(
+                    batch,
+                    common_config,
+                    device,
+                    dtype,
+                    do_classifier_free_guidance=do_classifier_free_guidance,
+                )
+
+        if common_config.get("map_token_modeling", False):
+            map_token_input = CrossviewTemporalSD.get_map_token_input(
+                batch,
+                common_config,
+                device,
+                dtype,
+                do_classifier_free_guidance=do_classifier_free_guidance,
+            )
 
         result = {
             "encoder_hidden_states": encoder_hidden_states,
@@ -760,7 +1119,16 @@ class CrossviewTemporalSD():
             if common_config.get("explicit_view_modeling", False) else None,
 
             "added_time_ids": added_time_ids
-            if "added_time_ids" in common_config else None
+            if "added_time_ids" in common_config else None,
+
+            "camera_param_token": camera_param_token,
+            "camera_token_mask": camera_token_mask,
+
+            "bbox_token_input": bbox_token_input,
+            "bbox_class_input": bbox_class_input,
+            "bbox_mask_input": bbox_mask_input,
+
+            "map_token_input": map_token_input,
         }
 
         if (
@@ -1005,11 +1373,45 @@ class CrossviewTemporalSD():
             all_reference_visible_indicator = \
                 torch.rand((batch_size, 1, 1), generator=generator) < \
                 training_config.get("all_reference_visible_ratio", 0.0)
-            partial_reference_indicator = \
-                torch.rand(
+            reference_visible_rate = training_config.get(
+                "reference_visible_rate",
+                1.0
+            )
+
+            if view_count > 1 and reference_visible_rate > 0.0 and \
+                    reference_visible_rate < 1.0:
+                clean_view_count = int(view_count * reference_visible_rate + 0.5)
+                clean_view_count = max(1, min(clean_view_count, view_count - 1))
+
+                clean_view_scores = torch.rand(
                     (batch_size, sequence_length, view_count),
-                    generator=generator) < \
-                training_config.get("reference_visible_rate", 1.0)
+                    generator=generator
+                )
+
+                clean_view_indices = torch.topk(
+                    clean_view_scores,
+                    k=clean_view_count,
+                    dim=2,
+                    largest=False
+                ).indices
+
+                partial_reference_indicator = torch.zeros(
+                    (batch_size, sequence_length, view_count),
+                    dtype=torch.bool
+                )
+
+                partial_reference_indicator.scatter_(
+                    2,
+                    clean_view_indices,
+                    True
+                )
+
+            else:
+                partial_reference_indicator = \
+                    torch.rand(
+                        (batch_size, sequence_length, view_count),
+                        generator=generator
+                    ) < reference_visible_rate
 
             if isinstance(reference_latent_count, int):
                 reference_latent_count_tensor = reference_latent_count * \
@@ -1321,6 +1723,41 @@ class CrossviewTemporalSD():
 
             missing_keys, unexpected_keys = self.model.load_state_dict(
                 state_dict, **model_load_state_args)
+                        # zero-init cross-view modules that are newly added and missing in ckpt
+            zeroed_crossview_keys = []
+
+            if self.common_config.get("zero_missing_crossview_weights", False):
+                target_model = self.model.module if hasattr(self.model, "module") else self.model
+
+                param_dict = dict(target_model.named_parameters())
+                buffer_dict = dict(target_model.named_buffers())
+
+                crossview_markers = (
+                    "view_pos_embeds.",
+                    "crossview_transformer_blocks.",
+                )
+
+                if self.common_config.get("zero_missing_crossview_include_mixers", False):
+                    crossview_markers = crossview_markers + ("view_mixers.",)
+
+                with torch.no_grad():
+                    for key in missing_keys:
+                        if not any(marker in key for marker in crossview_markers):
+                            continue
+
+                        tensor = param_dict.get(key, None)
+
+                        if tensor is None:
+                            tensor = buffer_dict.get(key, None)
+
+                        if tensor is None:
+                            continue
+
+                        if not torch.is_floating_point(tensor):
+                            continue
+
+                        tensor.zero_()
+                        zeroed_crossview_keys.append(key)
             if (
                 self.should_save and
                 self.common_config.get("print_load_state_info", False)
@@ -1708,6 +2145,21 @@ class CrossviewTemporalSD():
                     self.training_config, self.common_config,
                     generator=self.generator,
                     reference_latent_count=reference_latent_count)
+            # ===== add debug here =====
+            if global_step < 5:
+                rank = torch.distributed.get_rank() \
+                    if torch.distributed.is_initialized() else 0
+
+                if rank == 0:
+                    print(
+                        "[REF_MASK_DEBUG] step={} ref_ratio={:.4f} noisy_ratio={:.4f}".format(
+                            global_step + 1,
+                            reference_frame_indicator.float().mean().item(),
+                            (~reference_frame_indicator).float().mean().item(),
+                        ),
+                        flush=True,
+                    )
+            # ===== add debug end =====    
             if additional_conditions is not None:
                 model_conditions.update(additional_conditions)
             if getattr(self.model_wrapper, "mask_module", None) is not None:
@@ -1862,13 +2314,32 @@ class CrossviewTemporalSD():
                         
             if self.training_config.get("disable_reference_frame_loss", False):
                 reference_frame_loss_mask = ~reference_frame_indicator.view(
-                    *sd_pred_latent.shape[:3], 1, 1, 1).to(sd_pred_latent.device)
-                sd_pred_latent = sd_pred_latent*(reference_frame_loss_mask)
-                target = target*(reference_frame_loss_mask)
+                    *sd_pred_latent.shape[:3],
+                    1,
+                    1,
+                    1
+                ).to(sd_pred_latent.device)
 
-            loss_dict["sd_loss"] = torch.nn.functional.mse_loss(
-                sd_pred_latent.float(), target.float(), reduction="mean"
-            ) * self.get_loss_coef("sd")
+                reference_frame_loss_mask = reference_frame_loss_mask.expand_as(
+                    sd_pred_latent
+                )
+
+                sd_mse = (
+                    sd_pred_latent.float() - target.float()
+                ).square()
+
+                sd_loss = (
+                    sd_mse * reference_frame_loss_mask.float()
+                ).sum() / reference_frame_loss_mask.float().sum().clamp_min(1.0)
+
+            else:
+                sd_loss = torch.nn.functional.mse_loss(
+                    sd_pred_latent.float(),
+                    target.float(),
+                    reduction="mean"
+                )
+
+            loss_dict["sd_loss"] = sd_loss * self.get_loss_coef("sd")
             # if not torch.isfinite(loss_dict["sd_loss"]).all():
             #     save_nan_batch_visualization(
             #         batch=batch,

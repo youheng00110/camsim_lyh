@@ -819,7 +819,7 @@
                     "split":"validation",
                     "dataset_root":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_link",
                     "info_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_balanced/validation.info.json",
-                    "sequence_length": 20,
+                    "sequence_length": 35,
                     "fps_stride_tuples": [
                         [6,2]
                     ],
@@ -982,7 +982,7 @@
         "batch_size": 1,
         "num_workers": 1,
         "prefetch_factor": 1,
-        "shuffle": true,
+        "shuffle": false,
         "drop_last": true,
         "collate_fn": {
             "_class_name": "dwm.datasets.common.CollateFnIgnoring",

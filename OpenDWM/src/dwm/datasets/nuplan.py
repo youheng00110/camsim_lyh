@@ -479,7 +479,12 @@ class MotionDataset(torch.utils.data.Dataset):
         "lane": (0, 255, 0),
         "ped_crossing": (255, 0, 0)
     }
-
+    default_bev_from_ego_transform = [
+        [6.4, 0.0, 0.0, 320.0],
+        [0.0, -6.4, 0.0, 320.0],
+        [0.0, 0.0, -6.4, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
 
     def __init__(
         self,
@@ -514,6 +519,8 @@ class MotionDataset(torch.utils.data.Dataset):
         enable_ego_transforms=None,
         _3dbox_image_settings= None,
         hdmap_image_settings=None,
+        layout_token_settings: dict = None,
+        hdmap_bev_settings=None,
         
     ):
         self.sensor_root = sensor_root
@@ -528,7 +535,10 @@ class MotionDataset(torch.utils.data.Dataset):
         self.fps_stride_tuples = []
         self.overlap_ratio_by_cfg = {}
         self.overlap_ratio_by_fps = {}
-
+        self.layout_token_settings = layout_token_settings
+        self._3dbox_image_settings = _3dbox_image_settings
+        self.hdmap_image_settings = hdmap_image_settings
+        self.hdmap_bev_settings = hdmap_bev_settings
         for fps_stride_cfg in fps_stride_tuples:
             if len(fps_stride_cfg) == 2:
                 fps, stride = fps_stride_cfg
@@ -725,6 +735,7 @@ class MotionDataset(torch.utils.data.Dataset):
         self._token2map_max = 20000
         ensure_cache_subdir(self.cache_root, "3dbox_images")
         ensure_cache_subdir(self.cache_root, "hdmap_images")
+        ensure_cache_subdir(self.cache_root, "hdmap_bev_images")
         """
         # pts_proj
         
@@ -1082,7 +1093,163 @@ class MotionDataset(torch.utils.data.Dataset):
             self._hdgeom_cache.pop(next(iter(self._hdgeom_cache)))
         self._hdgeom_cache[key] = out
         return out
+    def _bev_points_from_world_xy(self, xy_world, bev_from_world):
+        xy_world = np.asarray(xy_world, dtype=np.float32)
 
+        if xy_world.ndim != 2 or xy_world.shape[0] == 0:
+            return np.zeros((0, 2), dtype=np.int32)
+
+        if xy_world.shape[1] != 2:
+            xy_world = xy_world[:, :2]
+
+        z = np.zeros((xy_world.shape[0], 1), dtype=np.float32)
+        one = np.ones((xy_world.shape[0], 1), dtype=np.float32)
+        pts_h = np.concatenate([xy_world, z, one], axis=1)
+
+        bev_pts = pts_h @ bev_from_world.T
+        bev_xy = np.round(bev_pts[:, :2]).astype(np.int32)
+
+        return bev_xy
+
+    def _draw_bev_polyline_rgb(
+        self,
+        canvas,
+        xy_world,
+        bev_from_world,
+        color,
+        thickness,
+    ):
+        pts = self._bev_points_from_world_xy(
+            xy_world,
+            bev_from_world,
+        )
+
+        if pts.shape[0] < 2:
+            return
+
+        pts = pts.reshape(-1, 1, 2)
+        color = tuple(int(i) for i in color)
+
+        cv2.polylines(
+            canvas,
+            [pts],
+            isClosed=False,
+            color=color,
+            thickness=int(thickness),
+        )
+
+    def _draw_bev_polygon_rgb(
+        self,
+        canvas,
+        xy_world,
+        bev_from_world,
+        color,
+        thickness,
+        fill_polygon,
+    ):
+        pts = self._bev_points_from_world_xy(
+            xy_world,
+            bev_from_world,
+        )
+
+        if pts.shape[0] < 3:
+            return
+
+        pts = pts.reshape(-1, 1, 2)
+        color = tuple(int(i) for i in color)
+
+        if fill_polygon:
+            cv2.fillPoly(
+                canvas,
+                [pts],
+                color=color,
+            )
+        else:
+            cv2.polylines(
+                canvas,
+                [pts],
+                isClosed=True,
+                color=color,
+                thickness=int(thickness),
+            )
+
+    def _get_hdmap_bev_image(self, info):
+        settings = self.hdmap_bev_settings or {}
+
+        bev_size = settings.get("bev_size", [640, 640])
+        bev_w = int(bev_size[0])
+        bev_h = int(bev_size[1])
+
+        pen_width = int(settings.get("pen_width", 2))
+        fill_map = bool(settings.get("fill_map", True))
+
+        default_bev_from_ego = np.array(
+            self.default_bev_from_ego_transform,
+            dtype=np.float32,
+        )
+        default_bev_from_ego[0, 3] = bev_w * 0.5
+        default_bev_from_ego[1, 3] = bev_h * 0.5
+
+        bev_from_ego = np.asarray(
+            settings.get(
+                "bev_from_ego_transform",
+                default_bev_from_ego,
+            ),
+            dtype=np.float32,
+        )
+
+        color_table = settings.get(
+            "color_table",
+            self.default_hdmap_color_table,
+        )
+
+        canvas = np.zeros((bev_h, bev_w, 3), dtype=np.uint8)
+
+        ego2global = np.asarray(
+            info[self.ego2global_key],
+            dtype=np.float32,
+        )
+        global2ego = np.linalg.inv(ego2global)
+        bev_from_world = bev_from_ego @ global2ego
+
+        geom = self._get_hdmap_world_geom(info)
+
+        if "drivable_area" in color_table:
+            color = color_table["drivable_area"]
+            for ext_xy in geom["drivable_exteriors"]:
+                self._draw_bev_polygon_rgb(
+                    canvas,
+                    ext_xy,
+                    bev_from_world,
+                    color,
+                    pen_width,
+                    fill_map,
+                )
+
+        if "lane" in color_table:
+            color = color_table["lane"]
+            for line_xy in geom["divider_lines"]:
+                self._draw_bev_polyline_rgb(
+                    canvas,
+                    line_xy,
+                    bev_from_world,
+                    color,
+                    max(1, pen_width),
+                )
+
+        if "ped_crossing" in color_table:
+            color = color_table["ped_crossing"]
+            for ext_xy in geom["crosswalk_exteriors"]:
+                self._draw_bev_polygon_rgb(
+                    canvas,
+                    ext_xy,
+                    bev_from_world,
+                    color,
+                    pen_width,
+                    fill_map,
+                )
+
+        return Image.fromarray(canvas, "RGB")
     # ---------- _get_hdmap_image ----------
     def _get_hdmap_image(self, info, cam_ch, im_size, cam_intrinsic_3x3):
         W, H = map(int, im_size)
@@ -1190,7 +1357,7 @@ class MotionDataset(torch.utils.data.Dataset):
             self._draw_linestring_rgb(canvas, line, red_bgr, thickness=int(self.hdmap_pen_width))
 
         return Image.fromarray(canvas[..., ::-1])
-
+    
     # ---------------------------
     # 3dbox from gt_line
     # ---------------------------
@@ -1224,7 +1391,62 @@ class MotionDataset(torch.utils.data.Dataset):
                           fill=tuple(color), width=self._3dbox_pen_width)
 
         return img
+    #################################
+    def get_layout_token_boxes(self, info):
+        max_boxes = self.layout_token_settings.get("max_boxes", 64)
 
+        corners = torch.zeros(max_boxes, 8, 3, dtype=torch.float32)
+        classes = torch.zeros(max_boxes, dtype=torch.long)
+        masks = torch.zeros(max_boxes, dtype=torch.float32)
+
+        boxes = info.get("gt_boxes", None)
+        if boxes is None:
+            boxes = []
+
+        names = info.get("gt_names", None)
+        names = list(names) if isinstance(names, (list, tuple, np.ndarray)) else []
+
+        kept = 0
+        for i, box in enumerate(boxes):
+            if kept >= max_boxes:
+                break
+
+            box_np = np.asarray(box[:7], dtype=np.float32)
+            box_corners = _box_corners_lidar_xyz(
+                box_np,
+                z_is_center=True,
+            )
+
+            class_name = names[i] if i < len(names) else "car"
+
+            corners[kept] = torch.from_numpy(box_corners).float()
+            classes[kept] = self.get_layout_token_class_id(class_name)
+            masks[kept] = 1.0
+            kept += 1
+
+        return corners, classes, masks
+
+    def get_layout_token_class_id(self, category_name):
+        name = str(category_name).lower()
+
+        if "truck" in name:
+            return 1
+        if "bus" in name:
+            return 3
+        if "barrier" in name:
+            return 5
+        if "motorcycle" in name:
+            return 6
+        if "bicycle" in name or "cyclist" in name or "bike" in name:
+            return 7
+        if "pedestrian" in name or "ped" in name:
+            return 8
+        if "cone" in name:
+            return 9
+        if "vehicle" in name or "car" in name:
+            return 0
+
+        return 0
     # ---------------------------
     # pts_proj
     # ---------------------------
@@ -1429,7 +1651,31 @@ class MotionDataset(torch.utils.data.Dataset):
         assert camera_intr.shape[-2:] == (3, 3), camera_intr.shape
         result["camera_intrinsics"] = camera_intr
         result["image_size"] = torch.tensor(np.asarray([[[w,h] for (w,h) in row] for row in img_sizes]), dtype=torch.long)
+        if self.layout_token_settings is not None:
+            bbox_token_corners_list = []
+            bbox_token_classes_list = []
+            bbox_token_masks_list = []
 
+            for info in seq:
+                bbox_corners, bbox_classes, bbox_masks = \
+                    self.get_layout_token_boxes(info)
+
+                bbox_token_corners_list.append(bbox_corners)
+                bbox_token_classes_list.append(bbox_classes)
+                bbox_token_masks_list.append(bbox_masks)
+
+            result["bbox_token_corners"] = torch.stack(
+                bbox_token_corners_list,
+                dim=0,
+            )
+            result["bbox_token_classes"] = torch.stack(
+                bbox_token_classes_list,
+                dim=0,
+            )
+            result["bbox_token_masks"] = torch.stack(
+                bbox_token_masks_list,
+                dim=0,
+            )
         # ---- 3dbox_images (gt_line) cached
         cached = []
         all_hit = True
@@ -1521,6 +1767,53 @@ class MotionDataset(torch.utils.data.Dataset):
                         _safe_save_png(imgs[t][v], p)
                     finally:
                         _release_lock(lock)
+        if self.hdmap_bev_settings is not None:
+            cached = []
+            all_hit = True
+
+            for x in seq:
+                tok = f"{x.get(self.timestamp_key, 't')}_bev"
+                p = self._png_path("hdmap_bev_images", tok)
+                img = _try_open_png(p) if os.path.isfile(p) else None
+
+                if img is None:
+                    all_hit = False
+
+                cached.append(img)
+
+            if all_hit:
+                result["hdmap_bev_images"] = cached
+            else:
+                imgs = [
+                    self._get_hdmap_bev_image(x)
+                    for x in seq
+                ]
+
+                result["hdmap_bev_images"] = imgs
+
+                for x, img in zip(seq, imgs):
+                    tok = f"{x.get(self.timestamp_key, 't')}_bev"
+                    p = self._png_path("hdmap_bev_images", tok)
+                    lock = p + ".lock"
+
+                    if os.path.isfile(p) and _try_open_png(p) is not None:
+                        continue
+
+                    _acquire_lock(
+                        lock,
+                        timeout=30,
+                        stale=120,
+                        sleep=0.02,
+                    )
+
+                    try:
+                        if os.path.isfile(p) and _try_open_png(p) is not None:
+                            continue
+
+                        _safe_save_png(img, p)
+
+                    finally:
+                        _release_lock(lock)                
         ''' 
         # ---- pts proj (nuplan) cached -> proj_depth/proj_sem/proj_clr (tensors)
         if self.projected_pc_settings:

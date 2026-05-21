@@ -528,7 +528,93 @@ class MotionDataset(torch.utils.data.Dataset):
         nearest_time = dwm.datasets.common.find_nearest(
             time_list, sample_data["timestamp"], return_item=True)
         return image_descriptions["{}|{}".format(scene_camera, nearest_time)]
+    def get_layout_token_boxes(self, annotations, sample_data):
+        max_boxes = self.layout_token_settings.get("max_boxes", 64)
 
+        corners = torch.zeros(max_boxes, 8, 3, dtype=torch.float32)
+        classes = torch.zeros(max_boxes, dtype=torch.long)
+        masks = torch.zeros(max_boxes, dtype=torch.float32)
+
+        corner_template = np.array(
+            self.default_3dbox_corner_template,
+            dtype=np.float32,
+        ).T
+
+        timestamp = sample_data["timestamp"]
+        a0 = bisect.bisect_left(annotations["timestamp_ns"], timestamp)
+        a1 = bisect.bisect_right(annotations["timestamp_ns"], timestamp)
+
+        kept = 0
+        for i in range(a0, a1):
+            if kept >= max_boxes:
+                break
+
+            category = annotations["category"][i]
+
+            scale = np.diag(
+                [annotations[j][i] for j in self.shape_keys] + [1.0]
+            ).astype(np.float32)
+
+            ego_from_annotation = dwm.datasets.common.get_transform(
+                [annotations[j][i] for j in self.rotation_keys],
+                [annotations[j][i] for j in self.translation_keys],
+            ).astype(np.float32)
+
+            p = ego_from_annotation @ scale @ corner_template
+            ego_corners = torch.tensor(p[:3].T, dtype=torch.float32)
+
+            corners[kept] = ego_corners
+            classes[kept] = self.get_layout_token_class_id(category)
+            masks[kept] = 1.0
+            kept += 1
+
+        return corners, classes, masks
+    def get_layout_token_class_id(self, category_name):
+        if category_name in ["REGULAR_VEHICLE"]:
+            return 0
+        if category_name in ["TRUCK", "BOX_TRUCK", "TRUCK_CAB"]:
+            return 1
+        if category_name in ["LARGE_VEHICLE"]:
+            return 1
+        if category_name in ["BUS", "SCHOOL_BUS"]:
+            return 3
+        if category_name in ["VEHICULAR_TRAILER"]:
+            return 4
+        if category_name in ["MOTORCYCLE"]:
+            return 6
+        if category_name in ["BICYCLE"]:
+            return 7
+        if category_name in ["PEDESTRIAN"]:
+            return 8
+        if category_name in ["BICYCLIST", "MOTORCYCLIST"]:
+            return 8
+
+        return 0
+    def get_bev_map_frame_reference(self, frame_items):
+        reference_channel = None
+        if self.layout_token_settings is not None:
+            reference_channel = self.layout_token_settings.get(
+                "bev_map_reference_channel",
+                None,
+            )
+
+        if reference_channel is not None:
+            for item in frame_items:
+                channel = item.get("channel", item.get("sensor", None))
+                if channel == reference_channel:
+                    return item
+
+        for item in frame_items:
+            channel = str(item.get("channel", item.get("sensor", ""))).lower()
+            if "cam" in channel or "camera" in channel:
+                return item
+
+        if len(frame_items) == 0:
+            raise ValueError(
+                "Empty frame_items when selecting BEV map reference."
+            )
+
+        return frame_items[0]
     def __init__(
         self, fs: dwm.fs.czip.CombinedZipFileSystem, sequence_length: int,
         fps_stride_tuples: list,
@@ -543,6 +629,7 @@ class MotionDataset(torch.utils.data.Dataset):
         index_json_path=None,
         dataset_root=None,
         scene_dirs=None,
+        layout_token_settings: dict = None,
         split: str = "train" 
     ):
         self.fs = fs
@@ -562,6 +649,7 @@ class MotionDataset(torch.utils.data.Dataset):
             else stub_key_data_dict
         self.split = split
         self.dataset_root = dataset_root
+        self.layout_token_settings = layout_token_settings
         #if index_json_path is None:
          #   raise RuntimeError("index_json_path required")
 
@@ -1136,16 +1224,25 @@ class MotionDataset(torch.utils.data.Dataset):
                     poses = pyarrow.feather.read_table(f).to_pydict()
 
             if map is None:
-                map_path = self.scene_map_dict[item["scene_id"]]["filename"]
+                abs_path = self.scene_map_dict[item["scene_id"]]["filename"]
+                root = self.dataset_root.rstrip("/") + "/"
+
+                if abs_path.startswith(root):
+                    map_path = abs_path[len(root):]
+                else:
+                    raise ValueError(f"path not under fs root:\n{abs_path}\n{root}")
+
                 with self.fs.open(map_path, "r", encoding="utf-8") as f:
                     map = json.load(f)
 
             result["hdmap_bev_images"] = [
                 MotionDataset.get_hdmap_bev_image(
-                    map, poses, j, self.hdmap_bev_settings)
+                    map,
+                    poses,
+                    self.get_bev_map_frame_reference(i),
+                    self.hdmap_bev_settings,
+                )
                 for i in item["segment"]
-                for j in i
-                if j["sensor"] == "lidar"
             ]
 
         if self.image_description_settings is not None:
@@ -1167,6 +1264,40 @@ class MotionDataset(torch.utils.data.Dataset):
                 ]
                 for i in image_captions
             ]
+        if self.layout_token_settings is not None:
+            if annotations is None:
+                annotation_path = "{}/{}/annotations.feather" \
+                    .format(item["split"], item["scene_id"])
+                with self.fs.open(annotation_path) as f:
+                    annotations = pyarrow.feather.read_table(f).to_pydict()
 
+            bbox_token_corners_list = []
+            bbox_token_classes_list = []
+            bbox_token_masks_list = []
+
+            for time_step in item["segment"]:
+                ref_sample_data = time_step[0]
+                bbox_corners, bbox_classes, bbox_masks = \
+                    self.get_layout_token_boxes(
+                        annotations,
+                        ref_sample_data,
+                    )
+
+                bbox_token_corners_list.append(bbox_corners)
+                bbox_token_classes_list.append(bbox_classes)
+                bbox_token_masks_list.append(bbox_masks)
+
+            result["bbox_token_corners"] = torch.stack(
+                bbox_token_corners_list,
+                dim=0,
+            )
+            result["bbox_token_classes"] = torch.stack(
+                bbox_token_classes_list,
+                dim=0,
+            )
+            result["bbox_token_masks"] = torch.stack(
+                bbox_token_masks_list,
+                dim=0,
+            )
         dwm.datasets.common.add_stub_key_data(self.stub_key_data_dict, result)
         return result

@@ -17,7 +17,7 @@
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
-            "mesh_shape": [1, 4]
+            "mesh_shape": [1, 1]
         }
     },
     "optimizer": {
@@ -28,13 +28,24 @@
         "_class_name": "dwm.pipelines.camsim.CrossviewTemporalSD",
         "common_config": {
             "frame_prediction_style": "ctsd",
-            "explicit_view_modeling": false,
             "cat_condition": true,
             "cond_with_action": false,
             "print_load_state_info": true,
             "condition_on_all_frames": true,
             "uncondition_image_color": 0.1255,
-            "added_time_ids": "fps_camera_transforms",
+            "debug_pv_layout_condition": true,
+            "explicit_view_modeling": true,
+            "camera_token_modeling": false,
+            "bbox_token_modeling": true,
+            "map_token_modeling": true,
+
+            "use_pv_layout_condition": false,
+            "added_time_ids": null,
+            "use_pv_layout_condition": false,
+            "map_token_key": "hdmap_bev_images",
+
+            "require_bbox_token_input": true,
+            "require_map_token_input": true,
             "explicit_geometry_clip": {
                 "enabled": true,
                 "translation_clip": 100.0,
@@ -133,8 +144,8 @@
         },
         "training_config": {
             "text_prompt_condition_ratio": 0.8,
-            "3dbox_condition_ratio": 0.8,
-            "explicit_view_modeling_ratio": 0.8,
+            "3dbox_condition_ratio": 0,
+            "explicit_view_modeling_ratio": 1.0,
             "reference_frame_count": 3,
             "generation_task_ratio": 0.2,
             "image_generation_ratio": 0.5,
@@ -142,7 +153,7 @@
             "reference_visible_rate": 0.5,
             "disable_reference_frame_loss": true,
             "enable_grad_scaler": true,
-            "hdmap_condition_ratio": 0.8,
+            "hdmap_condition_ratio": 0.0,
             "action_condition_ratio": 0.0
         },
         "inference_config": {
@@ -170,7 +181,7 @@
             "evaluation_item_count": 480
         },
         "model": {
-            "_class_name": "dwm.models.crossview_temporal_dit.DiTCrossviewTemporalConditionModel",
+            "_class_name": "dwm.models.crossview_temporal_dit_camtoken.DiTCrossviewTemporalConditionModel",
             "attention_head_dim": 64,
             "caption_projection_dim": 1536,
             "in_channels": 16,
@@ -180,11 +191,25 @@
             "out_channels": 16,
             "patch_size": 2,
             "pooled_projection_dim": 2048,
-             "pos_embed_max_size": 192,
+            "pos_embed_max_size": 192,
             "sample_size": 128,
-            "perspective_modeling_type": "implicit",
-            "projection_class_embeddings_input_dim": 2816,
+            "perspective_modeling_type": "mdtoken_nopv",
             "enable_crossview": true,
+            "disable_view_index_embedding": true,
+            "mdtoken_bbox_config": {
+            "num_classes": 10,
+            "points_per_box": 8,
+            "num_freqs": 4,
+            "position_min": [-80.0, -80.0, -5.0],
+            "position_range": [160.0, 160.0, 10.0],
+            "zero_after_proj": true
+            },
+
+            "mdtoken_map_config": {
+            "in_channels": 3,
+            "token_grid_size": [8, 8],
+            "zero_after_proj": true
+            },
             "crossview_attention_type": "rowwise",
             "crossview_block_layers": [
                 1,
@@ -261,15 +286,23 @@
                         "_class_name": "dwm.fs.dirfs.DirFileSystem",
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_link"
                     },
+                    "layout_token_settings": {
+                    "enabled": true,
+                    "max_boxes": 64,
+                    "box_coordinate": "ego",
+                    "box_format": "corners8",
+                    "class_mapping": "driving_10cls",
+                    "use_map_bev_token": true,
+                    "map_token_key": "hdmap_bev_images"
+                    },
                     "split":"training",
                     "dataset_root":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_link",
                     "balanced_json_path":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_balanced/balanced_windows_metadata.json",
                     "info_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_balanced/training.info.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [10,3,0.81],[6,2,0.85],[2,2.5,0.35]
+                         [6,2.5,0.95],[2,6,0.39]
                     ],
-
                     "sensor_channels": [
                         "LIDAR_TOP",
                         "CAM_SIDE_LEFT",
@@ -285,6 +318,7 @@
                     "enable_ego_transforms": true,
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
+                    "hdmap_bev_settings": {},
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_caption_v2/waymo_caption_v2_train.json",
                         "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_caption_v2/waymo_caption_v2_times_train.json",
@@ -324,8 +358,7 @@
                             ]
                     }
                 },
-                
-                                {
+                {
                         
                         "_class_name": "dwm.datasets.nuscenes.MotionDataset",
                         "fs": {
@@ -334,9 +367,18 @@
                         },
                         "dataset_name": "interp_12Hz_trainval",
                         "split": "train",
+                        "layout_token_settings": {
+                        "enabled": true,
+                        "max_boxes": 64,
+                        "box_coordinate": "ego",
+                        "box_format": "corners8",
+                        "class_mapping": "driving_10cls",
+                        "use_map_bev_token": true,
+                        "map_token_key": "hdmap_bev_images"
+                        },
                         "sequence_length": 20,
                         "fps_stride_tuples": [
-                            [6,2,0.95],[2,2,0.39],[10,3,0.9]
+                           [6,2.5,0.95],[2,6,0.39]
                         ],
                         "sensor_channels": [
                             "LIDAR_TOP",
@@ -355,6 +397,7 @@
                         "enable_ego_transforms": true,
                         "_3dbox_image_settings": {},
                         "hdmap_image_settings": {},
+                        "hdmap_bev_settings": {},
                         "image_description_settings": {
                             "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuscenes_caption/nuscenes_v1.0-trainval_caption_v2_train.json",
                             "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuscenes_caption/nuscenes_v1.0-trainval_caption_v2_times_train.json",
@@ -400,12 +443,21 @@
                         "enable_cached_info": true
                     },
                     "split":"train",
+                    "layout_token_settings": {
+                    "enabled": true,
+                    "max_boxes": 64,
+                    "box_coordinate": "ego",
+                    "box_format": "corners8",
+                    "class_mapping": "driving_10cls",
+                    "use_map_bev_token": true,
+                    "map_token_key": "hdmap_bev_images"
+                    },
                     "dataset_root":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_link",
                     "index_json_path":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_json",
                     "balanced_json_path":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_balanced/balanced_windows.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [6,2,0.95],[2,1.5,0.39]
+                         [6,2.5,0.95],[2,6,0.39]
                     ],
                     "sensor_channels": [
                         "lidar",
@@ -423,6 +475,7 @@
                     "enable_ego_transforms": true,
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
+                    "hdmap_bev_settings": {},
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_train.json",
                         "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_times_train.json",
@@ -474,12 +527,21 @@
                         "enable_cached_info": true
                     },
                     "split":"train",
+                    "layout_token_settings": {
+                    "enabled": true,
+                    "max_boxes": 64,
+                    "box_coordinate": "ego",
+                    "box_format": "corners8",
+                    "class_mapping": "driving_10cls",
+                    "use_map_bev_token": true,
+                    "map_token_key": "hdmap_bev_images"
+                    },
                     "dataset_root":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_link",
                     "index_json_path":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_json",
                     "balanced_json_path":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_balanced/balanced_windows.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [10,3,0.9],[6,2,0.95]
+                         [6,2.5,0.95],[2,6,0.39]
                     ],
                     "sensor_channels": [
                         "lidar",
@@ -497,6 +559,7 @@
                     "enable_ego_transforms": true,
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
+                    "hdmap_bev_settings": {},
                     "image_description_settings": {
                        "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_train.json",
                         "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_times_train.json",
@@ -547,12 +610,21 @@
                         "enable_cached_info": true
                     },
                     "split":"train",
+                    "layout_token_settings": {
+                    "enabled": true,
+                    "max_boxes": 64,
+                    "box_coordinate": "ego",
+                    "box_format": "corners8",
+                    "class_mapping": "driving_10cls",
+                    "use_map_bev_token": true,
+                    "map_token_key": "hdmap_bev_images"
+                    },
                     "dataset_root":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_link",
                     "index_json_path":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_json",
                     "balanced_json_path":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_balanced/balanced_windows.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [6,2,0.95],[2,1.5,0.39]
+                         [6,2.5,0.95],[2,6,0.39]
                     ],
                     "sensor_channels": [
                         "lidar",
@@ -570,6 +642,7 @@
                     "enable_ego_transforms": true,
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
+                    "hdmap_bev_settings": {},
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_train.json",
                         "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_times_train.json",
@@ -631,6 +704,18 @@
                         }
                     ]
                 }
+            },
+            {
+            "old_key": "hdmap_bev_images",
+            "new_key": "hdmap_bev_images",
+            "transform": {
+                "_class_name": "torchvision.transforms.Compose",
+                "transforms": [
+                {
+                    "_class_name": "torchvision.transforms.ToTensor"
+                }
+                ]
+            }
             },
             {
                 "old_key": "3dbox_images",
@@ -685,7 +770,7 @@
             "image_description"
         ]
     },
-       "validation_dataset": {
+    "validation_dataset": {
         "_class_name": "dwm.datasets.common.DatasetAdapter",   
         "default_height": 288,
         "default_width": 512,
@@ -700,11 +785,19 @@
                     "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
                     "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
                     "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
-
+                    "layout_token_settings": {
+                    "enabled": true,
+                    "max_boxes": 64,
+                    "box_coordinate": "ego",
+                    "box_format": "corners8",
+                    "class_mapping": "driving_10cls",
+                    "use_map_bev_token": true,
+                    "map_token_key": "hdmap_bev_images"
+                    },
 
                     "sequence_length": 35,
                     "fps_stride_tuples": [
-                         [6,2,0.5]
+                         [6,12,0.9]
                     ],
 
                     "sensor_channels": [
@@ -724,6 +817,7 @@
 
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
+                    "hdmap_bev_settings": {},
 
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/nuplan_scene.json",
@@ -755,6 +849,7 @@
                         ]
                     }
                 }
+                
                 
             ]
         },
@@ -796,6 +891,18 @@
                         }
                     ]
                 }
+            },
+            {
+            "old_key": "hdmap_bev_images",
+            "new_key": "hdmap_bev_images",
+            "transform": {
+                "_class_name": "torchvision.transforms.Compose",
+                "transforms": [
+                {
+                    "_class_name": "torchvision.transforms.ToTensor"
+                }
+                ]
+            }
             },
             {
                 "old_key": "hdmap_images",
