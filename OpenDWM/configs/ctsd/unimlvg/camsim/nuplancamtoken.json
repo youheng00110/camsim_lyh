@@ -17,7 +17,7 @@
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
-            "mesh_shape": [1, 1]
+            "mesh_shape": [1, 4]
         }
     },
     "optimizer": {
@@ -41,7 +41,6 @@
 
             "use_pv_layout_condition": false,
             "added_time_ids": null,
-            "use_pv_layout_condition": false,
             "map_token_key": "hdmap_bev_images",
 
             "require_bbox_token_input": true,
@@ -143,7 +142,7 @@
             "memory_efficient_batch": 12
         },
         "training_config": {
-            "text_prompt_condition_ratio": 0.8,
+            "text_prompt_condition_ratio": 0,
             "3dbox_condition_ratio": 0,
             "explicit_view_modeling_ratio": 1.0,
             "reference_frame_count": 3,
@@ -318,7 +317,7 @@
                     "enable_ego_transforms": true,
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
-                    "hdmap_bev_settings": {},
+                    "hdmap_bev_settings": {  "bev_size": [256, 256]},
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_caption_v2/waymo_caption_v2_train.json",
                         "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_caption_v2/waymo_caption_v2_times_train.json",
@@ -397,7 +396,7 @@
                         "enable_ego_transforms": true,
                         "_3dbox_image_settings": {},
                         "hdmap_image_settings": {},
-                        "hdmap_bev_settings": {},
+                        "hdmap_bev_settings": {  "bev_size": [256, 256]},
                         "image_description_settings": {
                             "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuscenes_caption/nuscenes_v1.0-trainval_caption_v2_train.json",
                             "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuscenes_caption/nuscenes_v1.0-trainval_caption_v2_times_train.json",
@@ -475,7 +474,7 @@
                     "enable_ego_transforms": true,
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
-                    "hdmap_bev_settings": {},
+                    "hdmap_bev_settings": {  "bev_size": [256, 256]},
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_train.json",
                         "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_times_train.json",
@@ -559,7 +558,7 @@
                     "enable_ego_transforms": true,
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
-                    "hdmap_bev_settings": {},
+                    "hdmap_bev_settings": {  "bev_size": [256, 256]},
                     "image_description_settings": {
                        "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_train.json",
                         "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_times_train.json",
@@ -642,7 +641,7 @@
                     "enable_ego_transforms": true,
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
-                    "hdmap_bev_settings": {},
+                    "hdmap_bev_settings": {  "bev_size": [256, 256]},
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_train.json",
                         "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_times_train.json",
@@ -817,7 +816,7 @@
 
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
-                    "hdmap_bev_settings": {},
+                    "hdmap_bev_settings": {  "bev_size": [256, 256]},
 
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/nuplan_scene.json",

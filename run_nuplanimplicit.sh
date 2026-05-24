@@ -14,9 +14,9 @@ export PYTHONPATH=$PYTHONPATH:/inspire/qb-ilm/project/advanced-machine-learning/
 torchrun \
   --nproc_per_node=4 \
   -m dwm.train \
-  -c /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplanplucker.json\
-  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplanpluckerkeep2\
+  -c //inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplanplucker.json\
+  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplanpluckerkeep2\ 
   --log-steps  200 \
   --preview-steps 500 \
   --checkpointing-steps 10000 \
-  --evaluation-steps 10000 
+  --evaluation-steps 10000 \

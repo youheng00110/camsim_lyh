@@ -6,10 +6,10 @@ export PYTHONPATH=/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24
 export PYTHONPATH=/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan-devkit-master:$PYTHONPATH
 export PYTHONPATH=$PYTHONPATH:/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/externals/waymo-open-dataset/src
 unset ENABLE_DEBUGPY
-export PYTHONUNBUFFERED=1
+export PYTHONUNBUFFERED=4
 
 torchrun --standalone \
-  --nproc_per_node=1 \
+  --nproc_per_node=4 \
   -m dwm.preview \
-  -c //inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplancamtoken.json\
-  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_mdtoken
+  -c /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplanpluckercrosstest.json\
+  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_nuplancross

@@ -816,6 +816,7 @@ class MotionDataset(torch.utils.data.Dataset):
         masks = torch.zeros(max_boxes, dtype=torch.float32)
 
         sample_data = frame_items[0]
+
         sample = MotionDataset.query(
             self.tables,
             self.indices,
@@ -831,16 +832,9 @@ class MotionDataset(torch.utils.data.Dataset):
             column_name="sample_token",
         )
 
-        ego_pose = MotionDataset.query(
-            self.tables,
-            self.indices,
-            "ego_pose",
-            sample_data["ego_pose_token"],
-        )
-
         ego_to_global = dwm.datasets.common.get_transform(
-            ego_pose["rotation"],
-            ego_pose["translation"],
+            sample_data["rotation"],
+            sample_data["translation"],
             "pt",
         )
         global_to_ego = torch.linalg.inv(ego_to_global)

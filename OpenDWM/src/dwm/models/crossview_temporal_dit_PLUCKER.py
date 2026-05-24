@@ -539,7 +539,15 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         camera2referego: torch.Tensor = None,
         added_time_ids: torch.Tensor = None,
         noise: torch.Tensor = None,
-        return_dict: bool = False
+        return_dict: bool = False,
+        # compatibility only: current PLUCKER version does not use these
+        camera_param_token: torch.Tensor = None,
+        camera_token_mask: torch.Tensor = None,
+        bbox_token_input: torch.Tensor = None,
+        bbox_class_input: torch.Tensor = None,
+        bbox_mask_input: torch.Tensor = None,
+        map_token_input: torch.Tensor = None,
+        **unused_kwargs,
     ):
         should_add_dim = len(sample.shape) < 6
         if should_add_dim:
