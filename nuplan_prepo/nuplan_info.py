@@ -10,7 +10,7 @@ from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from scipy.spatial.distance import cdist
 import sys
-src_dir = "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/OpenDWM/src"
+src_dir = "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/src"
 sys.path.append(src_dir)
 
 from nuplan.database.nuplan_db_orm.nuplandb_wrapper import NuPlanDBWrapper
@@ -202,8 +202,18 @@ def get_corresponding_infos(db_wrapper, data_root, db_record, db_name, val_set, 
             np.arctan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy ** 2 + qz ** 2))
         ]
 
-        info["img_filename"] = [i.filename_jpg for i in image_infos]
-        info["img_tokens"] = [i.token for i in image_infos]
+        img_filename_by_channel = {}
+        img_token_by_channel = {}
+
+        for cam, image_info in zip(cam_types, image_infos):
+            img_filename_by_channel[cam] = image_info.filename_jpg
+            img_token_by_channel[cam] = image_info.token
+
+        info["img_filename"] = [img_filename_by_channel[cam] for cam in cam_types]
+        info["img_tokens"] = [img_token_by_channel[cam] for cam in cam_types]
+
+        info["img_filename_by_channel"] = img_filename_by_channel
+        info["img_token_by_channel"] = img_token_by_channel
 
         info["ego_feats"] = np.array([
             ego_pose_record.vx, ego_pose_record.vy,
@@ -347,12 +357,12 @@ def create_nuplan_infos(version, sensor_blobs_root, data_root, map_root, train_l
 
 
 if __name__ == "__main__":
-    sensor_blobs_root = "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/newpas/ggearth_files/nuplan-test/nuPlan/sensor_blobs_mini"
+    sensor_blobs_root = "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/sensor_blobs_mini"
 
-    dataset_root = "/inspire/hdd/project/wuliqifa/chenxinyan-240108120066/songbur/newpas/ggearth_files/nuplan-test/nuPlan"
+    dataset_root = "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link"
     data_root = osp.join(dataset_root, "plan_data", "mini")   #  .db 目录
     map_root = osp.join(dataset_root, "maps")
-    out_path = "/inspire/qb-ilm/project/wuliqifa/chenxinyan-240108120066/songbur-data/camsim_lyh/nuplan_prepo"
+    out_path = "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo11"
 
     create_nuplan_infos(
         "mini",
