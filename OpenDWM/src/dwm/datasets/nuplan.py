@@ -848,24 +848,17 @@ class MotionDataset(torch.utils.data.Dataset):
     # paths + calib
     # ---------------------------
     def _get_sensor_paths(self, info):
-        img = info.get("img_filename") or []
-        m = {p.split("/")[-2]: p for p in img}
+        if "img_filename_by_channel" in info:
+            m = info["img_filename_by_channel"]
+        else:
+            img = info.get("img_filename") or []
+            m = {p.split("/")[-2]: p for p in img}
 
         paths = []
+
         for ch in self.sensor_channels:
             rel = m.get(ch, "")
             path = os.path.join(self.sensor_root, rel)
-            """
-            print(
-                "[NUPLAN_PATH_DEBUG] ch={} rel={} path={} exists={} isfile={}".format(
-                    ch,
-                    rel,
-                    path,
-                    os.path.exists(path),
-                    os.path.isfile(path),
-                ),
-                flush=True,
-            )"""
 
             if rel == "" or not os.path.isfile(path):
                 raise FileNotFoundError(
@@ -879,14 +872,20 @@ class MotionDataset(torch.utils.data.Dataset):
 
             paths.append(path)
 
-        return paths    
+        return paths 
     def _get_cam_info(self, info, cam_ch):
         cam = info.get(self.cam_key) or {}
         return cam.get(cam_ch)
 
-    def _img_token(self, info, cam_idx):
-        tok = info.get(self.timestamp_key, "t")
-        return f"{tok}_{cam_idx}"
+    def _img_token(self, info, cam_idx, cam_ch=None):
+        scene = str(info.get(self.scene_key, "scene"))
+        tok = str(info.get("lidarpc_token", info.get(self.timestamp_key, "t")))
+
+        if cam_ch is None:
+            cam_ch = self.sensor_channels[cam_idx]
+
+        cam_ch = str(cam_ch).replace("/", "_")
+        return f"{scene}_{tok}_{cam_ch}"
 
     # ---------------------------
     # hdmap projection (nuplan)
@@ -1676,26 +1675,34 @@ class MotionDataset(torch.utils.data.Dataset):
                 bbox_token_masks_list,
                 dim=0,
             )
-        # ---- 3dbox_images (gt_line) cached
+       # ---- 3dbox_images (gt_line) cached
         cached = []
         all_hit = True
+
         for t, x in enumerate(seq):
             row = []
-            for v, _ in enumerate(self.sensor_channels):
-                tok = self._img_token(x, v)
+
+            for v, cam_ch in enumerate(self.sensor_channels):
+                tok = self._img_token(x, v, cam_ch)
                 p = self._png_path("3dbox_images", tok)
+
                 img = _try_open_png(p) if os.path.isfile(p) else None
+
                 if img is None:
                     all_hit = False
+
                 row.append(img)
+
             cached.append(row)
 
         if all_hit:
             result["3dbox_images"] = cached
         else:
             imgs = []
+
             for t, x in enumerate(seq):
                 row = []
+
                 for v, cam_ch in enumerate(self.sensor_channels):
                     W, H = img_sizes[t][v]
 
@@ -1704,116 +1711,109 @@ class MotionDataset(torch.utils.data.Dataset):
                         row.append(Image.new("RGB", (int(W), int(H))))
                         continue
 
-                    K3 = np.asarray(cam_info["camera_intrinsics"], np.float32).reshape(3, 3)
+                    K3 = np.asarray(
+                        cam_info["camera_intrinsics"],
+                        np.float32,
+                    ).reshape(3, 3)
 
                     l2i = _lidar2image_from_caminfo(cam_info, K3)
-                    row.append(self._get_3dbox_image_from_gtline(x, (W, H), l2i))
+                    row.append(
+                        self._get_3dbox_image_from_gtline(
+                            x,
+                            (W, H),
+                            l2i,
+                        )
+                    )
+
                 imgs.append(row)
 
             result["3dbox_images"] = imgs
+
             for t, x in enumerate(seq):
-                for v, _ in enumerate(self.sensor_channels):
-                    tok = self._img_token(x, v)
+                for v, cam_ch in enumerate(self.sensor_channels):
+                    tok = self._img_token(x, v, cam_ch)
                     p = self._png_path("3dbox_images", tok)
                     lock = p + ".lock"
+
                     if os.path.isfile(p) and _try_open_png(p) is not None:
                         continue
+
                     _acquire_lock(lock, timeout=30, stale=120, sleep=0.02)
+
                     try:
                         if os.path.isfile(p) and _try_open_png(p) is not None:
                             continue
+
                         _safe_save_png(imgs[t][v], p)
+
                     finally:
                         _release_lock(lock)
-        
+
+
         # ---- hdmap_images (nuplan) cached
         cached = []
         all_hit = True
+
         for t, x in enumerate(seq):
             row = []
-            for v, _ in enumerate(self.sensor_channels):
-                tok = self._img_token(x, v)
+
+            for v, cam_ch in enumerate(self.sensor_channels):
+                tok = self._img_token(x, v, cam_ch)
                 p = self._png_path("hdmap_images", tok)
+
                 img = _try_open_png(p) if os.path.isfile(p) else None
+
                 if img is None:
                     all_hit = False
+
                 row.append(img)
+
             cached.append(row)
 
         if all_hit:
             result["hdmap_images"] = cached
         else:
             imgs = []
+
             for t, x in enumerate(seq):
                 row = []
+
                 for v, cam_ch in enumerate(self.sensor_channels):
                     W, H = img_sizes[t][v]
                     cam_intr = cam_Ks[t][v][:3, :3]
-                    row.append(self._get_hdmap_image(x, cam_ch, (W, H), cam_intr))
+
+                    row.append(
+                        self._get_hdmap_image(
+                            x,
+                            cam_ch,
+                            (W, H),
+                            cam_intr,
+                        )
+                    )
+
                 imgs.append(row)
 
             result["hdmap_images"] = imgs
+
             for t, x in enumerate(seq):
-                for v, _ in enumerate(self.sensor_channels):
-                    tok = self._img_token(x, v)
+                for v, cam_ch in enumerate(self.sensor_channels):
+                    tok = self._img_token(x, v, cam_ch)
                     p = self._png_path("hdmap_images", tok)
                     lock = p + ".lock"
+
                     if os.path.isfile(p) and _try_open_png(p) is not None:
                         continue
+
                     _acquire_lock(lock, timeout=30, stale=120, sleep=0.02)
+
                     try:
                         if os.path.isfile(p) and _try_open_png(p) is not None:
                             continue
+
                         _safe_save_png(imgs[t][v], p)
+
                     finally:
                         _release_lock(lock)
-        if self.hdmap_bev_settings is not None:
-            cached = []
-            all_hit = True
-
-            for x in seq:
-                tok = f"{x.get(self.timestamp_key, 't')}_bev"
-                p = self._png_path("hdmap_bev_images", tok)
-                img = _try_open_png(p) if os.path.isfile(p) else None
-
-                if img is None:
-                    all_hit = False
-
-                cached.append(img)
-
-            if all_hit:
-                result["hdmap_bev_images"] = cached
-            else:
-                imgs = [
-                    self._get_hdmap_bev_image(x)
-                    for x in seq
-                ]
-
-                result["hdmap_bev_images"] = imgs
-
-                for x, img in zip(seq, imgs):
-                    tok = f"{x.get(self.timestamp_key, 't')}_bev"
-                    p = self._png_path("hdmap_bev_images", tok)
-                    lock = p + ".lock"
-
-                    if os.path.isfile(p) and _try_open_png(p) is not None:
-                        continue
-
-                    _acquire_lock(
-                        lock,
-                        timeout=30,
-                        stale=120,
-                        sleep=0.02,
-                    )
-
-                    try:
-                        if os.path.isfile(p) and _try_open_png(p) is not None:
-                            continue
-
-                        _safe_save_png(img, p)
-
-                    finally:
-                        _release_lock(lock)                
         ''' 
         # ---- pts proj (nuplan) cached -> proj_depth/proj_sem/proj_clr (tensors)
         if self.projected_pc_settings:
