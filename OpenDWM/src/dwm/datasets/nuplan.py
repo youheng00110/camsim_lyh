@@ -1814,6 +1814,55 @@ class MotionDataset(torch.utils.data.Dataset):
 
                     finally:
                         _release_lock(lock)
+        # ---- hdmap_bev_images cached
+        if self.hdmap_bev_settings is not None:
+            cached = []
+            all_hit = True
+
+            for x in seq:
+                scene = str(x.get(self.scene_key, "scene"))
+                frame_tok = str(x.get("lidarpc_token", x.get(self.timestamp_key, "t")))
+                tok = f"{scene}_{frame_tok}_bev"
+
+                p = self._png_path("hdmap_bev_images", tok)
+                img = _try_open_png(p) if os.path.isfile(p) else None
+
+                if img is None:
+                    all_hit = False
+
+                cached.append(img)
+
+            if all_hit:
+                result["hdmap_bev_images"] = cached
+            else:
+                imgs = []
+
+                for x in seq:
+                    imgs.append(self._get_hdmap_bev_image(x))
+
+                result["hdmap_bev_images"] = imgs
+
+                for x, img in zip(seq, imgs):
+                    scene = str(x.get(self.scene_key, "scene"))
+                    frame_tok = str(x.get("lidarpc_token", x.get(self.timestamp_key, "t")))
+                    tok = f"{scene}_{frame_tok}_bev"
+
+                    p = self._png_path("hdmap_bev_images", tok)
+                    lock = p + ".lock"
+
+                    if os.path.isfile(p) and _try_open_png(p) is not None:
+                        continue
+
+                    _acquire_lock(lock, timeout=30, stale=120, sleep=0.02)
+
+                    try:
+                        if os.path.isfile(p) and _try_open_png(p) is not None:
+                            continue
+
+                        _safe_save_png(img, p)
+
+                    finally:
+                        _release_lock(lock)                        
         ''' 
         # ---- pts proj (nuplan) cached -> proj_depth/proj_sem/proj_clr (tensors)
         if self.projected_pc_settings:
