@@ -741,17 +741,9 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                         disable_temporal)
 
             # cross-view
+            # cross-view
             if self.enable_crossview and i in self.crossview_block_layers:
-                view_emb = torch\
-                    .arange(view_count, device=hidden_states.device)\
-                    .unsqueeze(0).unsqueeze(0)\
-                    .repeat(batch_size, sequence_length, 1)
-                view_emb = self.index_proj(view_emb.flatten())\
-                    .to(dtype=hidden_states.dtype)
-                view_emb = self.view_pos_embeds[
-                    self.crossview_block_layers.index(i)](view_emb).unsqueeze(1)
-
-                view_emb = view_emb + view_cam_emb
+                view_emb = view_cam_emb.to(dtype=hidden_states.dtype)
 
                 if self.training and self.crossview_gradient_checkpointing:
                     hidden_states = torch.utils.checkpoint.checkpoint(
