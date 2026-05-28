@@ -249,7 +249,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantokensingle/checkpoints/21000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/ckpt/ctsd_unimlvg_tirda_bm_nwa_60k.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -260,7 +260,7 @@
             },
             "fvd": {
                 "_class_name": "dwm.metrics.fvd.FrechetVideoDistance",
-                "inception_3d_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/i3d_pretrained_400.pt",
+                "inception_3d_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/ckpt/i3d_pretrained_400.pt",
                 "sequence_count": 35
             }
         }

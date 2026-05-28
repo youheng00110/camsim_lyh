@@ -718,12 +718,16 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                 sequence_emb = torch\
                     .arange(sequence_length, device=hidden_states.device)\
                     .unsqueeze(0).unsqueeze(-1).repeat(batch_size, 1, view_count)
+
                 sequence_emb = self.index_proj(sequence_emb.flatten())\
                     .to(dtype=hidden_states.dtype)
+
                 sequence_emb = self.time_pos_embeds[
                     self.temporal_block_layers.index(i)](sequence_emb).unsqueeze(1)
 
-                if self.enable_crossview and not self.disable_view_emb_on_temporal_module:
+                # 原来这里错误依赖 self.enable_crossview
+                # 单视角 / enable_crossview=False 时也应该让 temporal 看到相机几何
+                if not self.disable_view_emb_on_temporal_module:
                     sequence_emb = sequence_emb + view_cam_emb
 
                 if self.training and self.temporal_gradient_checkpointing:
@@ -732,16 +736,25 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                         self.temporal_transformer_blocks[
                             self.temporal_block_layers.index(i)],
                         self.time_mixers[self.temporal_block_layers.index(i)],
-                        hidden_states, sequence_emb,
-                        batch_size, sequence_length, view_count, width,
-                        disable_temporal, use_reentrant=False)
+                        hidden_states,
+                        sequence_emb,
+                        batch_size,
+                        sequence_length,
+                        view_count,
+                        width,
+                        disable_temporal,
+                        use_reentrant=False)
                 else:
                     hidden_states = self.forward_temporal_block_and_mix_result(
                         self.temporal_transformer_blocks[
                             self.temporal_block_layers.index(i)],
                         self.time_mixers[self.temporal_block_layers.index(i)],
-                        hidden_states, sequence_emb,
-                        batch_size, sequence_length, view_count, width,
+                        hidden_states,
+                        sequence_emb,
+                        batch_size,
+                        sequence_length,
+                        view_count,
+                        width,
                         disable_temporal)
 
             # cross-view

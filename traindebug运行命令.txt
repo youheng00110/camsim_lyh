@@ -19,9 +19,8 @@ torchrun \
   -m dwm.train \
   -c //inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplancamtokensingle.json\
   -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantokensingle\
-  --resume-from 21000
-  --log-steps  500 \
+  --log-steps  800 \
   --preview-steps 1000 \
-  --checkpointing-steps 9000 \
-  --evaluation-steps 27000
+  --checkpointing-steps 10000 \
+  --evaluation-steps 25000
 

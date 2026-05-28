@@ -18,8 +18,10 @@ class STFlowEvaluator:
         min_matches=32,
         max_matches=512,
         loftr_confidence=0.2,
-        temp_l1_norm=0.05,
-        epi_px_norm=4.0,
+        temp_l1_norm=0.15,
+        epi_px_norm=10.0,
+        camera_pairs=None,
+        pair_policy="dataset",
     ):
         self.device = torch.device(device)
         self.frame_stride = frame_stride
@@ -28,6 +30,8 @@ class STFlowEvaluator:
         self.loftr_confidence = loftr_confidence
         self.temp_l1_norm = temp_l1_norm
         self.epi_px_norm = epi_px_norm
+        self.camera_pair_whitelist = self.parse_camera_pairs(camera_pairs)
+        self.pair_policy = pair_policy
 
         self.raft_model, self.raft_weights = self.build_raft_model()
         self.loftr_model = LoFTR(pretrained="outdoor").to(self.device).eval()
@@ -161,7 +165,105 @@ class STFlowEvaluator:
                 pairs.append((current_index, next_index, pair_name))
 
         return pairs
+    def parse_camera_pairs(self, camera_pairs):
+        if camera_pairs is None:
+            return None
 
+        if isinstance(camera_pairs, str) and len(camera_pairs.strip()) == 0:
+            return None
+
+        pairs = []
+        for item in camera_pairs.split(","):
+            item = item.strip()
+            if len(item) == 0:
+                continue
+
+            if "__" not in item:
+                raise ValueError(
+                    f"Invalid camera pair '{item}'. Expected format CAM_A__CAM_B."
+                )
+
+            cam0, cam1 = item.split("__", 1)
+            pairs.append((cam0, cam1))
+
+        return pairs
+
+
+    def whitelist_camera_pairs(self, camera_names, camera_pair_whitelist):
+        name_to_index = {name: index for index, name in enumerate(camera_names)}
+        pairs = []
+
+        for cam0, cam1 in camera_pair_whitelist:
+            if cam0 not in name_to_index:
+                raise KeyError(
+                    f"Camera '{cam0}' is not in manifest camera_names={camera_names}"
+                )
+            if cam1 not in name_to_index:
+                raise KeyError(
+                    f"Camera '{cam1}' is not in manifest camera_names={camera_names}"
+                )
+
+            index0 = name_to_index[cam0]
+            index1 = name_to_index[cam1]
+            pairs.append((index0, index1, (cam0, cam1)))
+
+        return pairs
+
+
+    def waymo_camera_pairs(self, camera_names):
+        # Your current Waymo manifest uses generic CAM_00 ... CAM_07.
+        # From the first sanity run, these are the two reliable overlapping pairs:
+        # CAM_02__CAM_05: cross_epi≈3.24, high matches
+        # CAM_01__CAM_06: cross_epi≈3.28, high matches
+        generic_8view_pairs = [
+            ("CAM_02", "CAM_05"),
+            ("CAM_01", "CAM_06"),
+        ]
+
+        # If later you export real Waymo camera names, this branch can be used.
+        named_5view_pairs = [
+            ("FRONT_LEFT", "FRONT"),
+            ("FRONT", "FRONT_RIGHT"),
+            ("SIDE_LEFT", "FRONT_LEFT"),
+            ("FRONT_RIGHT", "SIDE_RIGHT"),
+        ]
+
+        camera_name_set = set(camera_names)
+
+        if all(cam0 in camera_name_set and cam1 in camera_name_set for cam0, cam1 in generic_8view_pairs):
+            return self.whitelist_camera_pairs(camera_names, generic_8view_pairs)
+
+        if all(cam0 in camera_name_set and cam1 in camera_name_set for cam0, cam1 in named_5view_pairs):
+            return self.whitelist_camera_pairs(camera_names, named_5view_pairs)
+
+        raise ValueError(
+            "Cannot infer valid Waymo camera pairs from camera_names="
+            f"{camera_names}. Please pass --camera-pairs manually."
+        )
+
+
+    def select_camera_pairs(self, manifest_item, transforms, camera_names):
+        if self.camera_pair_whitelist is not None:
+            return self.whitelist_camera_pairs(camera_names, self.camera_pair_whitelist)
+
+        dataset_name = str(manifest_item.get("dataset_name", "")).lower()
+
+        if self.pair_policy == "ring":
+            return self.camera_ring_pairs(transforms, camera_names)
+
+        if self.pair_policy == "waymo":
+            return self.waymo_camera_pairs(camera_names)
+
+        if self.pair_policy == "dataset":
+            if "waymo" in dataset_name:
+                return self.waymo_camera_pairs(camera_names)
+
+            if "nuplan" in dataset_name:
+                return self.camera_ring_pairs(transforms, camera_names)
+
+            return self.camera_ring_pairs(transforms, camera_names)
+
+        raise ValueError(f"Unknown pair_policy: {self.pair_policy}")
     def run_raft(self, image0, image1):
         transforms = self.raft_weights.transforms()
         image0_ready, image1_ready = transforms(image0, image1)
@@ -294,6 +396,11 @@ class STFlowEvaluator:
 
         return fundamental
 
+
+    def fundamental_from_transforms(self, K0, T0, K1, T1):
+        return self.fundamental_from_camera_to_ego(K0, T0, K1, T1)
+
+
     def sampson_error_px(self, points0, points1, fundamental):
         ones = torch.ones(
             (points0.shape[0], 1),
@@ -370,7 +477,11 @@ class STFlowEvaluator:
 
         frame_count = len(images)
         view_count = len(images[0])
-        camera_pairs = self.camera_ring_pairs(transforms[0], camera_names)
+        camera_pairs = self.select_camera_pairs(
+            manifest_item,
+            transforms[0],
+            camera_names,
+        )
 
         temporal_errors = []
         cross_errors = []

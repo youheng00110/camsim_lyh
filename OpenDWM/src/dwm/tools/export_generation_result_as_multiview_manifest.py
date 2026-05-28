@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.distributed as dist
 from PIL import Image
 
 import dwm.common
@@ -64,14 +65,36 @@ def create_parser():
     return parser
 
 
-def setup_device(config, device_override):
+def get_rank_info():
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    is_main_process = rank == 0
+    return rank, local_rank, world_size, is_main_process
+
+
+def is_distributed():
+    return int(os.environ.get("WORLD_SIZE", "1")) > 1
+
+
+def rank0_print(is_main_process, message):
+    if is_main_process:
+        print(message, flush=True)
+
+
+def maybe_barrier():
+    if dist.is_available() and dist.is_initialized():
+        dist.barrier()
+
+
+def setup_device(config, device_override, local_rank):
     device_name = device_override if device_override is not None else config["device"]
-    device = torch.device(device_name)
 
-    if device.type == "cuda":
-        torch.cuda.set_device(device.index if device.index is not None else 0)
+    if device_name.startswith("cuda") and torch.cuda.is_available():
+        torch.cuda.set_device(local_rank)
+        return torch.device(f"cuda:{local_rank}")
 
-    return device
+    return torch.device(device_name)
 
 
 def setup_global_state(config):
@@ -84,8 +107,8 @@ def setup_global_state(config):
 
 def flatten_generated_images(images):
     flat_images = []
-
     stack = [images]
+
     while len(stack) > 0:
         item = stack.pop(0)
         if isinstance(item, (list, tuple)):
@@ -127,6 +150,20 @@ def find_string_list_by_key(node, target_keys):
     return None
 
 
+def normalize_camera_names(value, view_count):
+    if isinstance(value, (list, tuple)) and len(value) == view_count:
+        if all(isinstance(item, str) for item in value):
+            return [str(item) for item in value]
+
+    if isinstance(value, (list, tuple)) and len(value) > 0:
+        first = value[0]
+        if isinstance(first, (list, tuple)) and len(first) == view_count:
+            if all(isinstance(item, str) for item in first):
+                return [str(item) for item in first]
+
+    return None
+
+
 def get_camera_names_from_config(config, view_count):
     candidate_keys = {
         "sensor_channels",
@@ -135,13 +172,17 @@ def get_camera_names_from_config(config, view_count):
         "cameras",
         "camera_channels",
     }
-    camera_names = find_string_list_by_key(config.get("validation_dataset", {}), candidate_keys)
+    camera_names = find_string_list_by_key(
+        config.get("validation_dataset", {}),
+        candidate_keys,
+    )
 
     if camera_names is None:
         camera_names = find_string_list_by_key(config, candidate_keys)
 
-    if camera_names is not None and len(camera_names) == view_count:
-        return [str(name) for name in camera_names]
+    normalized_names = normalize_camera_names(camera_names, view_count)
+    if normalized_names is not None:
+        return normalized_names
 
     return [f"CAM_{index:02d}" for index in range(view_count)]
 
@@ -151,10 +192,9 @@ def get_camera_names_from_batch(batch, config, view_count):
         if key not in batch:
             continue
 
-        value = batch[key]
-        if isinstance(value, list) and len(value) == view_count:
-            if all(isinstance(item, str) for item in value):
-                return [str(item) for item in value]
+        normalized_names = normalize_camera_names(batch[key], view_count)
+        if normalized_names is not None:
+            return normalized_names
 
     return get_camera_names_from_config(config, view_count)
 
@@ -350,7 +390,7 @@ def export_one_batch(
         manifest_file.flush()
 
         saved_count += 1
-        print(f"[export] saved {video_id}")
+        print(f"[export] saved {video_id}", flush=True)
 
     return saved_count
 
@@ -359,15 +399,26 @@ def main():
     parser = create_parser()
     args = parser.parse_args()
 
-    output_root = Path(args.output_path)
-    output_root.mkdir(parents=True, exist_ok=True)
-    manifest_path = output_root / args.manifest_name
+    rank, local_rank, world_size, is_main_process = get_rank_info()
 
     with open(args.config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
 
-    device = setup_device(config, args.device)
+    device = setup_device(config, args.device, local_rank)
     setup_global_state(config)
+
+    output_root = Path(args.output_path)
+    manifest_path = output_root / args.manifest_name
+
+    if is_main_process:
+        output_root.mkdir(parents=True, exist_ok=True)
+
+    maybe_barrier()
+
+    rank0_print(
+        is_main_process,
+        f"[export] rank={rank}, local_rank={local_rank}, world_size={world_size}, device={device}",
+    )
 
     pipeline = dwm.common.create_instance_from_config(
         config["pipeline"],
@@ -375,7 +426,7 @@ def main():
         config=config,
         device=device,
     )
-    print("[export] pipeline loaded")
+    rank0_print(is_main_process, "[export] pipeline loaded")
 
     validation_dataset = dwm.common.create_instance_from_config(
         config["validation_dataset"]
@@ -385,11 +436,18 @@ def main():
         validation_dataset,
         **dwm.common.instantiate_config(dataloader_config),
     )
-    print(f"[export] validation dataset loaded: {len(validation_dataset)} items")
+    rank0_print(
+        is_main_process,
+        f"[export] validation dataset loaded: {len(validation_dataset)} items",
+    )
 
     exported_count = 0
+    manifest_file = None
 
-    with open(manifest_path, "w", encoding="utf-8") as manifest_file:
+    if is_main_process:
+        manifest_file = open(manifest_path, "w", encoding="utf-8")
+
+    try:
         for batch_index, batch in enumerate(validation_dataloader):
             if args.max_videos is not None and exported_count >= args.max_videos:
                 break
@@ -402,31 +460,50 @@ def main():
             with torch.no_grad():
                 pipeline_output = pipeline.inference_pipeline(latent_shape, batch, "pil")
 
-            if "images" not in pipeline_output:
-                print(f"[export] batch {batch_index}: no images in pipeline output")
-                continue
+            batch_size = batch["vae_images"].shape[0]
+            remaining = batch_size
+            if args.max_videos is not None:
+                remaining = max(args.max_videos - exported_count, 0)
+                remaining = min(batch_size, remaining)
 
-            generated_images = flatten_generated_images(pipeline_output["images"])
-            saved_count = export_one_batch(
-                output_root,
-                manifest_file,
-                generated_images,
-                batch,
-                config,
-                args.dataset_name,
-                exported_count,
-                args.max_videos,
-                args.image_quality,
-            )
+            if is_main_process:
+                if "images" not in pipeline_output:
+                    print(f"[export] batch {batch_index}: no images in pipeline output", flush=True)
+                    saved_count = 0
+                else:
+                    generated_images = flatten_generated_images(pipeline_output["images"])
+                    saved_count = export_one_batch(
+                        output_root,
+                        manifest_file,
+                        generated_images,
+                        batch,
+                        config,
+                        args.dataset_name,
+                        exported_count,
+                        args.max_videos,
+                        args.image_quality,
+                    )
+            else:
+                saved_count = remaining
+
             exported_count += saved_count
 
-            print(
-                f"[export] batch={batch_index}, saved_count={saved_count}, "
-                f"total={exported_count}"
+            rank0_print(
+                is_main_process,
+                (
+                    f"[export] batch={batch_index}, saved_count={saved_count}, "
+                    f"total={exported_count}"
+                ),
             )
 
-    print(f"[export] done: {exported_count} videos")
-    print(f"[export] manifest: {manifest_path}")
+    finally:
+        if manifest_file is not None:
+            manifest_file.close()
+
+    maybe_barrier()
+
+    rank0_print(is_main_process, f"[export] done: {exported_count} videos")
+    rank0_print(is_main_process, f"[export] manifest: {manifest_path}")
 
 
 if __name__ == "__main__":
