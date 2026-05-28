@@ -1,0 +1,612 @@
+import math
+import os
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from PIL import Image
+
+import kornia
+from kornia.feature import LoFTR
+
+
+class STFlowEvaluator:
+    def __init__(
+        self,
+        device="cuda",
+        frame_stride=2,
+        min_matches=32,
+        max_matches=512,
+        loftr_confidence=0.2,
+        temp_l1_norm=0.15,
+        epi_px_norm=10.0,
+        camera_pairs=None,
+        pair_policy="dataset",
+    ):
+        self.device = torch.device(device)
+        self.frame_stride = frame_stride
+        self.min_matches = min_matches
+        self.max_matches = max_matches
+        self.loftr_confidence = loftr_confidence
+        self.temp_l1_norm = temp_l1_norm
+        self.epi_px_norm = epi_px_norm
+        self.camera_pair_whitelist = self.parse_camera_pairs(camera_pairs)
+        self.pair_policy = pair_policy
+
+        self.raft_model, self.raft_weights = self.build_raft_model()
+        self.loftr_model = LoFTR(pretrained="outdoor").to(self.device).eval()
+
+    def build_raft_model(self):
+        try:
+            from torchvision.models.optical_flow import (
+                raft_large,
+                Raft_Large_Weights,
+            )
+
+            weights = Raft_Large_Weights.DEFAULT
+            model = raft_large(weights=weights, progress=True).to(self.device).eval()
+            return model, weights
+        except Exception as exc:
+            raise RuntimeError(
+                "torchvision RAFT is unavailable. Please install a torchvision "
+                "version with torchvision.models.optical_flow. Original error: "
+                f"{exc}"
+            )
+
+    def load_rgb_image(self, image_path):
+        image = Image.open(image_path).convert("RGB")
+        image_array = np.asarray(image).astype(np.float32) / 255.0
+        image_tensor = torch.from_numpy(image_array).permute(2, 0, 1)
+        return image_tensor.unsqueeze(0).to(self.device)
+
+    def load_valid_mask(self, mask_path, height, width):
+        if mask_path is None:
+            return torch.ones((height, width), dtype=torch.bool, device=self.device)
+
+        mask_image = Image.open(mask_path).convert("L")
+        mask_array = np.asarray(mask_image).astype(np.float32)
+        mask_tensor = torch.from_numpy(mask_array > 127).to(self.device)
+
+        if mask_tensor.shape[-2:] != (height, width):
+            mask_tensor = mask_tensor.float().unsqueeze(0).unsqueeze(0)
+            mask_tensor = F.interpolate(
+                mask_tensor,
+                size=(height, width),
+                mode="nearest",
+            )
+            mask_tensor = mask_tensor[0, 0] > 0.5
+
+        return mask_tensor.bool()
+
+    def load_frame_data(self, manifest_item, manifest_dir):
+        images = []
+        masks = []
+        intrinsics = []
+        transforms = []
+        camera_names = []
+
+        for frame in manifest_item["frames"]:
+            frame_images = []
+            frame_masks = []
+            frame_intrinsics = []
+            frame_transforms = []
+
+            if len(camera_names) == 0:
+                camera_names = [view["camera"] for view in frame["views"]]
+
+            for view in frame["views"]:
+                image_path = view["image_path"]
+                if not os.path.isabs(image_path):
+                    image_path = os.path.join(manifest_dir, image_path)
+
+                image_tensor = self.load_rgb_image(image_path)
+                _, _, height, width = image_tensor.shape
+
+                mask_path = view.get("valid_mask_path", None)
+                if mask_path is not None and not os.path.isabs(mask_path):
+                    mask_path = os.path.join(manifest_dir, mask_path)
+
+                mask_tensor = self.load_valid_mask(mask_path, height, width)
+
+                K = torch.tensor(
+                    view["K"],
+                    dtype=torch.float32,
+                    device=self.device,
+                )
+                T = torch.tensor(
+                    view["T_cam_to_ego"],
+                    dtype=torch.float32,
+                    device=self.device,
+                )
+
+                frame_images.append(image_tensor)
+                frame_masks.append(mask_tensor)
+                frame_intrinsics.append(K)
+                frame_transforms.append(T)
+
+            images.append(frame_images)
+            masks.append(frame_masks)
+            intrinsics.append(frame_intrinsics)
+            transforms.append(frame_transforms)
+
+        return {
+            "images": images,
+            "masks": masks,
+            "intrinsics": intrinsics,
+            "transforms": transforms,
+            "camera_names": camera_names,
+        }
+
+    def camera_ring_pairs(self, transforms, camera_names):
+        yaws = []
+
+        for index, transform in enumerate(transforms):
+            rotation = transform[:3, :3]
+            forward = rotation @ torch.tensor(
+                [0.0, 0.0, 1.0],
+                dtype=torch.float32,
+                device=self.device,
+            )
+            yaw = torch.atan2(forward[1], forward[0]).item()
+            yaws.append((yaw, index))
+
+        yaws = sorted(yaws, key=lambda x: x[0])
+        pairs = []
+
+        for order_index in range(len(yaws)):
+            current_index = yaws[order_index][1]
+            next_index = yaws[(order_index + 1) % len(yaws)][1]
+
+            if current_index != next_index:
+                pair_name = (
+                    camera_names[current_index],
+                    camera_names[next_index],
+                )
+                pairs.append((current_index, next_index, pair_name))
+
+        return pairs
+    def parse_camera_pairs(self, camera_pairs):
+        if camera_pairs is None:
+            return None
+
+        if isinstance(camera_pairs, str) and len(camera_pairs.strip()) == 0:
+            return None
+
+        pairs = []
+        for item in camera_pairs.split(","):
+            item = item.strip()
+            if len(item) == 0:
+                continue
+
+            if "__" not in item:
+                raise ValueError(
+                    f"Invalid camera pair '{item}'. Expected format CAM_A__CAM_B."
+                )
+
+            cam0, cam1 = item.split("__", 1)
+            pairs.append((cam0, cam1))
+
+        return pairs
+
+
+    def whitelist_camera_pairs(self, camera_names, camera_pair_whitelist):
+        name_to_index = {name: index for index, name in enumerate(camera_names)}
+        pairs = []
+
+        for cam0, cam1 in camera_pair_whitelist:
+            if cam0 not in name_to_index:
+                raise KeyError(
+                    f"Camera '{cam0}' is not in manifest camera_names={camera_names}"
+                )
+            if cam1 not in name_to_index:
+                raise KeyError(
+                    f"Camera '{cam1}' is not in manifest camera_names={camera_names}"
+                )
+
+            index0 = name_to_index[cam0]
+            index1 = name_to_index[cam1]
+            pairs.append((index0, index1, (cam0, cam1)))
+
+        return pairs
+
+
+    def waymo_camera_pairs(self, camera_names):
+        # Your current Waymo manifest uses generic CAM_00 ... CAM_07.
+        # From the first sanity run, these are the two reliable overlapping pairs:
+        # CAM_02__CAM_05: cross_epi≈3.24, high matches
+        # CAM_01__CAM_06: cross_epi≈3.28, high matches
+        generic_8view_pairs = [
+            ("CAM_02", "CAM_05"),
+            ("CAM_01", "CAM_06"),
+        ]
+
+        # If later you export real Waymo camera names, this branch can be used.
+        named_5view_pairs = [
+            ("FRONT_LEFT", "FRONT"),
+            ("FRONT", "FRONT_RIGHT"),
+            ("SIDE_LEFT", "FRONT_LEFT"),
+            ("FRONT_RIGHT", "SIDE_RIGHT"),
+        ]
+
+        camera_name_set = set(camera_names)
+
+        if all(cam0 in camera_name_set and cam1 in camera_name_set for cam0, cam1 in generic_8view_pairs):
+            return self.whitelist_camera_pairs(camera_names, generic_8view_pairs)
+
+        if all(cam0 in camera_name_set and cam1 in camera_name_set for cam0, cam1 in named_5view_pairs):
+            return self.whitelist_camera_pairs(camera_names, named_5view_pairs)
+
+        raise ValueError(
+            "Cannot infer valid Waymo camera pairs from camera_names="
+            f"{camera_names}. Please pass --camera-pairs manually."
+        )
+
+
+    def select_camera_pairs(self, manifest_item, transforms, camera_names):
+        if self.camera_pair_whitelist is not None:
+            return self.whitelist_camera_pairs(camera_names, self.camera_pair_whitelist)
+
+        dataset_name = str(manifest_item.get("dataset_name", "")).lower()
+
+        if self.pair_policy == "ring":
+            return self.camera_ring_pairs(transforms, camera_names)
+
+        if self.pair_policy == "waymo":
+            return self.waymo_camera_pairs(camera_names)
+
+        if self.pair_policy == "dataset":
+            if "waymo" in dataset_name:
+                return self.waymo_camera_pairs(camera_names)
+
+            if "nuplan" in dataset_name:
+                return self.camera_ring_pairs(transforms, camera_names)
+
+            return self.camera_ring_pairs(transforms, camera_names)
+
+        raise ValueError(f"Unknown pair_policy: {self.pair_policy}")
+    def run_raft(self, image0, image1):
+        transforms = self.raft_weights.transforms()
+        image0_ready, image1_ready = transforms(image0, image1)
+
+        with torch.no_grad():
+            flow_predictions = self.raft_model(image0_ready, image1_ready)
+
+        return flow_predictions[-1]
+
+    def warp_image(self, image, flow):
+        batch, channels, height, width = image.shape
+
+        yy, xx = torch.meshgrid(
+            torch.arange(height, device=self.device),
+            torch.arange(width, device=self.device),
+            indexing="ij",
+        )
+        base_grid = torch.stack([xx, yy], dim=-1).float()
+        warped_grid = base_grid.unsqueeze(0) + flow.permute(0, 2, 3, 1)
+
+        grid_x = 2.0 * warped_grid[..., 0] / max(width - 1, 1) - 1.0
+        grid_y = 2.0 * warped_grid[..., 1] / max(height - 1, 1) - 1.0
+        norm_grid = torch.stack([grid_x, grid_y], dim=-1)
+
+        warped = F.grid_sample(
+            image,
+            norm_grid,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
+        )
+        inside = (
+            (warped_grid[..., 0] >= 0)
+            & (warped_grid[..., 0] <= width - 1)
+            & (warped_grid[..., 1] >= 0)
+            & (warped_grid[..., 1] <= height - 1)
+        )
+
+        return warped, inside[0]
+
+    def temporal_l1_error(self, image0, image1, flow, mask0, mask1):
+        warped, inside = self.warp_image(image0, flow)
+        valid = inside & mask0 & mask1
+
+        if valid.sum().item() == 0:
+            return None
+
+        error_map = torch.abs(warped - image1).mean(dim=1)[0]
+        return error_map[valid].mean().item()
+
+    def run_loftr(self, image0, image1):
+        gray0 = kornia.color.rgb_to_grayscale(image0)
+        gray1 = kornia.color.rgb_to_grayscale(image1)
+
+        with torch.no_grad():
+            matches = self.loftr_model(
+                {
+                    "image0": gray0,
+                    "image1": gray1,
+                }
+            )
+
+        points0 = matches["keypoints0"].to(self.device)
+        points1 = matches["keypoints1"].to(self.device)
+        confidence = matches["confidence"].to(self.device)
+
+        keep = confidence >= self.loftr_confidence
+        points0 = points0[keep]
+        points1 = points1[keep]
+        confidence = confidence[keep]
+
+        if points0.shape[0] > self.max_matches:
+            topk = torch.topk(confidence, self.max_matches).indices
+            points0 = points0[topk]
+            points1 = points1[topk]
+            confidence = confidence[topk]
+
+        return points0, points1, confidence
+
+    def points_inside_image(self, points, height, width):
+        return (
+            (points[:, 0] >= 0)
+            & (points[:, 0] <= width - 1)
+            & (points[:, 1] >= 0)
+            & (points[:, 1] <= height - 1)
+        )
+
+    def points_inside_mask(self, points, mask):
+        height, width = mask.shape
+        inside = self.points_inside_image(points, height, width)
+
+        if inside.sum().item() == 0:
+            return inside
+
+        rounded_x = points[:, 0].round().long().clamp(0, width - 1)
+        rounded_y = points[:, 1].round().long().clamp(0, height - 1)
+
+        mask_values = mask[rounded_y, rounded_x]
+        return inside & mask_values
+
+    def filter_matched_points(self, points0, points1, mask0, mask1):
+        valid0 = self.points_inside_mask(points0, mask0)
+        valid1 = self.points_inside_mask(points1, mask1)
+        valid = valid0 & valid1
+
+        return points0[valid], points1[valid]
+
+    def skew_matrix(self, vector):
+        x, y, z = vector[0], vector[1], vector[2]
+        matrix = torch.zeros((3, 3), dtype=torch.float32, device=self.device)
+        matrix[0, 1] = -z
+        matrix[0, 2] = y
+        matrix[1, 0] = z
+        matrix[1, 2] = -x
+        matrix[2, 0] = -y
+        matrix[2, 1] = x
+        return matrix
+
+    def fundamental_from_camera_to_ego(self, K0, T0, K1, T1):
+        relative = torch.linalg.inv(T1) @ T0
+        rotation = relative[:3, :3]
+        translation = relative[:3, 3]
+
+        essential = self.skew_matrix(translation) @ rotation
+        fundamental = torch.linalg.inv(K1).T @ essential @ torch.linalg.inv(K0)
+
+        scale = torch.linalg.norm(fundamental)
+        if scale > 0:
+            fundamental = fundamental / scale
+
+        return fundamental
+
+
+    def fundamental_from_transforms(self, K0, T0, K1, T1):
+        return self.fundamental_from_camera_to_ego(K0, T0, K1, T1)
+
+
+    def sampson_error_px(self, points0, points1, fundamental):
+        ones = torch.ones(
+            (points0.shape[0], 1),
+            dtype=torch.float32,
+            device=self.device,
+        )
+        homogeneous0 = torch.cat([points0, ones], dim=1)
+        homogeneous1 = torch.cat([points1, ones], dim=1)
+
+        F_x0 = (fundamental @ homogeneous0.T).T
+        Ft_x1 = (fundamental.T @ homogeneous1.T).T
+        numerator = torch.sum(homogeneous1 * F_x0, dim=1) ** 2
+        denominator = (
+            F_x0[:, 0] ** 2
+            + F_x0[:, 1] ** 2
+            + Ft_x1[:, 0] ** 2
+            + Ft_x1[:, 1] ** 2
+            + 1e-8
+        )
+
+        return torch.sqrt(numerator / denominator)
+
+    def sample_flow_at_points(self, flow, points):
+        _, _, height, width = flow.shape
+
+        grid_x = 2.0 * points[:, 0] / max(width - 1, 1) - 1.0
+        grid_y = 2.0 * points[:, 1] / max(height - 1, 1) - 1.0
+        grid = torch.stack([grid_x, grid_y], dim=-1)
+        grid = grid.view(1, -1, 1, 2)
+
+        sampled = F.grid_sample(
+            flow,
+            grid,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=True,
+        )
+        sampled = sampled[0, :, :, 0].T
+
+        return sampled
+
+    def normalized_score(self, temporal_errors, cross_errors, cycle_errors):
+        temp_mean = float(np.nanmean(temporal_errors)) if len(temporal_errors) > 0 else float("nan")
+        cross_mean = float(np.nanmean(cross_errors)) if len(cross_errors) > 0 else float("nan")
+        cycle_mean = float(np.nanmean(cycle_errors)) if len(cycle_errors) > 0 else float("nan")
+
+        normalized_values = []
+
+        if not math.isnan(temp_mean):
+            normalized_values.append(min(temp_mean / self.temp_l1_norm, 1.0))
+        if not math.isnan(cross_mean):
+            normalized_values.append(min(cross_mean / self.epi_px_norm, 1.0))
+        if not math.isnan(cycle_mean):
+            normalized_values.append(min(cycle_mean / self.epi_px_norm, 1.0))
+
+        stflow_error = float(np.mean(normalized_values)) if len(normalized_values) > 0 else float("nan")
+        stflow_score = 100.0 * (1.0 - stflow_error) if not math.isnan(stflow_error) else float("nan")
+
+        return {
+            "temporal_l1": temp_mean,
+            "cross_epi_px": cross_mean,
+            "cycle_epi_px": cycle_mean,
+            "stflow_error": stflow_error,
+            "stflow_score": stflow_score,
+        }
+
+    def evaluate_video(self, manifest_item, manifest_dir):
+        data = self.load_frame_data(manifest_item, manifest_dir)
+        images = data["images"]
+        masks = data["masks"]
+        intrinsics = data["intrinsics"]
+        transforms = data["transforms"]
+        camera_names = data["camera_names"]
+
+        frame_count = len(images)
+        view_count = len(images[0])
+        camera_pairs = self.select_camera_pairs(
+            manifest_item,
+            transforms[0],
+            camera_names,
+        )
+
+        temporal_errors = []
+        cross_errors = []
+        cycle_errors = []
+        flow_cache = {}
+
+        time_edges = []
+        for time_index in range(0, frame_count - self.frame_stride, self.frame_stride):
+            time_edges.append((time_index, time_index + self.frame_stride))
+
+        for time0, time1 in time_edges:
+            for view_index in range(view_count):
+                image0 = images[time0][view_index]
+                image1 = images[time1][view_index]
+                flow = self.run_raft(image0, image1)
+                flow_cache[(time0, time1, view_index)] = flow
+
+                temp_error = self.temporal_l1_error(
+                    image0,
+                    image1,
+                    flow,
+                    masks[time0][view_index],
+                    masks[time1][view_index],
+                )
+                if temp_error is not None:
+                    temporal_errors.append(temp_error)
+
+        pair_stats = {}
+
+        for time0, time1 in time_edges:
+            for view0, view1, pair_name in camera_pairs:
+                image0 = images[time0][view0]
+                image1 = images[time0][view1]
+                points0, points1, _ = self.run_loftr(image0, image1)
+
+                points0, points1 = self.filter_matched_points(
+                    points0,
+                    points1,
+                    masks[time0][view0],
+                    masks[time0][view1],
+                )
+
+                if points0.shape[0] < self.min_matches:
+                    continue
+
+                F_cross = self.fundamental_from_camera_to_ego(
+                    intrinsics[time0][view0],
+                    transforms[time0][view0],
+                    intrinsics[time0][view1],
+                    transforms[time0][view1],
+                )
+                cross_epi = self.sampson_error_px(points0, points1, F_cross)
+                cross_value = torch.median(cross_epi).item()
+                cross_errors.append(cross_value)
+
+                flow0 = flow_cache[(time0, time1, view0)]
+                flow1 = flow_cache[(time0, time1, view1)]
+                delta0 = self.sample_flow_at_points(flow0, points0)
+                delta1 = self.sample_flow_at_points(flow1, points1)
+
+                points0_next = points0 + delta0
+                points1_next = points1 + delta1
+                points0_next, points1_next = self.filter_matched_points(
+                    points0_next,
+                    points1_next,
+                    masks[time1][view0],
+                    masks[time1][view1],
+                )
+
+                if points0_next.shape[0] >= self.min_matches:
+                    F_cycle = self.fundamental_from_camera_to_ego(
+                        intrinsics[time1][view0],
+                        transforms[time1][view0],
+                        intrinsics[time1][view1],
+                        transforms[time1][view1],
+                    )
+                    cycle_epi = self.sampson_error_px(
+                        points0_next,
+                        points1_next,
+                        F_cycle,
+                    )
+                    cycle_value = torch.median(cycle_epi).item()
+                    cycle_errors.append(cycle_value)
+                else:
+                    cycle_value = None
+
+                pair_key = f"{pair_name[0]}__{pair_name[1]}"
+                if pair_key not in pair_stats:
+                    pair_stats[pair_key] = {
+                        "cross_epi_px": [],
+                        "cycle_epi_px": [],
+                        "match_count": [],
+                    }
+                pair_stats[pair_key]["cross_epi_px"].append(cross_value)
+                pair_stats[pair_key]["match_count"].append(int(points0.shape[0]))
+                if cycle_value is not None:
+                    pair_stats[pair_key]["cycle_epi_px"].append(cycle_value)
+
+        summary = self.normalized_score(
+            temporal_errors,
+            cross_errors,
+            cycle_errors,
+        )
+
+        pair_summary = {}
+        for pair_key, values in pair_stats.items():
+            pair_summary[pair_key] = {
+                "cross_epi_px": float(np.nanmean(values["cross_epi_px"]))
+                if len(values["cross_epi_px"]) > 0
+                else float("nan"),
+                "cycle_epi_px": float(np.nanmean(values["cycle_epi_px"]))
+                if len(values["cycle_epi_px"]) > 0
+                else float("nan"),
+                "match_count": float(np.nanmean(values["match_count"]))
+                if len(values["match_count"]) > 0
+                else float("nan"),
+            }
+
+        summary.update(
+            {
+                "video_id": manifest_item.get("video_id", ""),
+                "num_temporal_edges": len(temporal_errors),
+                "num_cross_edges": len(cross_errors),
+                "num_cycle_edges": len(cycle_errors),
+                "pair_stats": pair_summary,
+            }
+        )
+        return summary
