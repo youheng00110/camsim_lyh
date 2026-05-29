@@ -26,4 +26,5 @@ timm
 rotary-embedding-torch
 opencv-python
 wandb
+kornia
 git+https://github.com/autonomousvision/kitti360Scripts.git

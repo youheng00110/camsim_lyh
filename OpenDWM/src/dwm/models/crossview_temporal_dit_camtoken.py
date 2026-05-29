@@ -3,7 +3,12 @@ import einops
 import diffusers
 import torch
 import math
+import os
+from pathlib import Path
 
+import av
+import numpy as np
+from PIL import Image, ImageDraw
 import dwm.models.adapters
 from dwm.models.crossview_temporal import VTSelfAttentionBlock, AlphaBlender, Mixer
 from dwm.models.mdtoken_encoders import (
@@ -139,7 +144,260 @@ def get_rays(
 
 
 class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
-    @diffusers.configuration_utils.register_to_config
+
+    def _mdtoken_map_to_uint8(self, x: torch.Tensor) -> np.ndarray:
+        """
+        x: [C, H, W]
+        return: [H, W, 3] uint8
+        """
+        x = x.detach().float().cpu()
+
+        if x.ndim != 3:
+            raise ValueError(f"expect [C,H,W], got {tuple(x.shape)}")
+
+        gray = x.abs().amax(dim=0)
+
+        g_min = gray.min()
+        g_max = gray.max()
+
+        if (g_max - g_min) > 1e-6:
+            gray = (gray - g_min) / (g_max - g_min)
+        else:
+            gray = torch.zeros_like(gray)
+
+        img = (gray.numpy() * 255.0).astype(np.uint8)
+        img = np.stack([img, img, img], axis=-1)
+        return img
+
+
+    def _bev_xy_to_pixel(self, x, y, w, h):
+        x_min, x_max = -20.0, 20.0
+        y_min, y_max = -20.0, 20.0
+
+        u = (x - x_min) / max(x_max - x_min, 1e-6) * (w - 1)
+        v = (y - y_min) / max(y_max - y_min, 1e-6) * (h - 1)
+
+        return float(u), float(v)
+
+
+    def _order_bev_polygon(self, pts: np.ndarray):
+        center = pts.mean(axis=0)
+        angles = np.arctan2(pts[:, 1] - center[1], pts[:, 0] - center[0])
+        order = np.argsort(angles)
+        return [tuple(pts[i]) for i in order]
+
+
+    def _draw_bbox_on_bev(self, bev_img, bboxes, classes=None, masks=None):
+        """
+        bev_img: [H, W, 3]
+        bboxes: [S, 8, 3]
+        masks: [S]
+        """
+        canvas = Image.fromarray(bev_img.copy())
+        draw = ImageDraw.Draw(canvas)
+
+        if bboxes is None:
+            return np.asarray(canvas)
+
+        bboxes = bboxes.detach().float().cpu()
+        if masks is not None:
+            masks = masks.detach().cpu()
+
+        h, w = bev_img.shape[:2]
+
+        for i in range(bboxes.shape[0]):
+            if masks is not None and float(masks[i]) <= 0:
+                continue
+
+            box = bboxes[i]   # [8,3]
+
+            # 只取 z 最小的 4 个点，当作底面
+            bottom_idx = torch.argsort(box[:, 2])[:4]
+            bottom_xy = box[bottom_idx, :2].numpy()
+
+            pix = np.array(
+                [self._bev_xy_to_pixel(p[0], p[1], w, h) for p in bottom_xy],
+                dtype=np.float32
+            )
+
+            poly = self._order_bev_polygon(pix)
+            draw.line(poly + [poly[0]], fill=(255, 60, 60), width=2)
+
+            cx = float(pix[:, 0].mean())
+            cy = float(pix[:, 1].mean())
+            draw.ellipse((cx - 2, cy - 2, cx + 2, cy + 2), fill=(0, 255, 0))
+
+        return np.asarray(canvas)
+
+
+    def _put_title(self, img: np.ndarray, text: str) -> np.ndarray:
+        pil = Image.fromarray(img)
+        draw = ImageDraw.Draw(pil)
+        h, w = img.shape[:2]
+        draw.rectangle((0, 0, w, 20), fill=(0, 0, 0))
+        draw.text((4, 3), text, fill=(255, 255, 255))
+        return np.asarray(pil)
+
+
+    def _concat_h(self, imgs):
+        max_h = max(im.shape[0] for im in imgs)
+        padded = []
+        for im in imgs:
+            h, w = im.shape[:2]
+            if h < max_h:
+                pad = np.zeros((max_h - h, w, 3), dtype=np.uint8)
+                im = np.concatenate([im, pad], axis=0)
+            padded.append(im)
+        return np.concatenate(padded, axis=1)
+
+
+    def _concat_v(self, imgs):
+        max_w = max(im.shape[1] for im in imgs)
+        padded = []
+        for im in imgs:
+            h, w = im.shape[:2]
+            if w < max_w:
+                pad = np.zeros((h, max_w - w, 3), dtype=np.uint8)
+                im = np.concatenate([im, pad], axis=1)
+            padded.append(im)
+        return np.concatenate(padded, axis=0)
+
+
+    def _write_mp4_av(self, frames, out_path, fps=4):
+        if len(frames) == 0:
+            return
+
+        out_path = str(out_path)
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+
+        h, w = frames[0].shape[:2]
+
+        with av.open(out_path, mode="w") as container:
+            stream = container.add_stream("libx264", rate=fps)
+            stream.width = w
+            stream.height = h
+            stream.pix_fmt = "yuv420p"
+
+            for fr in frames:
+                video_frame = av.VideoFrame.from_ndarray(fr, format="rgb24")
+                for packet in stream.encode(video_frame):
+                    container.mux(packet)
+
+            for packet in stream.encode():
+                container.mux(packet)
+
+
+    @torch.no_grad()
+    def _maybe_dump_mdtoken_video(
+        self,
+        bbox_token_input: torch.Tensor = None,
+        bbox_class_input: torch.Tensor = None,
+        bbox_mask_input: torch.Tensor = None,
+        map_token_input: torch.Tensor = None,
+    ):
+        # 用环境变量开关，避免平时训练一直写
+        if os.environ.get("DWM_DEBUG_MDTOKEN_VIDEO", "0") != "1":
+            return
+
+        # 多卡只让 rank0 写
+        if int(os.environ.get("RANK", "0")) != 0:
+            return
+
+        # 只导一次
+        if self._mdtoken_debug_dumped:
+            return
+
+        if map_token_input is None:
+            return
+
+        # 现在这里期望已经是 [B,T,V,...] 了
+        B, T, V = map_token_input.shape[:3]
+        print("[mdtoken debug] selected frame stats:")
+        for bi in range(B):
+            for ti in range(min(T, 8)):
+                for vi in range(V):
+                    x = map_token_input[bi, ti, vi]
+                    print(
+                        f"  b={bi} t={ti} v={vi} "
+                        f"min={float(x.min()):.4f} "
+                        f"max={float(x.max()):.4f} "
+                        f"mean={float(x.mean()):.6f} "
+                        f"nonzero={int((x.abs() > 1e-6).sum())}"
+                    )
+        if not hasattr(self, "_mdtoken_debug_stat_printed"):
+            self._mdtoken_debug_stat_printed = False
+
+            if not self._mdtoken_debug_stat_printed:
+                print("[mdtoken debug] map shape:", tuple(map_token_input.shape))
+                print("[mdtoken debug] map min/max/mean/nonzero:",
+                    float(map_token_input.min()),
+                    float(map_token_input.max()),
+                    float(map_token_input.mean()),
+                    int((map_token_input.abs() > 1e-6).sum()))
+
+                if bbox_token_input is not None:
+                    print("[mdtoken debug] bbox shape:", tuple(bbox_token_input.shape))
+                    print("[mdtoken debug] bbox min/max/mean:",
+                        float(bbox_token_input.min()),
+                        float(bbox_token_input.max()),
+                        float(bbox_token_input.mean()))
+
+                if bbox_mask_input is not None:
+                    print("[mdtoken debug] bbox mask unique:",
+                        torch.unique(bbox_mask_input.detach().cpu()))
+
+                self._mdtoken_debug_stat_printed = True
+        b = 0
+        best_nonzero = -1
+
+        for bi in range(B):
+            cur_nonzero = int((map_token_input[bi].abs() > 1e-6).sum())
+            if cur_nonzero > best_nonzero:
+                best_nonzero = cur_nonzero
+                b = bi
+
+        print(f"[mdtoken debug] choose batch index b={b}, nonzero={best_nonzero}")
+        max_t = T
+        max_v = min(V, 8)
+
+        frames = []
+
+        for t in range(max_t):
+            row_panels = []
+
+            for v in range(max_v):
+                bev = self._mdtoken_map_to_uint8(map_token_input[b, t, v])
+
+                bev_plain = self._put_title(bev, f"map  t={t} v={v}")
+
+                bev_box = bev
+                if bbox_token_input is not None:
+                    bev_box = self._draw_bbox_on_bev(
+                        bev_box,
+                        bbox_token_input[b, t, v],
+                        None if bbox_class_input is None else bbox_class_input[b, t, v],
+                        None if bbox_mask_input is None else bbox_mask_input[b, t, v],
+                    )
+                bev_box = self._put_title(bev_box, f"map + bbox  t={t} v={v}")
+
+                panel = self._concat_h([bev_plain, bev_box])
+                row_panels.append(panel)
+
+            frame = self._concat_v(row_panels)
+            frames.append(frame)
+
+        out_path = os.environ.get(
+            "DWM_DEBUG_MDTOKEN_VIDEO_PATH",
+            "./outputs/debug_mdtoken/mdtoken_debug.mp4",
+        )
+        png_path = os.path.splitext(out_path)[0] + "_first_frame.png"
+        Image.fromarray(frames[0]).save(png_path)
+        print(f"[mdtoken debug] saved first frame png to: {png_path}")
+        self._write_mp4_av(frames, out_path, fps=4)
+        print(f"[mdtoken debug] saved video to: {out_path}")
+
+        self._mdtoken_debug_dumped = True
+    @diffusers.configuration_utils.register_to_config        
     def __init__(
         self,
         patch_size: int = 2,
@@ -214,6 +472,7 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
             )
 
         if perspective_modeling_type == "mdtoken_nopv":
+            self._mdtoken_debug_dumped = False
             if mdtoken_bbox_config is None:
                 mdtoken_bbox_config = {}
             if mdtoken_map_config is None:
@@ -227,7 +486,7 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                 out_dim=self.inner_dim,
                 **mdtoken_map_config,
             )
-
+        self._mdtoken_debug_dumped = False
         self.enable_crossview = enable_crossview
         self.crossview_attention_type = crossview_attention_type
         self.crossview_block_layers = crossview_block_layers
@@ -497,6 +756,7 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
             pooled_projections,
         )
         if self.perspective_modeling_type == "mdtoken_nopv":
+
             if bbox_token_input is not None:
                 if bbox_class_input is None:
                     raise ValueError(
@@ -505,35 +765,46 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
 
                 if bbox_token_input.ndim == 5:
                     bbox_token_input = bbox_token_input[:, :, None].expand(
-                        -1,
-                        -1,
-                        view_count,
-                        -1,
-                        -1,
-                        -1,
+                        -1, -1, view_count, -1, -1, -1
                     )
 
                 if bbox_class_input.ndim == 3:
                     bbox_class_input = bbox_class_input[:, :, None].expand(
-                        -1,
-                        -1,
-                        view_count,
-                        -1,
+                        -1, -1, view_count, -1
                     )
 
                 if bbox_mask_input is None:
                     bbox_mask_input = torch.ones_like(
-                        bbox_class_input,
-                        dtype=hidden_states.dtype,
+                        bbox_class_input, dtype=hidden_states.dtype
                     )
                 elif bbox_mask_input.ndim == 3:
                     bbox_mask_input = bbox_mask_input[:, :, None].expand(
-                        -1,
-                        -1,
-                        view_count,
-                        -1,
+                        -1, -1, view_count, -1
                     )
 
+            if map_token_input is not None:
+                if map_token_input.ndim == 5:
+                    map_token_input = map_token_input[:, :, None].expand(
+                        -1, -1, view_count, -1, -1, -1
+                    )
+
+                if map_token_input.ndim != 6:
+                    raise ValueError(
+                        "map_token_input should be [B, T, C, H, W] "
+                        "or [B, T, V, C, H, W], "
+                        f"but got {tuple(map_token_input.shape)}."
+                    )
+
+            # ===== 在这里导出可视化 =====
+            self._maybe_dump_mdtoken_video(
+                bbox_token_input=bbox_token_input,
+                bbox_class_input=bbox_class_input,
+                bbox_mask_input=bbox_mask_input,
+                map_token_input=map_token_input,
+            )
+
+            # ===== 然后再正常编码 =====
+            if bbox_token_input is not None:
                 bbox_flat = bbox_token_input.flatten(0, 2).to(
                     device=hidden_states.device,
                     dtype=hidden_states.dtype,
@@ -554,35 +825,12 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                 extra_condition_tokens.append(bbox_tokens)
 
             if map_token_input is not None:
-                if map_token_input.ndim == 5:
-                    map_token_input = map_token_input[:, :, None].expand(
-                        -1,
-                        -1,
-                        view_count,
-                        -1,
-                        -1,
-                        -1,
-                    )
-
-                if map_token_input.ndim != 6:
-                    raise ValueError(
-                        "map_token_input should be [B, T, C, H, W] "
-                        "or [B, T, V, C, H, W], "
-                        f"but got {tuple(map_token_input.shape)}."
-                    )
-
                 map_flat = map_token_input.flatten(0, 2).to(
                     device=hidden_states.device,
                     dtype=hidden_states.dtype,
                 )
                 map_tokens = self.map_token_encoder(map_flat)
                 extra_condition_tokens.append(map_tokens)
-
-        if len(extra_condition_tokens) > 0:
-            encoder_hidden_states = torch.cat(
-                extra_condition_tokens + [encoder_hidden_states],
-                dim=1,
-            )
 
             # 第一版建议先不要加 view_cam_emb，保持纯 context token 注入
         view_cam_emb = hidden_states.new_zeros(

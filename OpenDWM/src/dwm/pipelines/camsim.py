@@ -2312,32 +2312,127 @@ class CrossviewTemporalSD():
                 #             flush=True,
                 #         )
                         
+            sd_mse = (
+                sd_pred_latent.float() - target.float()
+            ).square()
+
             if self.training_config.get("disable_reference_frame_loss", False):
-                reference_frame_loss_mask = ~reference_frame_indicator.view(
+                pixel_weight = ~reference_frame_indicator.view(
                     *sd_pred_latent.shape[:3],
                     1,
                     1,
                     1
                 ).to(sd_pred_latent.device)
 
-                reference_frame_loss_mask = reference_frame_loss_mask.expand_as(
-                    sd_pred_latent
-                )
-
-                sd_mse = (
-                    sd_pred_latent.float() - target.float()
-                ).square()
-
-                sd_loss = (
-                    sd_mse * reference_frame_loss_mask.float()
-                ).sum() / reference_frame_loss_mask.float().sum().clamp_min(1.0)
-
+                pixel_weight = pixel_weight.to(dtype=torch.float32)
             else:
-                sd_loss = torch.nn.functional.mse_loss(
-                    sd_pred_latent.float(),
-                    target.float(),
-                    reduction="mean"
+                pixel_weight = torch.ones(
+                    (*sd_pred_latent.shape[:3], 1, sd_pred_latent.shape[-2], sd_pred_latent.shape[-1]),
+                    device=sd_pred_latent.device,
+                    dtype=torch.float32,
                 )
+
+            box_latent_mask = None
+
+            if "3dbox_images" in batch:
+                box_mask = batch["3dbox_images"].to(
+                    device=sd_pred_latent.device,
+                    dtype=torch.float32,
+                )
+
+                if bool((box_mask.detach().amax() > 1.0).item()):
+                    box_mask = box_mask / 255.0
+
+                # [B, T, V, C, H, W] -> [B, T, V, 1, H, W]
+                box_mask = box_mask.amax(dim=3, keepdim=True)
+
+                if _3dbox_condition_mask is not None:
+                    box_mask = box_mask * _3dbox_condition_mask.to(
+                        device=sd_pred_latent.device,
+                        dtype=torch.float32,
+                    ).view(batch_size, 1, 1, 1, 1, 1)
+
+                dense_t = int(box_mask.shape[1])
+                target_t = int(sd_pred_latent.shape[1])
+
+                if dense_t == target_t:
+                    temporal_indices = torch.arange(
+                        target_t,
+                        device=sd_pred_latent.device,
+                        dtype=torch.long,
+                    )
+                else:
+                    pre = 1 if dense_t % 2 == 1 else 0
+                    stride = (dense_t - pre) // max(target_t - pre, 1)
+
+                    if pre > 0:
+                        temporal_indices = torch.cat(
+                            [
+                                torch.zeros(
+                                    1,
+                                    device=sd_pred_latent.device,
+                                    dtype=torch.long,
+                                ),
+                                pre + torch.arange(
+                                    target_t - pre,
+                                    device=sd_pred_latent.device,
+                                    dtype=torch.long,
+                                ) * stride,
+                            ],
+                            dim=0,
+                        )
+                    else:
+                        temporal_indices = torch.arange(
+                            target_t,
+                            device=sd_pred_latent.device,
+                            dtype=torch.long,
+                        ) * stride
+
+                    temporal_indices = temporal_indices.clamp(max=dense_t - 1)
+
+                box_mask = box_mask.index_select(1, temporal_indices)
+
+                # 3D box 是细线，阈值不能太高。
+                box_mask = (box_mask > 0.005).float()
+
+                box_mask_flat = einops.rearrange(
+                    box_mask,
+                    "b t v c h w -> (b t v) c h w",
+                )
+
+                # 先在原图尺度膨胀，再下采样到 latent 尺度。
+                box_mask_flat = torch.nn.functional.max_pool2d(
+                    box_mask_flat,
+                    kernel_size=63,
+                    stride=1,
+                    padding=31,
+                )
+
+                box_mask_flat = torch.nn.functional.interpolate(
+                    box_mask_flat,
+                    size=sd_pred_latent.shape[-2:],
+                    mode="nearest",
+                )
+
+                box_latent_mask = einops.rearrange(
+                    box_mask_flat,
+                    "(b t v) c h w -> b t v c h w",
+                    b=batch_size,
+                    t=target_t,
+                    v=view_count,
+                ).to(
+                    device=sd_pred_latent.device,
+                    dtype=torch.float32,
+                )
+
+                box_region_weight = 8.0
+                pixel_weight = pixel_weight * (1.0 + box_region_weight * box_latent_mask)
+
+            sd_loss = (
+                sd_mse * pixel_weight
+            ).sum() / (
+                pixel_weight.sum() * sd_pred_latent.shape[3]
+            ).clamp_min(1.0)
 
             loss_dict["sd_loss"] = sd_loss * self.get_loss_coef("sd")
             # if not torch.isfinite(loss_dict["sd_loss"]).all():

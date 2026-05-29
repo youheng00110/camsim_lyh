@@ -9,10 +9,12 @@
 *.png
 nuplan_cache/          
 !utils/valid.pkl  
+# keep these four png files
+!/image-1.png
+!/image-2.png
+!/image-3.png
+!/image-4.png
 # 只忽略特定目录下的大 json 文件（示例，根据你的实际路径改）
-waymo_balanced/*.json
-waymo_caption_v2/*.json
-nuscenes_train_balanced/*.json
 nuscenes_val_sort/*.json
 waymo_prepo/*.json
 avrgo2_json/*.json
