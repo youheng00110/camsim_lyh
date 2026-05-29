@@ -210,36 +210,47 @@ class STFlowEvaluator:
         return pairs
 
 
-    def waymo_camera_pairs(self, camera_names):
-        # Your current Waymo manifest uses generic CAM_00 ... CAM_07.
-        # From the first sanity run, these are the two reliable overlapping pairs:
-        # CAM_02__CAM_05: cross_epi≈3.24, high matches
-        # CAM_01__CAM_06: cross_epi≈3.28, high matches
-        generic_8view_pairs = [
-            ("CAM_02", "CAM_05"),
-            ("CAM_01", "CAM_06"),
-        ]
+    def waymo_camera_pairs(self, camera_names, transforms):
+        # Waymo is padded to 8 views in our processed setting.
+        # Only the first 5 views are real distinct cameras.
+        # The last 3 views are padded / repeated views and should not be used
+        # for cross-view consistency evaluation.
+        unique_view_count = min(5, len(camera_names))
 
-        # If later you export real Waymo camera names, this branch can be used.
-        named_5view_pairs = [
-            ("FRONT_LEFT", "FRONT"),
-            ("FRONT", "FRONT_RIGHT"),
-            ("SIDE_LEFT", "FRONT_LEFT"),
-            ("FRONT_RIGHT", "SIDE_RIGHT"),
-        ]
+        if unique_view_count < 2:
+            return []
 
-        camera_name_set = set(camera_names)
+        yaws = []
+        for index in range(unique_view_count):
+            rotation = transforms[index][:3, :3]
+            forward = rotation @ torch.tensor(
+                [0.0, 0.0, 1.0],
+                dtype=torch.float32,
+                device=self.device,
+            )
+            yaw = torch.atan2(forward[1], forward[0]).item()
+            yaws.append((yaw, index))
 
-        if all(cam0 in camera_name_set and cam1 in camera_name_set for cam0, cam1 in generic_8view_pairs):
-            return self.whitelist_camera_pairs(camera_names, generic_8view_pairs)
+        # Sort the first five real cameras from one side to the other.
+        # Unlike nuPlan, Waymo should not use ring closure between the
+        # leftmost and rightmost cameras.
+        yaws = sorted(yaws, key=lambda x: x[0])
 
-        if all(cam0 in camera_name_set and cam1 in camera_name_set for cam0, cam1 in named_5view_pairs):
-            return self.whitelist_camera_pairs(camera_names, named_5view_pairs)
+        pairs = []
+        for order_index in range(len(yaws) - 1):
+            current_index = yaws[order_index][1]
+            next_index = yaws[order_index + 1][1]
 
-        raise ValueError(
-            "Cannot infer valid Waymo camera pairs from camera_names="
-            f"{camera_names}. Please pass --camera-pairs manually."
-        )
+            if current_index == next_index:
+                continue
+
+            pair_name = (
+                camera_names[current_index],
+                camera_names[next_index],
+            )
+            pairs.append((current_index, next_index, pair_name))
+
+        return pairs
 
 
     def select_camera_pairs(self, manifest_item, transforms, camera_names):
@@ -252,11 +263,11 @@ class STFlowEvaluator:
             return self.camera_ring_pairs(transforms, camera_names)
 
         if self.pair_policy == "waymo":
-            return self.waymo_camera_pairs(camera_names)
+            return self.waymo_camera_pairs(camera_names, transforms)
 
         if self.pair_policy == "dataset":
             if "waymo" in dataset_name:
-                return self.waymo_camera_pairs(camera_names)
+                return self.waymo_camera_pairs(camera_names, transforms)
 
             if "nuplan" in dataset_name:
                 return self.camera_ring_pairs(transforms, camera_names)
