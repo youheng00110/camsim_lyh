@@ -33,7 +33,7 @@
             "print_load_state_info": true,
             "condition_on_all_frames": true,
             "uncondition_image_color": 0.1255,
-            "debug_pv_layout_condition": true,
+            "debug_pv_layout_condition": false,
             "explicit_view_modeling": true,
             "camera_token_modeling": false,
             "bbox_token_modeling": true,
@@ -41,7 +41,6 @@
 
             "use_pv_layout_condition": false,
             "added_time_ids": null,
-            "use_pv_layout_condition": false,
             "map_token_key": "hdmap_bev_images",
 
             "require_bbox_token_input": true,
@@ -143,7 +142,7 @@
             "memory_efficient_batch": 12
         },
         "training_config": {
-            "text_prompt_condition_ratio": 0.8,
+            "text_prompt_condition_ratio": 0,
             "3dbox_condition_ratio": 0,
             "explicit_view_modeling_ratio": 1.0,
             "reference_frame_count": 3,
@@ -268,7 +267,7 @@
             },
             "fvd": {
                 "_class_name": "dwm.metrics.fvd.FrechetVideoDistance",
-                "inception_3d_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/i3d_pretrained_400.pt",
+                "inception_3d_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/ckpt/i3d_pretrained_400.pt",
                 "sequence_count": 35
             }
         }
@@ -785,6 +784,7 @@
                     "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
                     "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
                     "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
+                    "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/val_nonidle_windows_metadata.json",
                     "layout_token_settings": {
                     "enabled": true,
                     "max_boxes": 64,
@@ -797,7 +797,7 @@
 
                     "sequence_length": 35,
                     "fps_stride_tuples": [
-                         [6,12,0.9]
+                         [6,8,0.6]
                     ],
 
                     "sensor_channels": [
