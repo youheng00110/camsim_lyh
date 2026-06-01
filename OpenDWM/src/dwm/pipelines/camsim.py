@@ -2172,7 +2172,18 @@ class CrossviewTemporalSD():
             sd_pred_latent = sd_pred[0] * (-sigmas) + noisy_latents \
                 if isinstance(self.model, diffusers.SD3Transformer2DModel) \
                 else sd_pred[0]
-               
+            if global_step < 5:
+                rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+
+                if rank == 0:
+                    if "camera_order_perm" in batch:
+                        print("[CAM_PERM_DEBUG]", batch["camera_order_perm"][0].tolist())
+
+                    if "camera_names" in batch:
+                        print("[CAM_NAMES_DEBUG]", batch["camera_names"])
+
+                    if "crossview_mask" in batch:
+                        print("[MASK_DEBUG]", batch["crossview_mask"][0].int().tolist())
             # nan_reason = None
 
             # if not torch.isfinite(latents).all():

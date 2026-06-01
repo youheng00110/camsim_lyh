@@ -19,7 +19,7 @@
             "device_type": "cuda",
             "mesh_shape": [
                 1,
-                8
+                1
             ]
         }
     },
@@ -738,45 +738,45 @@
         ]
     },
     "validation_dataset": {
-        "_class_name": "dwm.datasets.common.DatasetAdapter",
+        "_class_name": "dwm.datasets.common.DatasetAdapter",   
         "default_height": 288,
         "default_width": 512,
         "base_dataset": {
+            
             "_class_name": "torch.utils.data.ConcatDataset",
             "datasets": [
+
                 {
-                    "_class_name": "dwm.datasets.nuplan.MotionDataset",
-                    "sensor_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_sensors",
-                    "pkl_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_infos_val.pkl",
-                    "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
-                    "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
-                    "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
-                    "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/val_nonidle_windows_metadata.json",
+                    "_class_name": "dwm.datasets.waymo.MotionDataset",
+                    "fs": {
+                        "_class_name": "dwm.fs.dirfs.DirFileSystem",
+                        "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_link"
+                    },
+                    "split":"validation",
+                    "dataset_root":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_link",
+                    "info_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_balanced/validation.info.json",
                     "sequence_length": 35,
                     "fps_stride_tuples": [
-                        [
-                            6,
-                            8,
-                            0.6
-                        ]
+                        [6,2]
                     ],
                     "sensor_channels": [
-                        "CAM_L2",
-                        "CAM_L1",
-                        "CAM_L0",
-                        "CAM_F0",
-                        "CAM_R0",
-                        "CAM_R1",
-                        "CAM_R2",
-                        "CAM_B0"
+                        "LIDAR_TOP",
+                        "CAM_SIDE_LEFT",
+                        "CAM_FRONT_LEFT",
+                        "CAM_FRONT",
+                        "CAM_FRONT_RIGHT",
+                        "CAM_SIDE_RIGHT",
+                        "CAM_FRONT",
+                        "CAM_FRONT_LEFT",
+                        "CAM_FRONT_RIGHT"
                     ],
                     "enable_camera_transforms": true,
                     "enable_ego_transforms": true,
-                    "enable_synchronization_check": true,
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
                     "image_description_settings": {
-                        "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/nuplan_scene.json",
+                        "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_caption_v2/waymo_caption_v2_val.json",
+                        "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_caption_v2/waymo_caption_v2_times_val.json",
                         "align_keys": [
                             "time",
                             "weather"
@@ -795,7 +795,7 @@
                                 "_class_name": "torch.tensor",
                                 "data": {
                                     "_class_name": "json.loads",
-                                    "s": "[[1,1,0,0,0,0,0,1],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[0,0,0,0,1,1,1,0],[0,0,0,0,0,1,1,1],[1,0,0,0,0,0,1,1]]"
+                                    "s": "[[1,1,0,0,0,0,0,0],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]]"
                                 },
                                 "dtype": {
                                     "_class_name": "get_class",
@@ -807,13 +807,10 @@
                             "content",
                             {
                                 "_class_name": "torch.tensor",
-                                "data": 0,
-                                "dtype": {
-                                    "_class_name": "get_class",
-                                    "class_name": "torch.int64"
-                                }
+                                "data": 2,
+                                "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
                             }
-                        ]
+                            ]
                     }
                 }
             ]
