@@ -84,6 +84,7 @@ class STFlowEvaluator:
         intrinsics = []
         transforms = []
         camera_names = []
+        ego_transforms = []
 
         for frame in manifest_item["frames"]:
             frame_images = []
@@ -93,6 +94,15 @@ class STFlowEvaluator:
 
             if len(camera_names) == 0:
                 camera_names = [view["camera"] for view in frame["views"]]
+
+            frame_ego_transform = frame.get("T_ego_to_world", None)
+            if frame_ego_transform is not None:
+                frame_ego_transform = torch.tensor(
+                    frame_ego_transform,
+                    dtype=torch.float32,
+                    device=self.device,
+                )
+            ego_transforms.append(frame_ego_transform)
 
             for view in frame["views"]:
                 image_path = view["image_path"]
@@ -118,7 +128,6 @@ class STFlowEvaluator:
                     dtype=torch.float32,
                     device=self.device,
                 )
-
                 frame_images.append(image_tensor)
                 frame_masks.append(mask_tensor)
                 frame_intrinsics.append(K)
@@ -135,6 +144,7 @@ class STFlowEvaluator:
             "intrinsics": intrinsics,
             "transforms": transforms,
             "camera_names": camera_names,
+            "ego_transforms": ego_transforms,
         }
 
     def camera_ring_pairs(self, transforms, camera_names):
@@ -275,6 +285,14 @@ class STFlowEvaluator:
             return self.camera_ring_pairs(transforms, camera_names)
 
         raise ValueError(f"Unknown pair_policy: {self.pair_policy}")
+
+    def select_temporal_views(self, manifest_item, camera_names):
+        dataset_name = str(manifest_item.get("dataset_name", "")).lower()
+
+        if "waymo" in dataset_name:
+            return list(range(min(5, len(camera_names))))
+
+        return list(range(len(camera_names)))
     def run_raft(self, image0, image1):
         transforms = self.raft_weights.transforms()
         image0_ready, image1_ready = transforms(image0, image1)
@@ -407,7 +425,19 @@ class STFlowEvaluator:
 
         return fundamental
 
+    def fundamental_from_camera_to_world(self, K0, T_cam_to_world0, K1, T_cam_to_world1):
+        relative = torch.linalg.inv(T_cam_to_world1) @ T_cam_to_world0
+        rotation = relative[:3, :3]
+        translation = relative[:3, 3]
 
+        essential = self.skew_matrix(translation) @ rotation
+        fundamental = torch.linalg.inv(K1).T @ essential @ torch.linalg.inv(K0)
+
+        scale = torch.linalg.norm(fundamental)
+        if scale > 0:
+            fundamental = fundamental / scale
+
+        return fundamental
     def fundamental_from_transforms(self, K0, T0, K1, T1):
         return self.fundamental_from_camera_to_ego(K0, T0, K1, T1)
 
@@ -485,7 +515,8 @@ class STFlowEvaluator:
         intrinsics = data["intrinsics"]
         transforms = data["transforms"]
         camera_names = data["camera_names"]
-
+        ego_transforms = data.get("ego_transforms", [])
+        
         frame_count = len(images)
         view_count = len(images[0])
         camera_pairs = self.select_camera_pairs(
@@ -498,13 +529,20 @@ class STFlowEvaluator:
         cross_errors = []
         cycle_errors = []
         flow_cache = {}
-
+        traj_epi_errors = []
+        traj_inlier2_values = []
+        traj_inlier4_values = []
         time_edges = []
         for time_index in range(0, frame_count - self.frame_stride, self.frame_stride):
             time_edges.append((time_index, time_index + self.frame_stride))
 
+        temporal_view_indices = self.select_temporal_views(
+            manifest_item,
+            camera_names,
+        )
+
         for time0, time1 in time_edges:
-            for view_index in range(view_count):
+            for view_index in temporal_view_indices:
                 image0 = images[time0][view_index]
                 image1 = images[time1][view_index]
                 flow = self.run_raft(image0, image1)
@@ -519,7 +557,34 @@ class STFlowEvaluator:
                 )
                 if temp_error is not None:
                     temporal_errors.append(temp_error)
+                if (
+                    len(ego_transforms) > time1
+                    and ego_transforms[time0] is not None
+                    and ego_transforms[time1] is not None
+                ):
+                    traj_points0, traj_points1, _ = self.run_loftr(image0, image1)
+                    traj_points0, traj_points1 = self.filter_matched_points(
+                        traj_points0,
+                        traj_points1,
+                        masks[time0][view_index],
+                        masks[time1][view_index],
+                    )
 
+                    if traj_points0.shape[0] >= self.min_matches:
+                        T_cam_to_world0 = ego_transforms[time0] @ transforms[time0][view_index]
+                        T_cam_to_world1 = ego_transforms[time1] @ transforms[time1][view_index]
+
+                        F_traj = self.fundamental_from_camera_to_world(
+                            intrinsics[time0][view_index],
+                            T_cam_to_world0,
+                            intrinsics[time1][view_index],
+                            T_cam_to_world1,
+                        )
+
+                        traj_epi = self.sampson_error_px(traj_points0, traj_points1, F_traj)
+                        traj_epi_errors.append(torch.median(traj_epi).item())
+                        traj_inlier2_values.append((traj_epi < 2.0).float().mean().item())
+                        traj_inlier4_values.append((traj_epi < 4.0).float().mean().item())
         pair_stats = {}
 
         for time0, time1 in time_edges:
@@ -618,6 +683,10 @@ class STFlowEvaluator:
                 "num_cross_edges": len(cross_errors),
                 "num_cycle_edges": len(cycle_errors),
                 "pair_stats": pair_summary,
+                "traj_epi_px": float(np.nanmean(traj_epi_errors)) if len(traj_epi_errors) > 0 else float("nan"),
+                "traj_inlier2": float(np.nanmean(traj_inlier2_values)) if len(traj_inlier2_values) > 0 else float("nan"),
+                "traj_inlier4": float(np.nanmean(traj_inlier4_values)) if len(traj_inlier4_values) > 0 else float("nan"),
+                "num_traj_edges": len(traj_epi_errors),
             }
         )
         return summary

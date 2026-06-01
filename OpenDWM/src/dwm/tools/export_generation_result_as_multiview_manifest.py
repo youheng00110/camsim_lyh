@@ -128,7 +128,21 @@ def tensor_to_json(value):
 
     return value
 
+def get_frame_ego_transform(batch, local_batch_index, time_index):
+    if "ego_transforms" not in batch:
+        return None
 
+    ego_transform = batch["ego_transforms"][local_batch_index, time_index]
+
+    if ego_transform.ndim == 3:
+        ego_transform = ego_transform[0]
+
+    if ego_transform.ndim != 2:
+        raise ValueError(
+            f"Unexpected ego_transforms shape at frame: {tuple(ego_transform.shape)}"
+        )
+
+    return ego_transform
 def find_string_list_by_key(node, target_keys):
     if isinstance(node, dict):
         for key, value in node.items():
@@ -326,6 +340,10 @@ def export_one_batch(
                 "frame_index": time_index,
                 "views": [],
             }
+
+            ego_transform = get_frame_ego_transform(batch, local_batch_index, time_index)
+            if ego_transform is not None:
+                frame_record["T_ego_to_world"] = tensor_to_json(ego_transform)
 
             for view_index in range(view_count):
                 camera_name = camera_names[view_index]

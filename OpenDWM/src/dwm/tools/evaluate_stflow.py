@@ -100,11 +100,14 @@ def aggregate_video_results(video_results):
         "cycle_epi_px",
         "stflow_error",
         "stflow_score",
+        "traj_epi_px",
+        "traj_inlier2",
+        "traj_inlier4",
         "num_temporal_edges",
         "num_cross_edges",
         "num_cycle_edges",
+        "num_traj_edges",
     ]
-
     output = {
         "num_videos": len(video_results),
         "videos": video_results,

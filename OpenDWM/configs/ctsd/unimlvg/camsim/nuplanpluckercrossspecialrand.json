@@ -19,7 +19,7 @@
             "device_type": "cuda",
             "mesh_shape": [
                 1,
-                8
+                4
             ]
         }
     },
@@ -233,7 +233,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplanplucker_special_noid/checkpoints/20000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplansingle2/checkpoints/20000.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -253,6 +253,13 @@
         "_class_name": "dwm.datasets.common.DatasetAdapter",
         "default_height": 288,
         "default_width": 512,
+        "random_camera_order_augment": {
+            "enabled": true,
+            "prob": 1.0,
+            "keep_first_n": 0,
+            "record_perm_key": "camera_order_perm",
+            "record_old_names_key": "camera_names_before_permute"
+        },
         "base_dataset": {
             "_class_name": "torch.utils.data.ConcatDataset",
             "datasets": [

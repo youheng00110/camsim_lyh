@@ -832,12 +832,19 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                 map_tokens = self.map_token_encoder(map_flat)
                 extra_condition_tokens.append(map_tokens)
 
+            if len(extra_condition_tokens) > 0:
+                encoder_hidden_states = torch.cat(
+                    extra_condition_tokens + [encoder_hidden_states],
+                    dim=1,
+                )
+
+
             # 第一版建议先不要加 view_cam_emb，保持纯 context token 注入
-        view_cam_emb = hidden_states.new_zeros(
-            batch_size * sequence_length * view_count,
-            1,
-            hidden_states.shape[-1],
-        )
+            view_cam_emb = hidden_states.new_zeros(
+                batch_size * sequence_length * view_count,
+                1,
+                hidden_states.shape[-1],
+            )
 
         if self.perspective_modeling_type == "implicit":
             view_emb = self.view_cam_proj(added_time_ids.flatten()) \

@@ -508,7 +508,156 @@ def crop_resize_proj_clr_keep_invalid(x: torch.Tensor, meta_nested):
             out_row.append(cur)
         out_rows.append(torch.stack(out_row, dim=0))
     return torch.stack(out_rows, dim=0)
-    
+class RandomCameraOrderAugment:
+    def __init__(
+        self,
+        enabled=True,
+        prob=1.0,
+        keep_first_n=0,
+        record_perm_key="camera_order_perm",
+        record_old_names_key="camera_names_before_permute",
+    ):
+        self.enabled = enabled
+        self.prob = float(prob)
+        self.keep_first_n = int(keep_first_n)
+        self.record_perm_key = record_perm_key
+        self.record_old_names_key = record_old_names_key
+
+        self.tv_tensor_keys = [
+            "images",
+            "vae_images",
+            "3dbox_images",
+            "hdmap_images",
+            "valid_mask",
+            "padding_mask",
+            "camera_intrinsics",
+            "camera_transforms",
+            "ego_transforms",
+            "image_size",
+            "distortion",
+            "angle",
+            "dist",
+            "is_uncalibrated",
+            "proj_depth",
+            "proj_sem",
+            "proj_clr",
+        ]
+
+        self.nested_list_keys = [
+            "camera_names",
+            "image_description",
+            "clip_text",
+        ]
+
+    def make_perm(self, v_count):
+        if not self.enabled:
+            return torch.arange(v_count, dtype=torch.long)
+
+        if random.random() >= self.prob:
+            return torch.arange(v_count, dtype=torch.long)
+
+        if self.keep_first_n <= 0:
+            return torch.randperm(v_count)
+
+        if self.keep_first_n >= v_count:
+            return torch.arange(v_count, dtype=torch.long)
+
+        fixed = torch.arange(self.keep_first_n, dtype=torch.long)
+        tail = torch.randperm(v_count - self.keep_first_n) + self.keep_first_n
+        return torch.cat([fixed, tail], dim=0)
+
+    def permute_tensor(self, value, perm, v_count):
+        if not torch.is_tensor(value):
+            return value
+
+        if v_count is None or v_count <= 1:
+            return value
+
+        perm = perm.to(value.device)
+
+        # [V]
+        if value.ndim == 1 and value.shape[0] == v_count:
+            return value.index_select(0, perm)
+
+        # [V, ...]
+        if value.ndim >= 2 and value.shape[0] == v_count:
+            return value.index_select(0, perm)
+
+        # [T, V] or [T, V, ...]
+        if value.ndim >= 2 and value.shape[1] == v_count:
+            return value.index_select(1, perm)
+
+        # reserve for possible [B, T, V, ...] style tensors
+        if value.ndim >= 3 and value.shape[2] == v_count:
+            return value.index_select(2, perm)
+
+        return value
+
+    def permute_nested_list(self, value, perm_list, v_count):
+        if not isinstance(value, list):
+            return value
+
+        if len(value) == v_count:
+            return [value[i] for i in perm_list]
+
+        if len(value) > 0 and isinstance(value[0], list):
+            out = []
+            for row in value:
+                if len(row) == v_count:
+                    out.append([row[i] for i in perm_list])
+                else:
+                    out.append(row)
+            return out
+
+        return value
+
+    def permute_crossview_mask(self, value, perm):
+        if not torch.is_tensor(value):
+            value = torch.tensor(value)
+
+        if value.ndim != 2:
+            raise ValueError(
+                "RandomCameraOrderAugment expects per-sample crossview_mask "
+                f"with shape [V, V], but got {tuple(value.shape)}."
+            )
+
+        perm = perm.to(value.device)
+        value = value.index_select(0, perm)
+        value = value.index_select(1, perm)
+        return value
+
+    def __call__(self, item, v_count):
+        perm = self.make_perm(v_count)
+        perm_list = perm.tolist()
+
+        if self.record_perm_key is not None:
+            item[self.record_perm_key] = perm.clone()
+
+        if (
+            self.record_old_names_key is not None
+            and "camera_names" in item
+        ):
+            item[self.record_old_names_key] = item["camera_names"]
+
+        for key in self.tv_tensor_keys:
+            if key in item:
+                item[key] = self.permute_tensor(item[key], perm, v_count)
+
+        for key in self.nested_list_keys:
+            if key in item:
+                item[key] = self.permute_nested_list(
+                    item[key],
+                    perm_list,
+                    v_count,
+                )
+
+        if "crossview_mask" in item:
+            item["crossview_mask"] = self.permute_crossview_mask(
+                item["crossview_mask"],
+                perm,
+            )
+
+        return item    
 class DatasetAdapter(torch.utils.data.Dataset):
     @staticmethod
     def apply_transform(transform, a, stack: bool = True):
@@ -742,28 +891,34 @@ class DatasetAdapter(torch.utils.data.Dataset):
     
     def __init__(
         self,
-        base_dataset: torch.utils.data.Dataset,
-        transform_list: list,
+        base_dataset,
+        transform_list,
         pop_list=None,
-        enable_geometry_check: bool = False,
-        crop_use_intrinsics_center: bool = True,
-        crop_horizontal_anchor: float = 0.5,
-        crop_vertical_anchor: float = 0.5,
-        default_height: int = 288,
-        default_width: int = 512,
+        enable_geometry_check=False,
+        crop_use_intrinsics_center=True,
+        crop_horizontal_anchor=0.5,
+        crop_vertical_anchor=0.5,
+        default_height=288,
+        default_width=512,
+        random_camera_order_augment=None,
     ):
         self.base_dataset = base_dataset
         self.transform_list = transform_list
         self.pop_list = pop_list
         self.enable_geometry_check = enable_geometry_check
         self._geometry_check_done = False
-
         self.crop_use_intrinsics_center = crop_use_intrinsics_center
         self.crop_horizontal_anchor = crop_horizontal_anchor
         self.crop_vertical_anchor = crop_vertical_anchor
-
         self.default_height = default_height
         self.default_width = default_width
+
+        if random_camera_order_augment is None:
+            self.random_camera_order_augment = None
+        else:
+            self.random_camera_order_augment = RandomCameraOrderAugment(
+                **random_camera_order_augment
+            )
 
     def __len__(self):
         return len(self.base_dataset)
@@ -961,12 +1116,14 @@ class DatasetAdapter(torch.utils.data.Dataset):
                     i["transform"], item[old_key], stack
                 )
 
+        if self.random_camera_order_augment is not None:
+            item = self.random_camera_order_augment(item, v_count)
+
         if self.pop_list is not None:
             for i in self.pop_list:
                 if i in item:
                     item.pop(i)
 
-        #print("DEBUG final item keys:", item.keys())
         return item
 
 
