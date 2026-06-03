@@ -62,6 +62,11 @@ def create_parser():
         default=None,
         help="Optional device override. If omitted, use config['device'].",
     )
+    parser.add_argument(
+        "--export-paired-real",
+        action="store_true",
+        help="Also save real validation images from the same batch and write real_image_path into manifest.",
+    )
     return parser
 
 
@@ -247,6 +252,20 @@ def save_valid_mask(mask_tensor, mask_path):
     Image.fromarray(mask_array, mode="L").save(mask_path)
 
 
+
+def save_real_image_tensor(image_tensor, image_path, image_quality, size_tuple=None):
+    image_tensor = image_tensor.detach().cpu().float().clamp(0, 1)
+    image_array = image_tensor.permute(1, 2, 0).numpy()
+    image_array = (image_array * 255.0).round().astype(np.uint8)
+
+    image = Image.fromarray(image_array, mode="RGB")
+    if size_tuple is not None and image.size != size_tuple:
+        image = image.resize(size_tuple)
+
+    os.makedirs(os.path.dirname(image_path), exist_ok=True)
+    image.save(image_path, quality=image_quality)
+
+
 def image_size_to_tuple(image_size_tensor):
     image_size_list = image_size_tensor.detach().cpu().tolist()
     width = int(round(float(image_size_list[0])))
@@ -308,6 +327,7 @@ def export_one_batch(
     exported_count,
     max_videos,
     image_quality,
+    export_paired_real,
 ):
     batch_size, sequence_length, view_count = batch["vae_images"].shape[:3]
     camera_names = get_camera_names_from_batch(batch, config, view_count)
@@ -317,12 +337,31 @@ def export_one_batch(
     image_size = get_required_batch_tensor(batch, "image_size")
     valid_mask = batch.get("valid_mask", None)
 
-    expected_image_count = batch_size * sequence_length * view_count
-    if len(generated_images) != expected_image_count:
+    inference_config = config.get("pipeline", {}).get("inference_config", {})
+    reference_frame_count = int(inference_config.get("reference_frame_count", 0))
+    generate_frames_for_reference = bool(
+        inference_config.get("generate_frames_for_reference", True)
+    )
+
+    full_image_count = batch_size * sequence_length * view_count
+    predicted_sequence_length = sequence_length
+    if not generate_frames_for_reference:
+        predicted_sequence_length = max(sequence_length - reference_frame_count, 0)
+
+    predicted_image_count = batch_size * predicted_sequence_length * view_count
+
+    if len(generated_images) == full_image_count:
+        output_layout = "full"
+    elif len(generated_images) == predicted_image_count:
+        output_layout = "without_reference"
+    else:
         raise RuntimeError(
             f"Unexpected generated image count: got {len(generated_images)}, "
-            f"expected {expected_image_count} = B({batch_size}) * "
-            f"T({sequence_length}) * V({view_count})."
+            f"expected either full={full_image_count} or "
+            f"without_reference={predicted_image_count}. "
+            f"B={batch_size}, T={sequence_length}, V={view_count}, "
+            f"reference_frame_count={reference_frame_count}, "
+            f"generate_frames_for_reference={generate_frames_for_reference}."
         )
 
     saved_count = 0
@@ -347,11 +386,46 @@ def export_one_batch(
 
             for view_index in range(view_count):
                 camera_name = camera_names[view_index]
-                flat_index = (
-                    local_batch_index * sequence_length * view_count
-                    + time_index * view_count
-                    + view_index
+
+                size_tuple = image_size_to_tuple(
+                    image_size[local_batch_index, time_index, view_index]
                 )
+
+                real_image_tensor = batch["vae_images"][
+                    local_batch_index,
+                    time_index,
+                    view_index,
+                ]
+
+                # Decide whether this fake frame should be copied from GT reference
+                # or from model output.
+                use_gt_as_fake = (
+                    (not generate_frames_for_reference)
+                    and time_index < reference_frame_count
+                )
+
+                generated_image = None
+                if not use_gt_as_fake:
+                    if output_layout == "full":
+                        flat_index = (
+                            local_batch_index * sequence_length * view_count
+                            + time_index * view_count
+                            + view_index
+                        )
+                    else:
+                        generated_time_index = time_index - reference_frame_count
+                        if generated_time_index < 0:
+                            raise RuntimeError(
+                                "Internal error: reference frame requested from "
+                                "without_reference generated output."
+                            )
+                        flat_index = (
+                            local_batch_index * predicted_sequence_length * view_count
+                            + generated_time_index * view_count
+                            + view_index
+                        )
+
+                    generated_image = generated_images[flat_index]
 
                 relative_image_path = os.path.join(
                     "images",
@@ -362,13 +436,34 @@ def export_one_batch(
                 absolute_image_path = output_root / relative_image_path
                 absolute_image_path.parent.mkdir(parents=True, exist_ok=True)
 
-                size_tuple = image_size_to_tuple(
-                    image_size[local_batch_index, time_index, view_index]
-                )
-                generated_images[flat_index].resize(size_tuple).save(
-                    absolute_image_path,
-                    quality=image_quality,
-                )
+                if use_gt_as_fake:
+                    save_real_image_tensor(
+                        real_image_tensor,
+                        str(absolute_image_path),
+                        image_quality,
+                        size_tuple,
+                    )
+                else:
+                    generated_image.resize(size_tuple).save(
+                        absolute_image_path,
+                        quality=image_quality,
+                    )
+
+                real_relative_image_path = None
+                if export_paired_real:
+                    real_relative_image_path = os.path.join(
+                        "paired_real",
+                        video_id,
+                        f"t{time_index:03d}",
+                        f"{camera_name}.jpg",
+                    )
+                    real_absolute_image_path = output_root / real_relative_image_path
+                    save_real_image_tensor(
+                        real_image_tensor,
+                        str(real_absolute_image_path),
+                        image_quality,
+                        size_tuple,
+                    )
 
                 relative_mask_path = None
                 if isinstance(valid_mask, torch.Tensor):
@@ -395,6 +490,11 @@ def export_one_batch(
                     time_index,
                     view_index,
                 )
+                if real_relative_image_path is not None:
+                    view_record["real_image_path"] = real_relative_image_path
+                if use_gt_as_fake:
+                    view_record["is_reference_frame"] = True
+
                 frame_record["views"].append(view_record)
 
             frames.append(frame_record)
@@ -403,6 +503,8 @@ def export_one_batch(
             "video_id": video_id,
             "dataset_name": dataset_name,
             "frames": frames,
+            "reference_frame_count": reference_frame_count,
+            "generate_frames_for_reference": generate_frames_for_reference,
         }
         manifest_file.write(json.dumps(manifest_item, ensure_ascii=False) + "\n")
         manifest_file.flush()
@@ -500,6 +602,7 @@ def main():
                         exported_count,
                         args.max_videos,
                         args.image_quality,
+                        args.export_paired_real,
                     )
             else:
                 saved_count = remaining

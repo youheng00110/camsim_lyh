@@ -186,6 +186,8 @@
             "pos_embed_max_size": 192,
             "sample_size": 128,
             "perspective_modeling_type": "mdtoken_nopv",
+            "mdtoken_add_plucker_to_hidden": true,
+            "mdtoken_plucker_scale": 1.0,
             "enable_crossview": false,
             "disable_view_index_embedding": true,
             "mdtoken_bbox_config": {
@@ -249,7 +251,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantokensingle/checkpoints/130000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantokensingle/checkpoints/148000.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -303,7 +305,15 @@
                     "enable_ego_transforms": true,
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
-                    "hdmap_bev_settings": {  "bev_size": [256, 256]},
+                    "hdmap_bev_settings": {
+                    "bev_size": [256, 256],
+                    "bev_from_ego_transform": [
+                        [1.6, 0.0, 0.0, 128.0],
+                        [0.0, -1.6, 0.0, 128.0],
+                        [0.0, 0.0, -1.6, 0.0],
+                        [0.0, 0.0, 0.0, 1.0]
+                    ]
+                    },
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_caption_v2/waymo_caption_v2_train.json",
                         "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_caption_v2/waymo_caption_v2_times_train.json",
@@ -375,7 +385,15 @@
                         "enable_ego_transforms": true,
                         "_3dbox_image_settings": {},
                         "hdmap_image_settings": {},
-                        "hdmap_bev_settings": {  "bev_size": [256, 256]},
+                        "hdmap_bev_settings": {
+                        "bev_size": [256, 256],
+                        "bev_from_ego_transform": [
+                            [1.6, 0.0, 0.0, 128.0],
+                            [0.0, -1.6, 0.0, 128.0],
+                            [0.0, 0.0, -1.6, 0.0],
+                            [0.0, 0.0, 0.0, 1.0]
+                        ]
+                        },
                         "image_description_settings": {
                             "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuscenes_caption/nuscenes_v1.0-trainval_caption_v2_train.json",
                             "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuscenes_caption/nuscenes_v1.0-trainval_caption_v2_times_train.json",
@@ -446,7 +464,15 @@
                     "enable_ego_transforms": true,
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
-                    "hdmap_bev_settings": {  "bev_size": [256, 256]},
+                    "hdmap_bev_settings": {
+                    "bev_size": [256, 256],
+                    "bev_from_ego_transform": [
+                        [1.6, 0.0, 0.0, 128.0],
+                        [0.0, -1.6, 0.0, 128.0],
+                        [0.0, 0.0, -1.6, 0.0],
+                        [0.0, 0.0, 0.0, 1.0]
+                    ]
+                    },
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_train.json",
                         "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/av2_sensor_caption_v2/av2_sensor_caption_v2_times_train.json",
@@ -615,7 +641,15 @@
 
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
-                    "hdmap_bev_settings": {  "bev_size": [256, 256]},
+                    "hdmap_bev_settings": {
+                    "bev_size": [256, 256],
+                    "bev_from_ego_transform": [
+                        [1.6, 0.0, 0.0, 128.0],
+                        [0.0, -1.6, 0.0, 128.0],
+                        [0.0, 0.0, -1.6, 0.0],
+                        [0.0, 0.0, 0.0, 1.0]
+                    ]
+                    },
 
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/nuplan_scene.json",

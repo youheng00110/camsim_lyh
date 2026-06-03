@@ -19,7 +19,7 @@
             "device_type": "cuda",
             "mesh_shape": [
                 1,
-                8
+                4
             ]
         }
     },
@@ -233,7 +233,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplanplucker_special_noid/checkpoints/20000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplanplucker_special_noid/checkpoints/28000.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -245,7 +245,7 @@
             "fvd": {
                 "_class_name": "dwm.metrics.fvd.FrechetVideoDistance",
                 "inception_3d_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/i3d_pretrained_400.pt",
-                "sequence_count": 35
+                "sequence_count": 19
             }
         }
     },
@@ -752,7 +752,7 @@
                     "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
                     "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
                     "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/val_nonidle_windows_metadata.json",
-                    "sequence_length": 35,
+                    "sequence_length": 19,
                     "fps_stride_tuples": [
                         [
                             6,

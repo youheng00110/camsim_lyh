@@ -171,11 +171,11 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
 
 
     def _bev_xy_to_pixel(self, x, y, w, h):
-        x_min, x_max = -20.0, 20.0
-        y_min, y_max = -20.0, 20.0
+        x_min, x_max = -80.0, 80.0
+        y_min, y_max = -80.0, 80.0
 
         u = (x - x_min) / max(x_max - x_min, 1e-6) * (w - 1)
-        v = (y - y_min) / max(y_max - y_min, 1e-6) * (h - 1)
+        v = (y_max - y) / max(y_max - y_min, 1e-6) * (h - 1)
 
         return float(u), float(v)
 
@@ -423,6 +423,8 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         mdtoken_map_config: Optional[dict] = None,
         disable_view_index_embedding: bool = False,
         mask_module=None,
+        mdtoken_add_plucker_to_hidden: bool = False,
+        mdtoken_plucker_scale: float = 1.0,
         **kwargs
     ):
         super().__init__(
@@ -436,6 +438,8 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         self.temporal_gradient_checkpointing = temporal_gradient_checkpointing
         self.disable_view_emb_on_temporal_module = disable_view_emb_on_temporal_module
         self.disable_view_index_embedding = bool(disable_view_index_embedding)
+        self.mdtoken_add_plucker_to_hidden = bool(mdtoken_add_plucker_to_hidden)
+        self.mdtoken_plucker_scale = float(mdtoken_plucker_scale)
         # image condition adapter
         if condition_image_adapter_config is not None:
             self.condition_image_adapter = \
@@ -900,6 +904,12 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
 
             raymap = self.rayencoder(rays_d, rays_m)
             view_cam_emb = raymap.flatten(1, 2)
+            # 新增：让 Plücker 直接进入 image latent token
+            if (
+                self.perspective_modeling_type == "mdtoken_nopv"
+                and self.mdtoken_add_plucker_to_hidden
+            ):
+                hidden_states = hidden_states + self.mdtoken_plucker_scale * view_cam_emb
 
         condition_residuals = None if \
             self.condition_image_adapter is None or \
