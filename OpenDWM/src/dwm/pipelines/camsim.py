@@ -3068,6 +3068,29 @@ class CrossviewTemporalSD():
             )
             preview_images = pipeline_output["images"]
 
+            eval_frame_export_path = self.inference_config.get(
+                "eval_frame_export_path", None
+            )
+            if eval_frame_export_path is not None:
+                dwm.utils.preview.save_ctsd_eval_frames_for_preview(
+                    preview_images,
+                    batch,
+                    self.inference_config,
+                    output_dir=eval_frame_export_path,
+                    dataset_name=self.inference_config.get(
+                        "eval_frame_dataset_name", "unknown"
+                    ),
+                    manifest_name=self.inference_config.get(
+                        "eval_frame_manifest_name", "stflow_manifest.jsonl"
+                    ),
+                    image_quality=self.inference_config.get(
+                        "eval_frame_image_quality", 95
+                    ),
+                    export_paired_real=self.inference_config.get(
+                        "eval_frame_export_paired_real", True
+                    ),
+                )
+
             if preview_images.ndim == 4:
                 preview_btvc = preview_images.cpu().unflatten(
                     0, (batch_size, -1, view_count)

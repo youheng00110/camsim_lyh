@@ -2,6 +2,7 @@ import av
 import torch
 import torchvision
 import sys
+import os
 
 def _get_preview_view_count_from_batch(batch: dict, default_view_count: int) -> int:
     """
@@ -210,3 +211,251 @@ def depths_to_colors(depths, concat="width", colormap="rainbow", max_val=None):
         colors = gray_to_colormap(depths.detach().cpu().numpy(), cmap=colormap, max_val=max_val)
         colors = torch.from_numpy(colors).permute(2, 0, 1)
     return colors
+
+
+def _preview_eval_rank0():
+    if not torch.distributed.is_available():
+        return True
+    if not torch.distributed.is_initialized():
+        return True
+    return torch.distributed.get_rank() == 0
+
+
+def _preview_tensor_to_pil(image_tensor, size_tuple=None):
+    image_tensor = image_tensor.detach().cpu().float().clamp(0, 1)
+    image = torchvision.transforms.functional.to_pil_image(image_tensor)
+    if size_tuple is not None and image.size != size_tuple:
+        image = image.resize(size_tuple)
+    return image
+
+
+def _preview_json_tensor(value):
+    if torch.is_tensor(value):
+        return value.detach().cpu().tolist()
+    return value
+
+
+def _preview_image_size_tuple(image_size_tensor):
+    image_size = image_size_tensor.detach().cpu().tolist()
+    width = int(round(float(image_size[0])))
+    height = int(round(float(image_size[1])))
+    return width, height
+
+
+def _preview_get_camera_names(batch, view_count):
+    for key in ["camera_names", "sensor_channels", "view_names", "camera_channels"]:
+        value = batch.get(key, None)
+        if isinstance(value, list) and len(value) == view_count:
+            if all(isinstance(x, str) for x in value):
+                return [str(x) for x in value]
+        if isinstance(value, list) and len(value) > 0:
+            first = value[0]
+            if isinstance(first, list) and len(first) == view_count:
+                if all(isinstance(x, str) for x in first):
+                    return [str(x) for x in first]
+
+    return [f"CAM_{i:02d}" for i in range(view_count)]
+
+
+def _preview_count_manifest_lines(path):
+    if not os.path.exists(path):
+        return 0
+
+    count = 0
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                count += 1
+    return count
+
+
+def _preview_output_to_b_t_v(output_images, batch, inference_config):
+    batch_size, sequence_length, view_count = batch["vae_images"].shape[:3]
+    reference_frame_count = int(inference_config.get("reference_frame_count", 0))
+    reference_frame_count = min(reference_frame_count, sequence_length)
+    generate_frames_for_reference = bool(
+        inference_config.get("generate_frames_for_reference", True)
+    )
+
+    output_images = output_images.detach().cpu()
+
+    if output_images.ndim == 6:
+        generated = output_images
+    elif output_images.ndim == 4:
+        if output_images.shape[0] % (batch_size * view_count) != 0:
+            raise ValueError(
+                f"Cannot unflatten output_images shape={tuple(output_images.shape)} "
+                f"with B={batch_size}, V={view_count}."
+            )
+        generated = output_images.unflatten(0, (batch_size, -1, view_count))
+    else:
+        raise ValueError(f"Unsupported output_images shape: {tuple(output_images.shape)}")
+
+    if generated.shape[0] != batch_size:
+        raise ValueError(
+            f"Generated batch mismatch: got {generated.shape[0]}, expected {batch_size}."
+        )
+    if generated.shape[2] != view_count:
+        raise ValueError(
+            f"Generated view mismatch: got {generated.shape[2]}, expected {view_count}."
+        )
+
+    generated_length = generated.shape[1]
+
+    # Case 1: output already contains all preview frames.
+    if generated_length == sequence_length:
+        reference_flags = torch.zeros((sequence_length,), dtype=torch.bool)
+        return generated, reference_flags
+
+    # Case 2: CTSD / autoregressive preview.
+    # This mirrors camsim.py exactly:
+    # if generate_frames_for_reference=False, preview video is
+    # [GT reference frames] + [pipeline_output images].
+    if not generate_frames_for_reference and reference_frame_count > 0:
+        prefix_images = batch["vae_images"][:, :reference_frame_count].detach().cpu()
+        full = torch.cat([prefix_images, generated], dim=1)
+
+        reference_flags = torch.zeros((full.shape[1],), dtype=torch.bool)
+        reference_flags[:reference_frame_count] = True
+        return full, reference_flags
+
+    # Case 3: no reference frames should be inserted.
+    reference_flags = torch.zeros((generated_length,), dtype=torch.bool)
+    return generated, reference_flags
+
+
+def save_ctsd_eval_frames_for_preview(
+    output_images,
+    batch,
+    inference_config,
+    output_dir,
+    dataset_name="unknown",
+    manifest_name="stflow_manifest.jsonl",
+    image_quality=95,
+    export_paired_real=True,
+):
+    """Save per-view fake/real frames from the exact preview output.
+
+    fake:
+        output_dir/images/{video_id}/tXXX/{camera}.jpg
+    real:
+        output_dir/paired_real/{video_id}/tXXX/{camera}.jpg
+    manifest:
+        output_dir/stflow_manifest.jsonl
+
+    This function preserves reference-frame behavior:
+    if generate_frames_for_reference=False and output_images does not contain
+    reference frames, the first reference_frame_count fake frames are copied
+    from batch["vae_images"].
+    """
+    if not _preview_eval_rank0():
+        return
+
+    os.makedirs(output_dir, exist_ok=True)
+    manifest_path = os.path.join(output_dir, manifest_name)
+
+    fake_images, reference_flags = _preview_output_to_b_t_v(
+        output_images, batch, inference_config
+    )
+
+    real_images = batch["vae_images"].detach().cpu()
+    batch_size, sequence_length, view_count = real_images.shape[:3]
+    camera_names = _preview_get_camera_names(batch, view_count)
+    video_offset = _preview_count_manifest_lines(manifest_path)
+
+    with open(manifest_path, "a", encoding="utf-8") as manifest_file:
+        for b in range(batch_size):
+            video_id = f"{dataset_name}_video_{video_offset + b:06d}"
+            frames = []
+
+            for t in range(sequence_length):
+                frame_record = {
+                    "frame_index": t,
+                    "views": [],
+                }
+
+                if "ego_transforms" in batch:
+                    ego_transform = batch["ego_transforms"][b, t]
+                    if ego_transform.ndim == 3:
+                        ego_transform = ego_transform[0]
+                    frame_record["T_ego_to_world"] = _preview_json_tensor(ego_transform)
+
+                for v in range(view_count):
+                    camera_name = camera_names[v]
+                    size_tuple = None
+                    if "image_size" in batch:
+                        size_tuple = _preview_image_size_tuple(batch["image_size"][b, t, v])
+
+                    fake_rel = os.path.join(
+                        "images",
+                        video_id,
+                        f"t{t:03d}",
+                        f"{camera_name}.jpg",
+                    )
+                    fake_abs = os.path.join(output_dir, fake_rel)
+                    os.makedirs(os.path.dirname(fake_abs), exist_ok=True)
+                    _preview_tensor_to_pil(fake_images[b, t, v], size_tuple).save(
+                        fake_abs,
+                        quality=image_quality,
+                    )
+
+                    real_rel = None
+                    if export_paired_real:
+                        real_rel = os.path.join(
+                            "paired_real",
+                            video_id,
+                            f"t{t:03d}",
+                            f"{camera_name}.jpg",
+                        )
+                        real_abs = os.path.join(output_dir, real_rel)
+                        os.makedirs(os.path.dirname(real_abs), exist_ok=True)
+                        _preview_tensor_to_pil(real_images[b, t, v], size_tuple).save(
+                            real_abs,
+                            quality=image_quality,
+                        )
+
+                    view_record = {
+                        "camera": camera_name,
+                        "image_path": fake_rel,
+                        "real_image_path": real_rel,
+                        "valid_mask_path": None,
+                    }
+
+                    if "camera_intrinsics" in batch:
+                        view_record["K"] = _preview_json_tensor(
+                            batch["camera_intrinsics"][b, t, v]
+                        )
+                    if "camera_transforms" in batch:
+                        view_record["T_cam_to_ego"] = _preview_json_tensor(
+                            batch["camera_transforms"][b, t, v]
+                        )
+                    if "image_size" in batch:
+                        view_record["image_size"] = _preview_json_tensor(
+                            batch["image_size"][b, t, v]
+                        )
+                    if bool(reference_flags[t].item()):
+                        view_record["is_reference_frame"] = True
+
+                    frame_record["views"].append(view_record)
+
+                frames.append(frame_record)
+
+            manifest_item = {
+                "video_id": video_id,
+                "dataset_name": dataset_name,
+                "reference_frame_count": int(
+                    inference_config.get("reference_frame_count", 0)
+                ),
+                "generate_frames_for_reference": bool(
+                    inference_config.get("generate_frames_for_reference", True)
+                ),
+                "frames": frames,
+            }
+            import json
+            manifest_file.write(json.dumps(manifest_item, ensure_ascii=False) + "\n")
+            manifest_file.flush()
+
+            print(
+                f"[PREVIEW_EVAL_EXPORT] saved {video_id} to {output_dir}",
+                flush=True,
+            )
