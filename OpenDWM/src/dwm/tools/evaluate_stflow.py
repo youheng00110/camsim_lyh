@@ -41,6 +41,15 @@ def create_parser():
         default=2,
     )
     parser.add_argument(
+        "--start-frame",
+        type=int,
+        default=None,
+        help=(
+            "Start frame for ST-Flow/Traj evaluation. "
+            "Default None means auto: skip pure GT-reference edges but keep transition edge."
+        ),
+    )
+    parser.add_argument(
         "--min-matches",
         type=int,
         default=32,
@@ -93,17 +102,39 @@ def load_manifest_items(manifest_path, max_videos):
     return items
 
 
+def add_coverage_score(result):
+    raw_edges = float(result.get("num_cross_raw_edges", 0.0))
+    gated_edges = float(result.get("num_cross_edges", 0.0))
+    inlier_ratio = float(result.get("cross_inlier_ratio", 0.0))
+    stflow_score = float(result.get("stflow_score", 0.0))
+
+    if raw_edges <= 0:
+        edge_coverage = 0.0
+    else:
+        edge_coverage = gated_edges / raw_edges
+
+    result["edge_coverage"] = edge_coverage
+    result["stflow_c_score"] = stflow_score * edge_coverage * inlier_ratio
+
+    return result
+
+
 def aggregate_video_results(video_results):
     scalar_keys = [
         "temporal_l1",
+        "cross_raw_epi_px",
         "cross_epi_px",
+        "cross_inlier_ratio",
         "cycle_epi_px",
         "stflow_error",
         "stflow_score",
+        "stflow_c_score",
+        "edge_coverage",
         "traj_epi_px",
         "traj_inlier2",
         "traj_inlier4",
         "num_temporal_edges",
+        "num_cross_raw_edges",
         "num_cross_edges",
         "num_cycle_edges",
         "num_traj_edges",
@@ -131,9 +162,12 @@ def aggregate_video_results(video_results):
         for pair_key, pair_result in result.get("pair_stats", {}).items():
             if pair_key not in pair_values:
                 pair_values[pair_key] = {
+                    "cross_raw_epi_px": [],
                     "cross_epi_px": [],
                     "cycle_epi_px": [],
                     "match_count": [],
+                    "inlier_count": [],
+                    "cross_inlier_ratio": [],
                 }
 
             for metric_key in pair_values[pair_key]:
@@ -172,6 +206,7 @@ def main():
         loftr_confidence=args.loftr_confidence,
         camera_pairs=args.camera_pairs,
         pair_policy=args.pair_policy,
+        start_frame=args.start_frame,
     )
 
     manifest_items = load_manifest_items(args.manifest, args.max_videos)
@@ -181,6 +216,7 @@ def main():
     for index, item in enumerate(manifest_items):
         with torch.no_grad():
             result = evaluator.evaluate_video(item, manifest_dir)
+            result = add_coverage_score(result)
 
         video_results.append(result)
         print(

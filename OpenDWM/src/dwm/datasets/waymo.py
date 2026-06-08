@@ -462,28 +462,50 @@ class MotionDataset(torch.utils.data.Dataset):
                 fill=pen_color, width=pen_width)
 
     @staticmethod
-    def get_hdmap_bev_image(map_features, pose, hdmap_bev_settings: dict):
+    @staticmethod
+    def get_hdmap_bev_image(map_features, frame, hdmap_bev_settings: dict):
         pen_width = hdmap_bev_settings.get("pen_width", 2)
         bev_size = hdmap_bev_settings.get("bev_size", [640, 640])
         bev_from_ego_transform = hdmap_bev_settings.get(
             "bev_from_ego_transform",
-            MotionDataset.default_bev_from_ego_transform)
+            MotionDataset.default_bev_from_ego_transform,
+        )
         color_table = hdmap_bev_settings.get(
-            "color_table", MotionDataset.default_hdmap_color_table)
+            "color_table",
+            MotionDataset.default_hdmap_color_table,
+        )
 
-        # get the transform from the referenced ego space to the BEV space
-        world_from_ego = np.array(pose.transform, np.float32).reshape(4, 4)
+        world_from_ego = np.array(
+            frame.pose.transform,
+            np.float32,
+        ).reshape(4, 4)
+
+        ego_from_world = np.linalg.inv(world_from_ego).astype(np.float32)
+
+        map_pose_offset = np.array(
+            [
+                frame.map_pose_offset.x,
+                frame.map_pose_offset.y,
+                frame.map_pose_offset.z,
+            ],
+            dtype=np.float32,
+        )
+
+        raw_ego_from_map_ego = np.eye(4, dtype=np.float32)
+        raw_ego_from_map_ego[:3, 3] = -map_pose_offset
+
         bev_from_ego = np.array(bev_from_ego_transform, np.float32)
-        bev_from_world = bev_from_ego @ np.linalg.inv(world_from_ego)
 
-        # draw map elements to the image
+        bev_from_world = bev_from_ego @ raw_ego_from_map_ego @ ego_from_world
+
         image = Image.new("RGB", bev_size)
         draw = ImageDraw.Draw(image)
 
         type_polygons = {}
         type_polylines = {}
+
         for feat in map_features:
-            type_ = feat.WhichOneof('feature_data')
+            type_ = feat.WhichOneof("feature_data")
             if (
                 type_ not in color_table or
                 type_ not in MotionDataset.map_element_type_dict
@@ -493,8 +515,10 @@ class MotionDataset(torch.utils.data.Dataset):
             type_poly = MotionDataset.map_element_type_dict[type_]
             items = getattr(getattr(feat, type_), type_poly)
             coors_3d = []
+
             for item in items:
                 coors_3d.append([item.x, item.y, item.z])
+
             if len(coors_3d) > 0:
                 if type_poly == "polyline":
                     if type_ not in type_polylines:
@@ -510,17 +534,33 @@ class MotionDataset(torch.utils.data.Dataset):
                 c = tuple(color_table[k])
                 for i in v:
                     MotionDataset.draw_polygon_bev_to_image(
-                        i, draw, bev_from_world, c, pen_width)
+                        i,
+                        draw,
+                        bev_from_world,
+                        c,
+                        pen_width,
+                    )
 
         for k, v in type_polylines.items():
             if k in color_table:
                 c = tuple(color_table[k])
                 for i in v:
                     MotionDataset.draw_line_bev_to_image(
-                        i, draw, bev_from_world, c, pen_width)
-
+                        i,
+                        draw,
+                        bev_from_world,
+                        c,
+                        pen_width,
+                    )
+        if os.environ.get("DWM_DEBUG_WAYMO_MAP_OFFSET", "0") == "1":
+            print(
+                "[WAYMO_MAP_OFFSET]",
+                "ts=", int(frame.timestamp_micros),
+                "offset=", map_pose_offset.tolist(),
+                "pose_t=", world_from_ego[:3, 3].tolist(),
+                flush=True,
+            )
         return image
-
     @staticmethod
     def get_image_description(
         image_descriptions: dict, time_list_dict: dict, scene_key: str,
@@ -1148,7 +1188,7 @@ class MotionDataset(torch.utils.data.Dataset):
             result["hdmap_bev_images"] = [
                 MotionDataset.get_hdmap_bev_image(
                     scene_frame.map_features,
-                    i.pose,
+                    i,
                     self.hdmap_bev_settings,
                 )
                 for i in frames

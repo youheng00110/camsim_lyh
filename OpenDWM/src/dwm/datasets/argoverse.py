@@ -528,8 +528,12 @@ class MotionDataset(torch.utils.data.Dataset):
         nearest_time = dwm.datasets.common.find_nearest(
             time_list, sample_data["timestamp"], return_item=True)
         return image_descriptions["{}|{}".format(scene_camera, nearest_time)]
-    def get_layout_token_boxes(self, annotations, sample_data):
+    def get_layout_token_boxes(self, annotations, sample_data, poses):
         max_boxes = self.layout_token_settings.get("max_boxes", 64)
+        max_allowed_error = self.layout_token_settings.get(
+            "max_annotation_time_error_ns",
+            100 * 1000000,
+        )
 
         corners = torch.zeros(max_boxes, 8, 3, dtype=torch.float32)
         classes = torch.zeros(max_boxes, dtype=torch.long)
@@ -540,11 +544,45 @@ class MotionDataset(torch.utils.data.Dataset):
             dtype=np.float32,
         ).T
 
-        timestamp = sample_data["timestamp"]
-        a0 = bisect.bisect_left(annotations["timestamp_ns"], timestamp)
-        a1 = bisect.bisect_right(annotations["timestamp_ns"], timestamp)
+        target_ts = int(sample_data["timestamp"])
+        annotation_timestamps = annotations["timestamp_ns"]
+
+        idx = bisect.bisect_left(annotation_timestamps, target_ts)
+
+        if idx == 0:
+            nearest_anno_ts = annotation_timestamps[0]
+        elif idx >= len(annotation_timestamps):
+            nearest_anno_ts = annotation_timestamps[-1]
+        else:
+            prev_ts = annotation_timestamps[idx - 1]
+            next_ts = annotation_timestamps[idx]
+            nearest_anno_ts = prev_ts if abs(target_ts - prev_ts) <= abs(next_ts - target_ts) else next_ts
+
+        if abs(int(nearest_anno_ts) - target_ts) > max_allowed_error:
+            return corners, classes, masks
+
+        a0 = bisect.bisect_left(annotation_timestamps, nearest_anno_ts)
+        a1 = bisect.bisect_right(annotation_timestamps, nearest_anno_ts)
+
+        world_from_current_ego = MotionDataset.get_transform(
+            poses,
+            "timestamp_ns",
+            target_ts,
+        ).astype(np.float32)
+
+        world_from_annotation_ego = MotionDataset.get_transform(
+            poses,
+            "timestamp_ns",
+            nearest_anno_ts,
+        ).astype(np.float32)
+
+        current_ego_from_annotation_ego = np.linalg.solve(
+            world_from_current_ego,
+            world_from_annotation_ego,
+        ).astype(np.float32)
 
         kept = 0
+
         for i in range(a0, a1):
             if kept >= max_boxes:
                 break
@@ -555,12 +593,17 @@ class MotionDataset(torch.utils.data.Dataset):
                 [annotations[j][i] for j in self.shape_keys] + [1.0]
             ).astype(np.float32)
 
-            ego_from_annotation = dwm.datasets.common.get_transform(
+            annotation_ego_from_box = dwm.datasets.common.get_transform(
                 [annotations[j][i] for j in self.rotation_keys],
                 [annotations[j][i] for j in self.translation_keys],
             ).astype(np.float32)
 
-            p = ego_from_annotation @ scale @ corner_template
+            current_ego_from_box = (
+                current_ego_from_annotation_ego
+                @ annotation_ego_from_box
+            )
+
+            p = current_ego_from_box @ scale @ corner_template
             ego_corners = torch.tensor(p[:3].T, dtype=torch.float32)
 
             corners[kept] = ego_corners
@@ -1276,11 +1319,13 @@ class MotionDataset(torch.utils.data.Dataset):
             bbox_token_masks_list = []
 
             for time_step in item["segment"]:
-                ref_sample_data = time_step[0]
+                ref_sample_data = self.get_bev_map_frame_reference(time_step)
+
                 bbox_corners, bbox_classes, bbox_masks = \
                     self.get_layout_token_boxes(
                         annotations,
                         ref_sample_data,
+                        poses,
                     )
 
                 bbox_token_corners_list.append(bbox_corners)
