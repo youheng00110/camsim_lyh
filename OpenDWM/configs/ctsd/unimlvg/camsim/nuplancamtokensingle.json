@@ -1,7 +1,7 @@
 {
     "device": "cuda",
     "ddp_backend": "nccl",
-    "train_epochs": 6,
+    "train_epochs": 10,
     "generator_seed": 0,
     "same_dataset_per_global_batch": true,
     "data_shuffle": true,
@@ -251,7 +251,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantokensingle/checkpoints/148000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantokensinglefixed2/checkpoints/70000.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -626,7 +626,7 @@
                     "map_token_key": "hdmap_bev_images"
                     },
 
-                    "sequence_length": 35,
+                    "sequence_length": 19,
                     "fps_stride_tuples": [
                          [6,8,0.6]
                     ],

@@ -1130,6 +1130,18 @@ class CrossviewTemporalSD():
 
             "map_token_input": map_token_input,
         }
+        optional_condition_keys = [
+            "camera_param_token",
+            "camera_token_mask",
+            "bbox_token_input",
+            "bbox_class_input",
+            "bbox_mask_input",
+            "map_token_input",
+        ]
+
+        for key in optional_condition_keys:
+            if result.get(key, None) is None:
+                result.pop(key, None)
 
         if (
             isinstance(model, diffusers.SD3Transformer2DModel) and

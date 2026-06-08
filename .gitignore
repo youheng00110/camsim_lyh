@@ -61,6 +61,7 @@ __pycache__/
 /nusc12hz/
 
 # archives / weights
+/transport
 /lyhdwm.tar.gz
 *.safetensors
 *.pth

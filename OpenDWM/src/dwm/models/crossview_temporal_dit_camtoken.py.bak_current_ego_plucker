@@ -960,35 +960,16 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                     "camera_intrinsics_norm is required for Plücker camera encoding."
                 )
 
-            if self.perspective_modeling_type == "mdtoken_nopv":
-                # Layout tokens and BEV map are represented in the current ego frame.
-                # Use camera-to-current-ego for Plücker rays to keep the camera frame
-                # consistent with bbox/map conditions, especially after turns.
+            camera_for_ray = camera2referego
+            if camera_for_ray is None:
                 camera_for_ray = camera_transforms
-            else:
-                camera_for_ray = camera2referego
-                if camera_for_ray is None:
-                    camera_for_ray = camera_transforms
 
             if camera_for_ray is None:
                 raise ValueError(
-                    "camera_transforms is required for mdtoken_nopv Plücker camera "
-                    "encoding, or camera2referego / camera_transforms is required "
-                    "for explicit camera encoding."
+                    "camera2referego or camera_transforms is required for "
+                    "Plücker camera encoding."
                 )
-            if not hasattr(self, "_mdtoken_plucker_frame_debug_printed"):
-                self._mdtoken_plucker_frame_debug_printed = False
 
-            if not self._mdtoken_plucker_frame_debug_printed:
-                print(
-                    "[mdtoken plucker frame] "
-                    f"type={self.perspective_modeling_type}, "
-                    f"use_camera_transforms={camera_for_ray is camera_transforms}, "
-                    f"has_camera2referego={camera2referego is not None}, "
-                    f"has_camera_transforms={camera_transforms is not None}",
-                    flush=True,
-                )
-                self._mdtoken_plucker_frame_debug_printed = True
             camera_intrinsics_norm = camera_intrinsics_norm.to(
                 device=hidden_states.device,
                 dtype=hidden_states.dtype,

@@ -22,6 +22,8 @@ class STFlowEvaluator:
         epi_px_norm=10.0,
         camera_pairs=None,
         pair_policy="dataset",
+        cross_gate_px=16.0,
+        start_frame=None,
     ):
         self.device = torch.device(device)
         self.frame_stride = frame_stride
@@ -32,6 +34,8 @@ class STFlowEvaluator:
         self.epi_px_norm = epi_px_norm
         self.camera_pair_whitelist = self.parse_camera_pairs(camera_pairs)
         self.pair_policy = pair_policy
+        self.cross_gate_px = cross_gate_px
+        self.start_frame = start_frame
 
         self.raft_model, self.raft_weights = self.build_raft_model()
         self.loftr_model = LoFTR(pretrained="outdoor").to(self.device).eval()
@@ -147,7 +151,27 @@ class STFlowEvaluator:
             "ego_transforms": ego_transforms,
         }
 
+    def fixed_camera_pairs_from_order(self, camera_names, ordered_names, close_ring):
+        camera_name_set = set(camera_names)
+
+        if not all(name in camera_name_set for name in ordered_names):
+            return None
+
+        pairs = []
+        pair_count = len(ordered_names) if close_ring else len(ordered_names) - 1
+
+        for index in range(pair_count):
+            cam0 = ordered_names[index]
+            cam1 = ordered_names[(index + 1) % len(ordered_names)]
+
+            index0 = camera_names.index(cam0)
+            index1 = camera_names.index(cam1)
+            pairs.append((index0, index1, (cam0, cam1)))
+
+        return pairs
+
     def camera_ring_pairs(self, transforms, camera_names):
+        # Fallback only. For nuPlan / Waymo, prefer explicit fixed pairs.
         yaws = []
 
         for index, transform in enumerate(transforms):
@@ -175,6 +199,7 @@ class STFlowEvaluator:
                 pairs.append((current_index, next_index, pair_name))
 
         return pairs
+
     def parse_camera_pairs(self, camera_pairs):
         if camera_pairs is None:
             return None
@@ -198,7 +223,6 @@ class STFlowEvaluator:
 
         return pairs
 
-
     def whitelist_camera_pairs(self, camera_names, camera_pair_whitelist):
         name_to_index = {name: index for index, name in enumerate(camera_names)}
         pairs = []
@@ -219,49 +243,104 @@ class STFlowEvaluator:
 
         return pairs
 
+    def nuplan_camera_pairs(self, camera_names):
+        # nuPlan is a surround-view rig. Use fixed ring order.
+        named_order = [
+            "CAM_L2",
+            "CAM_L1",
+            "CAM_L0",
+            "CAM_F0",
+            "CAM_R0",
+            "CAM_R1",
+            "CAM_R2",
+            "CAM_B0",
+        ]
+        generic_order = [
+            "CAM_00",
+            "CAM_01",
+            "CAM_02",
+            "CAM_03",
+            "CAM_04",
+            "CAM_05",
+            "CAM_06",
+            "CAM_07",
+        ]
 
-    def waymo_camera_pairs(self, camera_names, transforms):
-        # Waymo is padded to 8 views in our processed setting.
-        # Only the first 5 views are real distinct cameras.
-        # The last 3 views are padded / repeated views and should not be used
-        # for cross-view consistency evaluation.
-        unique_view_count = min(5, len(camera_names))
+        pairs = self.fixed_camera_pairs_from_order(
+            camera_names,
+            named_order,
+            close_ring=True,
+        )
+        if pairs is not None:
+            return pairs
 
-        if unique_view_count < 2:
-            return []
+        pairs = self.fixed_camera_pairs_from_order(
+            camera_names,
+            generic_order,
+            close_ring=True,
+        )
+        if pairs is not None:
+            return pairs
 
-        yaws = []
-        for index in range(unique_view_count):
-            rotation = transforms[index][:3, :3]
-            forward = rotation @ torch.tensor(
-                [0.0, 0.0, 1.0],
-                dtype=torch.float32,
-                device=self.device,
-            )
-            yaw = torch.atan2(forward[1], forward[0]).item()
-            yaws.append((yaw, index))
+        raise ValueError(
+            "Cannot infer nuPlan fixed ring pairs from camera_names="
+            f"{camera_names}. Please pass --camera-pairs manually."
+        )
 
-        # Sort the first five real cameras from one side to the other.
-        # Unlike nuPlan, Waymo should not use ring closure between the
-        # leftmost and rightmost cameras.
-        yaws = sorted(yaws, key=lambda x: x[0])
+    def waymo_camera_pairs(self, camera_names, transforms=None):
+        # Waymo is not a full surround ring in our processed setting.
+        # Use only real distinct cameras and do NOT close the leftmost-rightmost edge.
+        #
+        # If real Waymo camera names are available, use semantic left-to-right order:
+        # SIDE_LEFT -> FRONT_LEFT -> FRONT -> FRONT_RIGHT -> SIDE_RIGHT.
+        #
+        # If camera names are generic CAM_00...CAM_07, use only first five views:
+        # CAM_00 -> CAM_01 -> CAM_02 -> CAM_03 -> CAM_04.
+        # The remaining CAM_05/CAM_06/CAM_07 are padded/repeated views and are ignored.
+        named_order = [
+            "CAM_SIDE_LEFT",
+            "CAM_FRONT_LEFT",
+            "CAM_FRONT",
+            "CAM_FRONT_RIGHT",
+            "CAM_SIDE_RIGHT",
+        ]
+        generic_order = [
+            "CAM_00",
+            "CAM_01",
+            "CAM_02",
+            "CAM_03",
+            "CAM_04",
+        ]
 
-        pairs = []
-        for order_index in range(len(yaws) - 1):
-            current_index = yaws[order_index][1]
-            next_index = yaws[order_index + 1][1]
+        pairs = self.fixed_camera_pairs_from_order(
+            camera_names,
+            named_order,
+            close_ring=False,
+        )
+        if pairs is not None:
+            return pairs
 
-            if current_index == next_index:
-                continue
+        pairs = self.fixed_camera_pairs_from_order(
+            camera_names,
+            generic_order,
+            close_ring=False,
+        )
+        if pairs is not None:
+            return pairs
 
-            pair_name = (
-                camera_names[current_index],
-                camera_names[next_index],
-            )
-            pairs.append((current_index, next_index, pair_name))
+        if len(camera_names) >= 5:
+            first_five = camera_names[:5]
+            pairs = []
+            for index in range(4):
+                cam0 = first_five[index]
+                cam1 = first_five[index + 1]
+                pairs.append((index, index + 1, (cam0, cam1)))
+            return pairs
 
-        return pairs
-
+        raise ValueError(
+            "Cannot infer Waymo fixed non-ring pairs from camera_names="
+            f"{camera_names}. Please pass --camera-pairs manually."
+        )
 
     def select_camera_pairs(self, manifest_item, transforms, camera_names):
         if self.camera_pair_whitelist is not None:
@@ -280,7 +359,7 @@ class STFlowEvaluator:
                 return self.waymo_camera_pairs(camera_names, transforms)
 
             if "nuplan" in dataset_name:
-                return self.camera_ring_pairs(transforms, camera_names)
+                return self.nuplan_camera_pairs(camera_names)
 
             return self.camera_ring_pairs(transforms, camera_names)
 
@@ -290,9 +369,13 @@ class STFlowEvaluator:
         dataset_name = str(manifest_item.get("dataset_name", "")).lower()
 
         if "waymo" in dataset_name:
+            # Only evaluate temporal / trajectory metrics on the first five
+            # real views. Ignore padded/repeated views.
             return list(range(min(5, len(camera_names))))
 
         return list(range(len(camera_names)))
+
+
     def run_raft(self, image0, image1):
         transforms = self.raft_weights.transforms()
         image0_ready, image1_ready = transforms(image0, image1)
@@ -464,6 +547,18 @@ class STFlowEvaluator:
 
         return torch.sqrt(numerator / denominator)
 
+    def filter_epipolar_matches(self, points0, points1, errors):
+        if self.cross_gate_px is None:
+            keep = torch.ones(
+                (points0.shape[0],),
+                dtype=torch.bool,
+                device=self.device,
+            )
+        else:
+            keep = errors <= float(self.cross_gate_px)
+
+        return points0[keep], points1[keep], errors[keep], keep
+
     def sample_flow_at_points(self, flow, points):
         _, _, height, width = flow.shape
 
@@ -516,9 +611,8 @@ class STFlowEvaluator:
         transforms = data["transforms"]
         camera_names = data["camera_names"]
         ego_transforms = data.get("ego_transforms", [])
-        
+
         frame_count = len(images)
-        view_count = len(images[0])
         camera_pairs = self.select_camera_pairs(
             manifest_item,
             transforms[0],
@@ -527,13 +621,35 @@ class STFlowEvaluator:
 
         temporal_errors = []
         cross_errors = []
+        cross_raw_errors = []
+        cross_inlier_ratios = []
         cycle_errors = []
         flow_cache = {}
         traj_epi_errors = []
         traj_inlier2_values = []
         traj_inlier4_values = []
+
+        reference_frame_count = int(manifest_item.get("reference_frame_count", 0) or 0)
+        generate_frames_for_reference = bool(
+            manifest_item.get("generate_frames_for_reference", True)
+        )
+
+        if self.start_frame is None:
+            if (not generate_frames_for_reference) and reference_frame_count > 0:
+                # Skip pure GT-reference edges, but keep the transition edge.
+                # Example: ref=3, stride=2 -> start from t=2, so t2->t4 is kept.
+                evaluation_start_frame = max(reference_frame_count - 1, 0)
+            else:
+                evaluation_start_frame = 0
+        else:
+            evaluation_start_frame = max(int(self.start_frame), 0)
+
         time_edges = []
-        for time_index in range(0, frame_count - self.frame_stride, self.frame_stride):
+        for time_index in range(
+            evaluation_start_frame,
+            frame_count - self.frame_stride,
+            self.frame_stride,
+        ):
             time_edges.append((time_index, time_index + self.frame_stride))
 
         temporal_view_indices = self.select_temporal_views(
@@ -557,6 +673,7 @@ class STFlowEvaluator:
                 )
                 if temp_error is not None:
                     temporal_errors.append(temp_error)
+
                 if (
                     len(ego_transforms) > time1
                     and ego_transforms[time0] is not None
@@ -585,6 +702,7 @@ class STFlowEvaluator:
                         traj_epi_errors.append(torch.median(traj_epi).item())
                         traj_inlier2_values.append((traj_epi < 2.0).float().mean().item())
                         traj_inlier4_values.append((traj_epi < 4.0).float().mean().item())
+
         pair_stats = {}
 
         for time0, time1 in time_edges:
@@ -609,17 +727,51 @@ class STFlowEvaluator:
                     intrinsics[time0][view1],
                     transforms[time0][view1],
                 )
-                cross_epi = self.sampson_error_px(points0, points1, F_cross)
-                cross_value = torch.median(cross_epi).item()
+
+                cross_epi_raw = self.sampson_error_px(points0, points1, F_cross)
+                cross_raw_value = torch.median(cross_epi_raw).item()
+
+                points0_gate, points1_gate, cross_epi_gate, keep = self.filter_epipolar_matches(
+                    points0,
+                    points1,
+                    cross_epi_raw,
+                )
+                inlier_ratio = keep.float().mean().item()
+                inlier_count = int(points0_gate.shape[0])
+
+                pair_key = f"{pair_name[0]}__{pair_name[1]}"
+                if pair_key not in pair_stats:
+                    pair_stats[pair_key] = {
+                        "cross_raw_epi_px": [],
+                        "cross_epi_px": [],
+                        "cycle_epi_px": [],
+                        "match_count": [],
+                        "inlier_count": [],
+                        "cross_inlier_ratio": [],
+                    }
+
+                pair_stats[pair_key]["cross_raw_epi_px"].append(cross_raw_value)
+                pair_stats[pair_key]["match_count"].append(int(points0.shape[0]))
+                pair_stats[pair_key]["inlier_count"].append(inlier_count)
+                pair_stats[pair_key]["cross_inlier_ratio"].append(inlier_ratio)
+
+                cross_raw_errors.append(cross_raw_value)
+                cross_inlier_ratios.append(inlier_ratio)
+
+                if points0_gate.shape[0] < self.min_matches:
+                    continue
+
+                cross_value = torch.median(cross_epi_gate).item()
                 cross_errors.append(cross_value)
+                pair_stats[pair_key]["cross_epi_px"].append(cross_value)
 
                 flow0 = flow_cache[(time0, time1, view0)]
                 flow1 = flow_cache[(time0, time1, view1)]
-                delta0 = self.sample_flow_at_points(flow0, points0)
-                delta1 = self.sample_flow_at_points(flow1, points1)
+                delta0 = self.sample_flow_at_points(flow0, points0_gate)
+                delta1 = self.sample_flow_at_points(flow1, points1_gate)
 
-                points0_next = points0 + delta0
-                points1_next = points1 + delta1
+                points0_next = points0_gate + delta0
+                points1_next = points1_gate + delta1
                 points0_next, points1_next = self.filter_matched_points(
                     points0_next,
                     points1_next,
@@ -641,19 +793,6 @@ class STFlowEvaluator:
                     )
                     cycle_value = torch.median(cycle_epi).item()
                     cycle_errors.append(cycle_value)
-                else:
-                    cycle_value = None
-
-                pair_key = f"{pair_name[0]}__{pair_name[1]}"
-                if pair_key not in pair_stats:
-                    pair_stats[pair_key] = {
-                        "cross_epi_px": [],
-                        "cycle_epi_px": [],
-                        "match_count": [],
-                    }
-                pair_stats[pair_key]["cross_epi_px"].append(cross_value)
-                pair_stats[pair_key]["match_count"].append(int(points0.shape[0]))
-                if cycle_value is not None:
                     pair_stats[pair_key]["cycle_epi_px"].append(cycle_value)
 
         summary = self.normalized_score(
@@ -665,6 +804,9 @@ class STFlowEvaluator:
         pair_summary = {}
         for pair_key, values in pair_stats.items():
             pair_summary[pair_key] = {
+                "cross_raw_epi_px": float(np.nanmean(values["cross_raw_epi_px"]))
+                if len(values["cross_raw_epi_px"]) > 0
+                else float("nan"),
                 "cross_epi_px": float(np.nanmean(values["cross_epi_px"]))
                 if len(values["cross_epi_px"]) > 0
                 else float("nan"),
@@ -674,15 +816,24 @@ class STFlowEvaluator:
                 "match_count": float(np.nanmean(values["match_count"]))
                 if len(values["match_count"]) > 0
                 else float("nan"),
+                "inlier_count": float(np.nanmean(values["inlier_count"]))
+                if len(values["inlier_count"]) > 0
+                else float("nan"),
+                "cross_inlier_ratio": float(np.nanmean(values["cross_inlier_ratio"]))
+                if len(values["cross_inlier_ratio"]) > 0
+                else float("nan"),
             }
 
         summary.update(
             {
                 "video_id": manifest_item.get("video_id", ""),
                 "num_temporal_edges": len(temporal_errors),
+                "num_cross_raw_edges": len(cross_raw_errors),
                 "num_cross_edges": len(cross_errors),
                 "num_cycle_edges": len(cycle_errors),
                 "pair_stats": pair_summary,
+                "cross_raw_epi_px": float(np.nanmean(cross_raw_errors)) if len(cross_raw_errors) > 0 else float("nan"),
+                "cross_inlier_ratio": float(np.nanmean(cross_inlier_ratios)) if len(cross_inlier_ratios) > 0 else float("nan"),
                 "traj_epi_px": float(np.nanmean(traj_epi_errors)) if len(traj_epi_errors) > 0 else float("nan"),
                 "traj_inlier2": float(np.nanmean(traj_inlier2_values)) if len(traj_inlier2_values) > 0 else float("nan"),
                 "traj_inlier4": float(np.nanmean(traj_inlier4_values)) if len(traj_inlier4_values) > 0 else float("nan"),
@@ -690,3 +841,4 @@ class STFlowEvaluator:
             }
         )
         return summary
+
