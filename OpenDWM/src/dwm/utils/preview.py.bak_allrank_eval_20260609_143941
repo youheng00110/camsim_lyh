@@ -348,10 +348,7 @@ def save_ctsd_eval_frames_for_preview(
     reference frames, the first reference_frame_count fake frames are copied
     from batch["vae_images"].
     """
-    allow_all_rank_export = bool(
-        inference_config.get("all_rank_preview", False)
-    )
-    if (not allow_all_rank_export) and (not _preview_eval_rank0()):
+    if not _preview_eval_rank0():
         return
 
     os.makedirs(output_dir, exist_ok=True)

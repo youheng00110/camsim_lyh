@@ -1,7 +1,7 @@
 {
     "device": "cuda",
     "ddp_backend": "nccl",
-    "train_epochs": 4,
+    "train_epochs": 10,
     "generator_seed": 0,
     "same_dataset_per_global_batch": true,
     "data_shuffle": true,
@@ -17,7 +17,7 @@
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
-            "mesh_shape": [1, 4]
+            "mesh_shape": [1, 8]
         }
     },
     "optimizer": {
@@ -231,7 +231,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_waymoplucker/checkpoints/10000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_waymosingle2/checkpoints/30000.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -243,7 +243,7 @@
             "fvd": {
                 "_class_name": "dwm.metrics.fvd.FrechetVideoDistance",
                 "inception_3d_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/i3d_pretrained_400.pt",
-                "sequence_count": 35
+                "sequence_count": 19
             }
         }
     },

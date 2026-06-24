@@ -578,42 +578,10 @@ class STFlowEvaluator:
 
         return sampled
 
-    def normalized_score(
-        self,
-        temporal_errors,
-        cross_errors,
-        cycle_errors,
-        cross_raw_errors=None,
-        cross_inlier_ratios=None,
-    ):
-        cross_raw_errors = [] if cross_raw_errors is None else cross_raw_errors
-        cross_inlier_ratios = [] if cross_inlier_ratios is None else cross_inlier_ratios
-
-        temp_mean = (
-            float(np.nanmean(temporal_errors))
-            if len(temporal_errors) > 0
-            else float("nan")
-        )
-        cross_mean = (
-            float(np.nanmean(cross_errors))
-            if len(cross_errors) > 0
-            else float("nan")
-        )
-        cycle_mean = (
-            float(np.nanmean(cycle_errors))
-            if len(cycle_errors) > 0
-            else float("nan")
-        )
-        cross_raw_mean = (
-            float(np.nanmean(cross_raw_errors))
-            if len(cross_raw_errors) > 0
-            else float("nan")
-        )
-        inlier_mean = (
-            float(np.nanmean(cross_inlier_ratios))
-            if len(cross_inlier_ratios) > 0
-            else float("nan")
-        )
+    def normalized_score(self, temporal_errors, cross_errors, cycle_errors):
+        temp_mean = float(np.nanmean(temporal_errors)) if len(temporal_errors) > 0 else float("nan")
+        cross_mean = float(np.nanmean(cross_errors)) if len(cross_errors) > 0 else float("nan")
+        cycle_mean = float(np.nanmean(cycle_errors)) if len(cycle_errors) > 0 else float("nan")
 
         normalized_values = []
 
@@ -624,103 +592,15 @@ class STFlowEvaluator:
         if not math.isnan(cycle_mean):
             normalized_values.append(min(cycle_mean / self.epi_px_norm, 1.0))
 
-        stflow_error = (
-            float(np.mean(normalized_values))
-            if len(normalized_values) > 0
-            else float("nan")
-        )
-        stflow_score = (
-            100.0 * (1.0 - stflow_error)
-            if not math.isnan(stflow_error)
-            else float("nan")
-        )
-
-        raw_edge_count = len(cross_raw_errors)
-        gated_edge_count = len(cross_errors)
-        cycle_edge_count = len(cycle_errors)
-
-        if raw_edge_count > 0:
-            edge_coverage = float(gated_edge_count) / float(raw_edge_count)
-        else:
-            edge_coverage = float("nan")
-
-        if gated_edge_count > 0:
-            cycle_coverage = float(cycle_edge_count) / float(gated_edge_count)
-        else:
-            cycle_coverage = float("nan")
-
-        score_temp_ref = 0.10
-        score_cross_ref = 4.0
-        score_cycle_ref = 6.0
-        score_gamma = 1.45
-
-        gate_px = self.cross_gate_px
-        if gate_px is None:
-            gate_px = self.epi_px_norm
-
-        cross_fail_norm = max(float(gate_px), score_cross_ref) / score_cross_ref
-        cycle_fail_norm = max(float(gate_px), score_cycle_ref) / score_cycle_ref
-
-        d_error = 0.0
-        d_weight = 0.0
-
-        if not math.isnan(temp_mean):
-            temp_term = (temp_mean / score_temp_ref) ** 1.15
-            d_error += 0.15 * temp_term
-            d_weight += 0.15
-
-        if not math.isnan(cross_mean):
-            cross_term = (cross_mean / score_cross_ref) ** score_gamma
-            d_error += 0.40 * cross_term
-            d_weight += 0.40
-        elif raw_edge_count > 0:
-            cross_term = cross_fail_norm ** score_gamma
-            d_error += 0.40 * cross_term
-            d_weight += 0.40
-
-        if not math.isnan(cycle_mean):
-            cycle_term = (cycle_mean / score_cycle_ref) ** score_gamma
-            d_error += 0.25 * cycle_term
-            d_weight += 0.25
-        elif gated_edge_count > 0:
-            cycle_term = cycle_fail_norm ** score_gamma
-            d_error += 0.25 * cycle_term
-            d_weight += 0.25
-
-        if not math.isnan(inlier_mean):
-            inlier_term = max(0.0, 1.0 - inlier_mean)
-            d_error += 0.12 * inlier_term
-            d_weight += 0.12
-
-        if not math.isnan(edge_coverage):
-            edge_term = max(0.0, 1.0 - edge_coverage)
-            d_error += 0.08 * edge_term
-            d_weight += 0.08
-
-        if not math.isnan(cycle_coverage):
-            cycle_cov_term = max(0.0, 1.0 - cycle_coverage)
-            d_error += 0.05 * cycle_cov_term
-            d_weight += 0.05
-
-        if d_weight > 0:
-            stflow_d_error = float(d_error / d_weight)
-            stflow_d_score = float(100.0 / (1.0 + stflow_d_error))
-        else:
-            stflow_d_error = float("nan")
-            stflow_d_score = float("nan")
+        stflow_error = float(np.mean(normalized_values)) if len(normalized_values) > 0 else float("nan")
+        stflow_score = 100.0 * (1.0 - stflow_error) if not math.isnan(stflow_error) else float("nan")
 
         return {
             "temporal_l1": temp_mean,
             "cross_epi_px": cross_mean,
-            "cross_raw_epi_px": cross_raw_mean,
-            "cross_inlier_ratio": inlier_mean,
             "cycle_epi_px": cycle_mean,
-            "edge_coverage": edge_coverage,
-            "cycle_coverage": cycle_coverage,
             "stflow_error": stflow_error,
             "stflow_score": stflow_score,
-            "stflow_d_error": stflow_d_error,
-            "stflow_d_score": stflow_d_score,
         }
 
     def evaluate_video(self, manifest_item, manifest_dir):
@@ -919,8 +799,6 @@ class STFlowEvaluator:
             temporal_errors,
             cross_errors,
             cycle_errors,
-            cross_raw_errors=cross_raw_errors,
-            cross_inlier_ratios=cross_inlier_ratios,
         )
 
         pair_summary = {}

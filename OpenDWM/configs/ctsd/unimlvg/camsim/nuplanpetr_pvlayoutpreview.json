@@ -28,13 +28,25 @@
         "_class_name": "dwm.pipelines.camsim.CrossviewTemporalSD",
         "common_config": {
             "frame_prediction_style": "ctsd",
-            "explicit_view_modeling": false,
+
+            "explicit_view_modeling": true,
             "cat_condition": true,
             "cond_with_action": false,
             "print_load_state_info": true,
             "condition_on_all_frames": true,
             "uncondition_image_color": 0.1255,
             "added_time_ids": "fps_camera_transforms",
+            "zero_missing_crossview_weights": false,
+            "petr_visualize_geometry": false,
+            "petr_visualize_once": false,
+            "petr_visualize_all_ranks": false,
+            "petr_visualize_output_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_petr_vis",
+            "petr_visualize_batch_index": 0,
+            "petr_visualize_time_index": 0,
+            "petr_visualize_max_views": 8,
+            "petr_visualize_ray_depth": 30.0,
+            "petr_visualize_frustum_depth": 20.0,
+            "petr_visualize_ray_grid_size": 3,
             "explicit_geometry_clip": {
                 "enabled": true,
                 "translation_clip": 100.0,
@@ -169,14 +181,14 @@
             
             ],
             "evaluation_item_count": 480,
-            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard/implicit_preview_paired_200",
+            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard/petr_preview_paired_200",
             "eval_frame_dataset_name": "nuplan",
             "eval_frame_manifest_name": "stflow_manifest.jsonl",
             "eval_frame_export_paired_real": true,
             "eval_frame_image_quality": 95
         },
         "model": {
-            "_class_name": "dwm.models.crossview_temporal_dit_PLUCKER.DiTCrossviewTemporalConditionModel",
+            "_class_name": "dwm.models.crossview_temporal_dit_PETR.DiTCrossviewTemporalConditionModel",
             "attention_head_dim": 64,
             "caption_projection_dim": 1536,
             "in_channels": 16,
@@ -188,8 +200,19 @@
             "pooled_projection_dim": 2048,
              "pos_embed_max_size": 192,
             "sample_size": 128,
-            "perspective_modeling_type": "implicit",
-            "projection_class_embeddings_input_dim": 2816,
+            "perspective_modeling_type": "petr",
+            "petr_config": {
+                "depth_num": 64,
+                "depth_start": 1.0,
+                "depth_max": 80.0,
+                "position_range": [-80.0, -80.0, -5.0, 80.0, 80.0, 5.0],
+                "LID": false,
+                "block_out_channels": [256, 256],
+                "use_valid_mask": true,
+                "output_scale": 1.0,
+                "debug": false,
+                "debug_interval": 1
+            },
             "enable_crossview": true,
             "crossview_attention_type": "rowwise",
             "crossview_block_layers": [
@@ -238,7 +261,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplanimplicit/checkpoints/18000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplanpetr/checkpoints/18000.pth",
         "model_load_state_args": {
             "strict": false
         },

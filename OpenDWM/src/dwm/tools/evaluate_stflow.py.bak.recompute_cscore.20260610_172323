@@ -83,12 +83,6 @@ def create_parser():
             "pairs and nuplan uses ring pairs."
         ),
     )
-    parser.add_argument(
-        "--cross-gate-px",
-        type=float,
-        default=12.0,
-        help="Epipolar gate threshold in pixels for cross-view LoFTR matches.",
-    )
     return parser
 
 
@@ -236,7 +230,6 @@ def main():
         camera_pairs=args.camera_pairs,
         pair_policy=args.pair_policy,
         start_frame=args.start_frame,
-        cross_gate_px=args.cross_gate_px,
     )
 
     manifest_items = load_manifest_items(args.manifest, args.max_videos)
