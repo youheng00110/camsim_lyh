@@ -3,13 +3,14 @@ set -u
 
 BASE="/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh"
 ENV="/inspire/ssd/project/advanced-machine-learning/public/inspire_shared/envs/lyhdwm/bin/activate"
+
 RUN_MINUTES=10
 SLEEP_SECONDS=300
 MEM_GB=16
 MATMUL_SIZE=16384
 INNER_ITERS=20
 
-cd "$BASE"
+cd "$BASE" || exit 1
 
 if [ -f "$ENV" ]; then
     source "$ENV"
@@ -32,7 +33,7 @@ do
         --matmul_size "$MATMUL_SIZE" \
         --inner_iters "$INNER_ITERS" \
         --minutes "$RUN_MINUTES" \
-        > /dev/null 2>&1 &
+        > "$BASE/gpu_check_logs/gpu0_${NOW}.log" 2>&1 &
 
     PID0=$!
 
@@ -42,7 +43,7 @@ do
         --matmul_size "$MATMUL_SIZE" \
         --inner_iters "$INNER_ITERS" \
         --minutes "$RUN_MINUTES" \
-        > /dev/null 2>&1 &
+        > "$BASE/gpu_check_logs/gpu1_${NOW}.log" 2>&1 &
 
     PID1=$!
 

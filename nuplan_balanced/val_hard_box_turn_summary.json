@@ -1,0 +1,27 @@
+{
+  "pkl_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_infos_val.pkl",
+  "output": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/val_hard_box_turn_windows_metadata.json",
+  "all_scored_output": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/val_hard_box_turn_all_scored_windows_metadata.json",
+  "total_candidates": 947,
+  "selected": 480,
+  "top_k": 480,
+  "sequence_length": 20,
+  "fps_stride_tuples": [
+    [
+      6,
+      2,
+      0.5
+    ]
+  ],
+  "min_dist": 1.0,
+  "box_weight": 0.65,
+  "turn_weight": 0.35,
+  "max_per_scene": 4,
+  "min_start_gap": 10,
+  "selected_vehicle_box_mean_avg": 37.2621875,
+  "selected_vehicle_box_max_avg": 40.860416666666666,
+  "selected_all_box_mean_avg": 81.93166666666666,
+  "selected_turn_abs_deg_avg": 8.85704506492863,
+  "selected_turn_net_deg_avg": 8.492272878800092,
+  "selected_dist_avg": 18.33733783235444
+}

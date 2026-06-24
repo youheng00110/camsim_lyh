@@ -1770,6 +1770,29 @@ class CrossviewTemporalSD():
 
                         tensor.zero_()
                         zeroed_crossview_keys.append(key)
+            reset_crossview_mixer_factor = self.common_config.get(
+                "reset_crossview_mixer_factor", None
+            )
+            if reset_crossview_mixer_factor is not None:
+                target_model = self.model.module if hasattr(self.model, "module") else self.model
+                reset_value = float(reset_crossview_mixer_factor)
+
+                with torch.no_grad():
+                    for mixer in target_model.view_mixers:
+                        if hasattr(mixer, "mix_factor"):
+                            mixer.mix_factor.fill_(reset_value)
+
+                if self.should_save:
+                    crossview_weight = 1.0 - float(
+                        torch.sigmoid(torch.tensor(reset_value)).item()
+                    )
+                    print(
+                        "[RESET_CROSSVIEW_MIXER] "
+                        "mix_factor={:.4f}, crossview_weight={:.4f}".format(
+                            reset_value, crossview_weight
+                        )
+                    )
+
             if (
                 self.should_save and
                 self.common_config.get("print_load_state_info", False)

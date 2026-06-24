@@ -3068,21 +3068,14 @@ class CrossviewTemporalSD():
             pipeline_output = self.inference_pipeline(
                 latent_shape, batch, "pt")
 
-        dist_on = (
-            torch.distributed.is_available() and
-            torch.distributed.is_initialized()
-        )
-        rank = torch.distributed.get_rank() if dist_on else 0
-        all_rank_preview = bool(
+        if self.should_save or (
+            torch.distributed.is_initialized() and
             self.inference_config.get("all_rank_preview", False)
-        )
-        save_this_rank = self.should_save or (dist_on and all_rank_preview)
-
-        if save_this_rank:
+        ):
             os.makedirs(os.path.join(output_path, "preview"), exist_ok=True)
             filename = (
-                "{}_{}".format(global_step, rank)
-                if all_rank_preview
+                "{}_{}".format(global_step, torch.distributed.get_rank())
+                if self.inference_config.get("all_rank_preview", False)
                 else str(global_step)
             )
             preview_images = pipeline_output["images"]
@@ -3091,12 +3084,6 @@ class CrossviewTemporalSD():
                 "eval_frame_export_path", None
             )
             if eval_frame_export_path is not None:
-                if all_rank_preview and dist_on:
-                    eval_frame_export_path = os.path.join(
-                        eval_frame_export_path,
-                        "rank_{:02d}".format(rank),
-                    )
-
                 dwm.utils.preview.save_ctsd_eval_frames_for_preview(
                     preview_images,
                     batch,

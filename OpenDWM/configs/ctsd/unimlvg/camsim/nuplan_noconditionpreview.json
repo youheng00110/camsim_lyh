@@ -1,7 +1,7 @@
 {
   "device": "cuda",
   "ddp_backend": "nccl",
-  "train_epochs": 6,
+  "train_epochs": 10,
   "generator_seed": 0,
   "same_dataset_per_global_batch": true,
   "data_shuffle": true,
@@ -136,8 +136,8 @@
     },
     "training_config": {
       "text_prompt_condition_ratio": 0,
-      "3dbox_condition_ratio": 0.8,
-      "explicit_view_modeling_ratio": 0.8,
+      "3dbox_condition_ratio": 0.0,
+      "explicit_view_modeling_ratio": 1.0,
       "reference_frame_count": 3,
       "generation_task_ratio": 0.2,
       "image_generation_ratio": 0.5,
@@ -145,20 +145,20 @@
       "reference_visible_rate": 0.5,
       "disable_reference_frame_loss": true,
       "enable_grad_scaler": true,
-      "hdmap_condition_ratio": 0.8,
+      "hdmap_condition_ratio": 0.0,
       "action_condition_ratio": 0.0
     },
     "inference_config": {
       "scheduler": "dwm.schedulers.temporal_independent.FlowMatchEulerDiscreteScheduler",
       "guidance_scale": 2,
       "inference_steps": 38,
-      "all_rank_preview":true,
       "preview_image_size": [
         512,
         288
       ],
       "force_preview_resize": false,
       "generate_frames_for_reference": false,
+      "all_rank_preview":true,
       "sequence_length_per_iteration": 19,
       "clear_reference_frame_count": 0,
       "reference_frame_count": 3,
@@ -171,14 +171,14 @@
         "dist"
       ],
       "evaluation_item_count": 480,
-      "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard/0plucker_special_noid_preview_paired_200",
-      "eval_frame_dataset_name": "nuplan",
-      "eval_frame_manifest_name": "stflow_manifest.jsonl",
-      "eval_frame_export_paired_real": true,
-      "eval_frame_image_quality": 95
+            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard/nocondition_preview_paired_200",
+            "eval_frame_dataset_name": "nuplan",
+            "eval_frame_manifest_name": "stflow_manifest.jsonl",
+            "eval_frame_export_paired_real": true,
+            "eval_frame_image_quality": 95
     },
     "model": {
-      "_class_name": "dwm.models.crossview_temporal_dit_PLUCKER.DiTCrossviewTemporalConditionModel",
+      "_class_name": "dwm.models.crossview_temporal_dit_nocondition.DiTCrossviewTemporalConditionModel",
       "attention_head_dim": 64,
       "caption_projection_dim": 1536,
       "in_channels": 16,
@@ -215,28 +215,7 @@
       "temporal_gradient_checkpointing": true,
       "mixer_type": "AlphaBlender",
       "merge_factor": 2,
-      "condition_image_adapter_config": {
-        "in_channels": 6,
-        "channels": [
-          1536,
-          1536,
-          1536,
-          1536,
-          1536,
-          1536
-        ],
-        "is_downblocks": [
-          true,
-          false,
-          false,
-          false,
-          false,
-          false
-        ],
-        "num_res_blocks": 2,
-        "downscale_factor": 8,
-        "use_zero_convs": true
-      }
+      "condition_image_adapter_config": null
     },
     "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
     "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplanplucker_special_noid/checkpoints/28000.pth",
@@ -743,28 +722,28 @@
       "image_description"
     ]
   },
-      "validation_dataset": {
-        "_class_name": "dwm.datasets.common.DatasetAdapter",
-        "default_height": 288,
-        "default_width": 512,
-        "base_dataset": {
-            "_class_name": "torch.utils.data.ConcatDataset",
-            "datasets": [
-                {
-                    "_class_name": "dwm.datasets.nuplan.MotionDataset",
-                    "sensor_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_sensors",
-                    "pkl_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_infos_val.pkl",
-                    "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
-                    "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
-                    "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
-                    "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/val_hard_box_turn_windows_metadata.json",
-                    "sequence_length": 19,
-                    "fps_stride_tuples": [
-                        [
-                            6,
-                            4,
-                            0.6
-                        ]
+  "validation_dataset": {
+    "_class_name": "dwm.datasets.common.DatasetAdapter",
+    "default_height": 288,
+    "default_width": 512,
+    "base_dataset": {
+      "_class_name": "torch.utils.data.ConcatDataset",
+      "datasets": [
+        {
+          "_class_name": "dwm.datasets.nuplan.MotionDataset",
+          "sensor_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_sensors",
+          "pkl_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_infos_val.pkl",
+          "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
+          "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
+          "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
+          "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/val_hard_box_turn_windows_metadata.json",
+          "sequence_length": 19,
+          "fps_stride_tuples": [
+            [
+              6,
+              4,
+              0.6
+            ]
           ],
           "sensor_channels": [
             "CAM_L2",
@@ -923,10 +902,10 @@
   },
   "preview_dataloader": {
     "batch_size": 1,
-    "num_workers": 1,
+    "num_workers": 4,
     "prefetch_factor": 1,
     "shuffle": false,
-    "drop_last": true,
+    "drop_last": false,
     "collate_fn": {
       "_class_name": "dwm.datasets.common.CollateFnIgnoring",
       "keys": [

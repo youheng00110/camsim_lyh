@@ -83,12 +83,6 @@ def create_parser():
             "pairs and nuplan uses ring pairs."
         ),
     )
-    parser.add_argument(
-        "--cross-gate-px",
-        type=float,
-        default=12.0,
-        help="Epipolar gate threshold in pixels for cross-view LoFTR matches.",
-    )
     return parser
 
 
@@ -134,11 +128,8 @@ def aggregate_video_results(video_results):
         "cycle_epi_px",
         "stflow_error",
         "stflow_score",
-        "stflow_d_error",
-        "stflow_d_score",
         "stflow_c_score",
         "edge_coverage",
-        "cycle_coverage",
         "traj_epi_px",
         "traj_inlier2",
         "traj_inlier4",
@@ -195,26 +186,6 @@ def aggregate_video_results(video_results):
                 float(np.mean(values)) if len(values) > 0 else float("nan")
             )
 
-    mean_score = output["mean"].get("stflow_score", float("nan"))
-    mean_coverage = output["mean"].get("edge_coverage", float("nan"))
-    mean_inlier = output["mean"].get("cross_inlier_ratio", float("nan"))
-
-    output["mean"]["stflow_c_score_per_video_mean"] = output["mean"].get(
-        "stflow_c_score",
-        float("nan"),
-    )
-
-    if (
-        not np.isnan(mean_score)
-        and not np.isnan(mean_coverage)
-        and not np.isnan(mean_inlier)
-    ):
-        output["mean"]["stflow_c_score"] = float(
-            mean_score * mean_coverage * mean_inlier
-        )
-    else:
-        output["mean"]["stflow_c_score"] = float("nan")
-
     return output
 
 
@@ -236,7 +207,6 @@ def main():
         camera_pairs=args.camera_pairs,
         pair_policy=args.pair_policy,
         start_frame=args.start_frame,
-        cross_gate_px=args.cross_gate_px,
     )
 
     manifest_items = load_manifest_items(args.manifest, args.max_videos)
@@ -250,12 +220,10 @@ def main():
 
         video_results.append(result)
         print(
-            "[stflow] {}/{} {} | dscore={:.3f} cscore={:.3f} score={:.3f} temp={:.5f} cross={:.3f} cycle={:.3f}".format(
+            "[stflow] {}/{} {} | score={:.3f} temp={:.5f} cross={:.3f} cycle={:.3f}".format(
                 index + 1,
                 len(manifest_items),
                 result.get("video_id", ""),
-                result.get("stflow_d_score", float("nan")),
-                result.get("stflow_c_score", float("nan")),
                 result["stflow_score"],
                 result["temporal_l1"],
                 result["cross_epi_px"],

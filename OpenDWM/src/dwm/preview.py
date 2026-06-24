@@ -144,11 +144,35 @@ def main():  # ========= 你要的 main 函数 + debug 在这里 =========
     validation_dataset = dwm.common.create_instance_from_config(
         config["validation_dataset"])
 
-    preview_dataloader = torch.utils.data\
-        .DataLoader(
-            validation_dataset,
-            **dwm.common.instantiate_config(config["preview_dataloader"])) if \
-        "preview_dataloader" in config else None
+    preview_datasampler = None
+    if "preview_dataloader" in config:
+        preview_loader_kwargs = dwm.common.instantiate_config(
+            config["preview_dataloader"]
+        )
+        preview_loader_kwargs.pop("shuffle", None)
+
+        if ddp:
+            preview_datasampler = torch.utils.data.distributed.DistributedSampler(
+                validation_dataset,
+                num_replicas=torch.distributed.get_world_size(),
+                rank=torch.distributed.get_rank(),
+                shuffle=False,
+                drop_last=False,
+            )
+            preview_dataloader = torch.utils.data.DataLoader(
+                validation_dataset,
+                **preview_loader_kwargs,
+                sampler=preview_datasampler,
+            )
+            preview_datasampler.set_epoch(0)
+        else:
+            preview_dataloader = torch.utils.data.DataLoader(
+                validation_dataset,
+                **preview_loader_kwargs,
+                shuffle=False,
+            )
+    else:
+        preview_dataloader = None
 
     if should_log:
         print("The validation dataset is loaded with {} items.".format(
@@ -160,6 +184,25 @@ def main():  # ========= 你要的 main 函数 + debug 在这里 =========
     
     
     for i, batch in enumerate(preview_dataloader):
+        rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+        world_size = torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
+
+        if "pts" in batch:
+            preview_id = batch["pts"][0, 0, 0].item()
+        else:
+            preview_id = -1
+
+        print(
+            "[PREVIEW_DIST] rank={}/{} i={} preview_id={} vae_shape={}".format(
+                rank,
+                world_size,
+                i,
+                preview_id,
+                tuple(batch["vae_images"].shape) if "vae_images" in batch else None,
+            ),
+            flush=True,
+        )
+
         ####调试#####################
         print("\n========== DEBUG BATCH ==========")
         print("keys:", batch.keys())
@@ -379,7 +422,12 @@ def main():  # ========= 你要的 main 函数 + debug 在这里 =========
             with open(
                 os.path.join(
                     output_path, "preview",
-                    "{}.json".format(global_step)),
+                    "{}_rank{}.json".format(
+                        global_step,
+                        torch.distributed.get_rank()
+                        if torch.distributed.is_initialized()
+                        else 0
+                    )),
                 "w", encoding="utf-8"
             ) as f:
                 json.dump({
