@@ -4,6 +4,7 @@
 
 # 忽略 waymo_link 符号链接（无论指向文件还是目录）
 /waymo_link
+/gpu_check_logs
 #忽略pkl文件
 *.pkl
 *.png

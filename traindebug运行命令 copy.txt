@@ -17,11 +17,9 @@ export PYTHONPATH=$PYTHONPATH:/inspire/qb-ilm/project/advanced-machine-learning/
 torchrun \
   --nproc_per_node=8 \
   -m dwm.train \
-  -c /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplancamtoken.json\
-  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantoken\
-  --resume-from 48000 \
+  -c /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/waymoimplicit.json\
+  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_waymoimplicit\
   --log-steps  500 \
   --preview-steps 1000 \
   --checkpointing-steps 6000 \
   --evaluation-steps 200000
-
