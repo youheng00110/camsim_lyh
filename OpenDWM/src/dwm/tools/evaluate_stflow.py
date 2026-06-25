@@ -264,6 +264,15 @@ def main():
         )
 
     output = aggregate_video_results(video_results)
+    output["eval_config"] = {
+        "frame_stride": args.frame_stride,
+        "min_matches": args.min_matches,
+        "max_matches": args.max_matches,
+        "loftr_confidence": args.loftr_confidence,
+        "camera_pairs": args.camera_pairs,
+        "pair_policy": args.pair_policy,
+        "cross_gate_px": args.cross_gate_px,
+    }
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2, ensure_ascii=False)

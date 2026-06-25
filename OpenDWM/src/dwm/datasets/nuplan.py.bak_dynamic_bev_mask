@@ -733,9 +733,9 @@ class MotionDataset(torch.utils.data.Dataset):
             self.items = raw_items
 
         self._token2map_max = 20000
-        ensure_cache_subdir(self.cache_root, "3dbox_images")
-        ensure_cache_subdir(self.cache_root, "hdmap_images")
-        ensure_cache_subdir(self.cache_root, "hdmap_bev_images")
+        #ensure_cache_subdir(self.cache_root, "3dbox_images")
+        #ensure_cache_subdir(self.cache_root, "hdmap_images")
+        #ensure_cache_subdir(self.cache_root, "hdmap_bev_images")
         """
         # pts_proj
         
@@ -1172,158 +1172,6 @@ class MotionDataset(torch.utils.data.Dataset):
                 thickness=int(thickness),
             )
 
-
-    def _mdtoken_dynamic_class_id(self, category_name):
-        if hasattr(self, "get_layout_token_class_id"):
-            try:
-                return int(self.get_layout_token_class_id(category_name))
-            except Exception:
-                pass
-
-        name = str(category_name).lower()
-
-        if "truck" in name:
-            return 1
-        if "bus" in name:
-            return 3
-        if "barrier" in name:
-            return 5
-        if "motorcycle" in name:
-            return 6
-        if "bicycle" in name or "cyclist" in name or "bike" in name:
-            return 7
-        if "pedestrian" in name or "ped" in name:
-            return 8
-        if "cone" in name:
-            return 9
-        if "vehicle" in name or "car" in name:
-            return 0
-
-        return 0
-
-    def _mdtoken_order_bev_polygon(self, pts):
-        center = pts.mean(axis=0)
-        angles = np.arctan2(
-            pts[:, 1] - center[1],
-            pts[:, 0] - center[0],
-        )
-        order = np.argsort(angles)
-        return [
-            (float(pts[i, 0]), float(pts[i, 1]))
-            for i in order
-        ]
-
-    def _mdtoken_box_corners_lidar_xyz(self, box7):
-        box7 = np.asarray(box7[:7], dtype=np.float32)
-
-        corner_fn = globals().get("_box_corners_lidar_xyz", None)
-        if corner_fn is not None:
-            try:
-                return corner_fn(box7, z_is_center=True)
-            except TypeError:
-                return corner_fn(box7)
-
-        x, y, z, dx, dy, dz, yaw = [float(v) for v in box7]
-        local = np.array(
-            [
-                [-0.5 * dx, -0.5 * dy, -0.5 * dz],
-                [-0.5 * dx, -0.5 * dy,  0.5 * dz],
-                [-0.5 * dx,  0.5 * dy, -0.5 * dz],
-                [-0.5 * dx,  0.5 * dy,  0.5 * dz],
-                [ 0.5 * dx, -0.5 * dy, -0.5 * dz],
-                [ 0.5 * dx, -0.5 * dy,  0.5 * dz],
-                [ 0.5 * dx,  0.5 * dy, -0.5 * dz],
-                [ 0.5 * dx,  0.5 * dy,  0.5 * dz],
-            ],
-            dtype=np.float32,
-        )
-
-        c = np.cos(yaw)
-        s = np.sin(yaw)
-        rot = np.array(
-            [
-                [c, -s, 0.0],
-                [s,  c, 0.0],
-                [0.0, 0.0, 1.0],
-            ],
-            dtype=np.float32,
-        )
-
-        center = np.array([x, y, z], dtype=np.float32)
-        return local @ rot.T + center[None, :]
-
-    def _get_dynamic_object_bev_masks(
-        self,
-        info,
-        bev_h,
-        bev_w,
-        bev_from_ego,
-        num_obj_classes=10,
-    ):
-        obj_masks = np.zeros(
-            (bev_h, bev_w, num_obj_classes),
-            dtype=np.uint8,
-        )
-
-        boxes = info.get("gt_boxes", None)
-        if boxes is None:
-            return obj_masks
-
-        names = info.get("gt_names", None)
-        if isinstance(names, (list, tuple, np.ndarray)):
-            names = list(names)
-        else:
-            names = []
-
-        for i, box in enumerate(boxes):
-            box_np = np.asarray(box[:7], dtype=np.float32)
-
-            if box_np.shape[0] < 7:
-                continue
-
-            if not np.isfinite(box_np).all():
-                continue
-
-            corners = self._mdtoken_box_corners_lidar_xyz(box_np)
-
-            class_name = names[i] if i < len(names) else "car"
-            cls_id = int(self._mdtoken_dynamic_class_id(class_name))
-
-            if cls_id < 0 or cls_id >= num_obj_classes:
-                continue
-
-            bottom_idx = np.argsort(corners[:, 2])[:4]
-            bottom = corners[bottom_idx].astype(np.float32)
-
-            pts_h = np.concatenate(
-                [
-                    bottom,
-                    np.ones((bottom.shape[0], 1), dtype=np.float32),
-                ],
-                axis=1,
-            )
-
-            uv = (bev_from_ego @ pts_h.T).T[:, :2].astype(np.float32)
-
-            if uv[:, 0].max() < 0:
-                continue
-            if uv[:, 0].min() >= bev_w:
-                continue
-            if uv[:, 1].max() < 0:
-                continue
-            if uv[:, 1].min() >= bev_h:
-                continue
-
-            poly = self._mdtoken_order_bev_polygon(uv)
-
-            channel_img = Image.fromarray(obj_masks[:, :, cls_id], mode="L")
-            draw = ImageDraw.Draw(channel_img)
-            draw.polygon(poly, fill=255)
-            obj_masks[:, :, cls_id] = np.asarray(channel_img, dtype=np.uint8)
-
-        return obj_masks
-
-
     def _get_hdmap_bev_image(self, info):
         settings = self.hdmap_bev_settings or {}
 
@@ -1399,21 +1247,6 @@ class MotionDataset(torch.utils.data.Dataset):
                     pen_width,
                     fill_map,
                 )
-
-        if bool(settings.get("append_dynamic_object_mask", False)):
-            num_obj_classes = int(settings.get("num_object_classes", 10))
-            obj_masks = self._get_dynamic_object_bev_masks(
-                info,
-                bev_h,
-                bev_w,
-                bev_from_ego,
-                num_obj_classes=num_obj_classes,
-            )
-            canvas = np.concatenate(
-                [canvas, obj_masks],
-                axis=-1,
-            )
-            return canvas
 
         return Image.fromarray(canvas, "RGB")
     # ---------- _get_hdmap_image ----------
@@ -1842,194 +1675,70 @@ class MotionDataset(torch.utils.data.Dataset):
                 bbox_token_masks_list,
                 dim=0,
             )
-       # ---- 3dbox_images (gt_line) cached
-        cached = []
-        all_hit = True
+        # ---- 3dbox_images (gt_line), no disk cache
+        imgs = []
 
         for t, x in enumerate(seq):
             row = []
 
             for v, cam_ch in enumerate(self.sensor_channels):
-                tok = self._img_token(x, v, cam_ch)
-                p = self._png_path("3dbox_images", tok)
+                W, H = img_sizes[t][v]
 
-                img = _try_open_png(p) if os.path.isfile(p) else None
+                cam_info = self._get_cam_info(x, cam_ch)
+                if cam_info is None:
+                    row.append(Image.new("RGB", (int(W), int(H))))
+                    continue
 
-                if img is None:
-                    all_hit = False
+                K3 = np.asarray(
+                    cam_info["camera_intrinsics"],
+                    np.float32,
+                ).reshape(3, 3)
 
-                row.append(img)
+                l2i = _lidar2image_from_caminfo(cam_info, K3)
 
-            cached.append(row)
-
-        if all_hit:
-            result["3dbox_images"] = cached
-        else:
-            imgs = []
-
-            for t, x in enumerate(seq):
-                row = []
-
-                for v, cam_ch in enumerate(self.sensor_channels):
-                    W, H = img_sizes[t][v]
-
-                    cam_info = self._get_cam_info(x, cam_ch)
-                    if cam_info is None:
-                        row.append(Image.new("RGB", (int(W), int(H))))
-                        continue
-
-                    K3 = np.asarray(
-                        cam_info["camera_intrinsics"],
-                        np.float32,
-                    ).reshape(3, 3)
-
-                    l2i = _lidar2image_from_caminfo(cam_info, K3)
-                    row.append(
-                        self._get_3dbox_image_from_gtline(
-                            x,
-                            (W, H),
-                            l2i,
-                        )
+                row.append(
+                    self._get_3dbox_image_from_gtline(
+                        x,
+                        (W, H),
+                        l2i,
                     )
+                )
 
-                imgs.append(row)
+            imgs.append(row)
 
-            result["3dbox_images"] = imgs
+        result["3dbox_images"] = imgs
 
-            for t, x in enumerate(seq):
-                for v, cam_ch in enumerate(self.sensor_channels):
-                    tok = self._img_token(x, v, cam_ch)
-                    p = self._png_path("3dbox_images", tok)
-                    lock = p + ".lock"
-
-                    if os.path.isfile(p) and _try_open_png(p) is not None:
-                        continue
-
-                    _acquire_lock(lock, timeout=30, stale=120, sleep=0.02)
-
-                    try:
-                        if os.path.isfile(p) and _try_open_png(p) is not None:
-                            continue
-
-                        _safe_save_png(imgs[t][v], p)
-
-                    finally:
-                        _release_lock(lock)
-
-
-        # ---- hdmap_images (nuplan) cached
-        cached = []
-        all_hit = True
+        # ---- hdmap_images (nuplan), no disk cache
+        imgs = []
 
         for t, x in enumerate(seq):
             row = []
 
             for v, cam_ch in enumerate(self.sensor_channels):
-                tok = self._img_token(x, v, cam_ch)
-                p = self._png_path("hdmap_images", tok)
+                W, H = img_sizes[t][v]
+                cam_intr = cam_Ks[t][v][:3, :3]
 
-                img = _try_open_png(p) if os.path.isfile(p) else None
-
-                if img is None:
-                    all_hit = False
-
-                row.append(img)
-
-            cached.append(row)
-
-        if all_hit:
-            result["hdmap_images"] = cached
-        else:
-            imgs = []
-
-            for t, x in enumerate(seq):
-                row = []
-
-                for v, cam_ch in enumerate(self.sensor_channels):
-                    W, H = img_sizes[t][v]
-                    cam_intr = cam_Ks[t][v][:3, :3]
-
-                    row.append(
-                        self._get_hdmap_image(
-                            x,
-                            cam_ch,
-                            (W, H),
-                            cam_intr,
-                        )
+                row.append(
+                    self._get_hdmap_image(
+                        x,
+                        cam_ch,
+                        (W, H),
+                        cam_intr,
                     )
+                )
 
-                imgs.append(row)
+            imgs.append(row)
 
-            result["hdmap_images"] = imgs
+        result["hdmap_images"] = imgs
 
-            for t, x in enumerate(seq):
-                for v, cam_ch in enumerate(self.sensor_channels):
-                    tok = self._img_token(x, v, cam_ch)
-                    p = self._png_path("hdmap_images", tok)
-                    lock = p + ".lock"
-
-                    if os.path.isfile(p) and _try_open_png(p) is not None:
-                        continue
-
-                    _acquire_lock(lock, timeout=30, stale=120, sleep=0.02)
-
-                    try:
-                        if os.path.isfile(p) and _try_open_png(p) is not None:
-                            continue
-
-                        _safe_save_png(imgs[t][v], p)
-
-                    finally:
-                        _release_lock(lock)
-        # ---- hdmap_bev_images cached
+        # ---- hdmap_bev_images, no disk cache
         if self.hdmap_bev_settings is not None:
-            cached = []
-            all_hit = True
+            imgs = []
 
             for x in seq:
-                scene = str(x.get(self.scene_key, "scene"))
-                frame_tok = str(x.get("lidarpc_token", x.get(self.timestamp_key, "t")))
-                tok = f"{scene}_{frame_tok}_bev"
+                imgs.append(self._get_hdmap_bev_image(x))
 
-                p = self._png_path("hdmap_bev_images", tok)
-                img = _try_open_png(p) if os.path.isfile(p) else None
-
-                if img is None:
-                    all_hit = False
-
-                cached.append(img)
-
-            if all_hit:
-                result["hdmap_bev_images"] = cached
-            else:
-                imgs = []
-
-                for x in seq:
-                    imgs.append(self._get_hdmap_bev_image(x))
-
-                result["hdmap_bev_images"] = imgs
-
-                for x, img in zip(seq, imgs):
-                    scene = str(x.get(self.scene_key, "scene"))
-                    frame_tok = str(x.get("lidarpc_token", x.get(self.timestamp_key, "t")))
-                    tok = f"{scene}_{frame_tok}_bev"
-
-                    p = self._png_path("hdmap_bev_images", tok)
-                    lock = p + ".lock"
-
-                    if os.path.isfile(p) and _try_open_png(p) is not None:
-                        continue
-
-                    _acquire_lock(lock, timeout=30, stale=120, sleep=0.02)
-
-                    try:
-                        if os.path.isfile(p) and _try_open_png(p) is not None:
-                            continue
-
-                        _safe_save_png(img, p)
-
-                    finally:
-                        _release_lock(lock)                        
+            result["hdmap_bev_images"] = imgs
         ''' 
         # ---- pts proj (nuplan) cached -> proj_depth/proj_sem/proj_clr (tensors)
         if self.projected_pc_settings:

@@ -867,7 +867,7 @@ class MotionDataset(torch.utils.data.Dataset):
                 "pose_t=", world_from_ego[:3, 3].tolist(),
                 flush=True,
             )
-        if False and bool(hdmap_bev_settings.get("append_dynamic_object_mask", False)):
+        if bool(hdmap_bev_settings.get("append_dynamic_object_mask", False)):
             num_obj_classes = int(hdmap_bev_settings.get("num_object_classes", 10))
 
             obj_masks = MotionDataset._get_dynamic_object_bev_masks_from_sample_data(
