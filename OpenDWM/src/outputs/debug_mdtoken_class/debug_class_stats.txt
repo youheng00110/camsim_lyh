@@ -1,0 +1,187 @@
+==== BBOX CLASS STATS ====
+T=19, V=8, S=64
+visible slot class inconsistent across views = 0
+
+class 00 car              | bbox_any_view=  374 | bbox_per_view=  631 | dynamic_sum=13088.0
+class 01 truck            | bbox_any_view=    0 | bbox_per_view=    0 | dynamic_sum=0.0
+class 02 construction     | bbox_any_view=    0 | bbox_per_view=    0 | dynamic_sum=0.0
+class 03 bus              | bbox_any_view=    0 | bbox_per_view=    0 | dynamic_sum=0.0
+class 04 trailer          | bbox_any_view=    0 | bbox_per_view=    0 | dynamic_sum=0.0
+class 05 barrier          | bbox_any_view=    0 | bbox_per_view=    0 | dynamic_sum=0.0
+class 06 motorcycle       | bbox_any_view=    0 | bbox_per_view=    0 | dynamic_sum=0.0
+class 07 bicycle/cyclist  | bbox_any_view=    0 | bbox_per_view=    0 | dynamic_sum=0.0
+class 08 pedestrian       | bbox_any_view=  778 | bbox_per_view=  932 | dynamic_sum=3349.0
+class 09 trafficcone/sign | bbox_any_view=   64 | bbox_per_view=  127 | dynamic_sum=130.0
+
+==== PER T,V VISIBLE COUNT BY CLASS ====
+-- t=0 --
+view 0: 0:car=5, 8:pedestrian=1, 9:trafficcone/sign=1
+view 1: 0:car=5
+view 2: 0:car=3, 8:pedestrian=9
+view 3: 0:car=7, 8:pedestrian=15
+view 4: 0:car=2, 8:pedestrian=13
+view 5: 
+view 6: 0:car=6, 8:pedestrian=3, 9:trafficcone/sign=3
+view 7: 0:car=8, 8:pedestrian=5, 9:trafficcone/sign=5
+-- t=1 --
+view 0: 0:car=6
+view 1: 0:car=5
+view 2: 0:car=2, 8:pedestrian=10
+view 3: 0:car=7, 8:pedestrian=15
+view 4: 0:car=2, 8:pedestrian=14
+view 5: 
+view 6: 0:car=6, 8:pedestrian=3, 9:trafficcone/sign=4
+view 7: 0:car=8, 8:pedestrian=5, 9:trafficcone/sign=4
+-- t=2 --
+view 0: 0:car=6
+view 1: 0:car=5
+view 2: 0:car=2, 8:pedestrian=10
+view 3: 0:car=7, 8:pedestrian=15
+view 4: 0:car=2, 8:pedestrian=14
+view 5: 
+view 6: 0:car=6, 8:pedestrian=3, 9:trafficcone/sign=4
+view 7: 0:car=8, 8:pedestrian=5, 9:trafficcone/sign=4
+-- t=3 --
+view 0: 0:car=5
+view 1: 0:car=5
+view 2: 0:car=2, 8:pedestrian=11
+view 3: 0:car=7, 8:pedestrian=17
+view 4: 0:car=1, 8:pedestrian=14
+view 5: 
+view 6: 0:car=6, 8:pedestrian=2, 9:trafficcone/sign=4
+view 7: 0:car=8, 8:pedestrian=4, 9:trafficcone/sign=4
+-- t=4 --
+view 0: 0:car=5
+view 1: 0:car=4
+view 2: 0:car=2, 8:pedestrian=12
+view 3: 0:car=7, 8:pedestrian=17
+view 4: 0:car=1, 8:pedestrian=13
+view 5: 
+view 6: 0:car=6, 8:pedestrian=2, 9:trafficcone/sign=4
+view 7: 0:car=9, 8:pedestrian=4, 9:trafficcone/sign=4
+-- t=5 --
+view 0: 0:car=5
+view 1: 0:car=4
+view 2: 0:car=2, 8:pedestrian=12
+view 3: 0:car=7, 8:pedestrian=17
+view 4: 0:car=1, 8:pedestrian=13
+view 5: 
+view 6: 0:car=6, 8:pedestrian=2, 9:trafficcone/sign=4
+view 7: 0:car=9, 8:pedestrian=4, 9:trafficcone/sign=4
+-- t=6 --
+view 0: 0:car=5
+view 1: 0:car=4
+view 2: 0:car=3, 8:pedestrian=12
+view 3: 0:car=7, 8:pedestrian=17
+view 4: 0:car=1, 8:pedestrian=14
+view 5: 8:pedestrian=1
+view 6: 0:car=6, 8:pedestrian=2, 9:trafficcone/sign=3
+view 7: 0:car=9, 8:pedestrian=4, 9:trafficcone/sign=3
+-- t=7 --
+view 0: 0:car=5
+view 1: 0:car=4
+view 2: 0:car=3, 8:pedestrian=12
+view 3: 0:car=6, 8:pedestrian=17
+view 4: 0:car=1, 8:pedestrian=13
+view 5: 8:pedestrian=1
+view 6: 0:car=6, 8:pedestrian=2, 9:trafficcone/sign=3
+view 7: 0:car=9, 8:pedestrian=4, 9:trafficcone/sign=3
+-- t=8 --
+view 0: 0:car=5
+view 1: 0:car=4
+view 2: 0:car=3, 8:pedestrian=12
+view 3: 0:car=6, 8:pedestrian=18
+view 4: 0:car=1, 8:pedestrian=13
+view 5: 8:pedestrian=1
+view 6: 0:car=6, 8:pedestrian=1, 9:trafficcone/sign=3
+view 7: 0:car=9, 8:pedestrian=3, 9:trafficcone/sign=3
+-- t=9 --
+view 0: 0:car=5
+view 1: 0:car=4
+view 2: 0:car=2, 8:pedestrian=13
+view 3: 0:car=6, 8:pedestrian=18
+view 4: 0:car=1, 8:pedestrian=13
+view 5: 8:pedestrian=1
+view 6: 0:car=6, 8:pedestrian=1, 9:trafficcone/sign=3
+view 7: 0:car=10, 8:pedestrian=3, 9:trafficcone/sign=3
+-- t=10 --
+view 0: 0:car=6
+view 1: 0:car=4
+view 2: 0:car=2, 8:pedestrian=14
+view 3: 0:car=5, 8:pedestrian=18
+view 4: 0:car=1, 8:pedestrian=12
+view 5: 8:pedestrian=1
+view 6: 0:car=6, 8:pedestrian=1, 9:trafficcone/sign=3
+view 7: 0:car=10, 8:pedestrian=3, 9:trafficcone/sign=3
+-- t=11 --
+view 0: 0:car=6
+view 1: 0:car=3
+view 2: 0:car=2, 8:pedestrian=14
+view 3: 0:car=5, 8:pedestrian=17
+view 4: 0:car=1, 8:pedestrian=12
+view 5: 8:pedestrian=1
+view 6: 0:car=6, 8:pedestrian=1, 9:trafficcone/sign=3
+view 7: 0:car=10, 8:pedestrian=3, 9:trafficcone/sign=3
+-- t=12 --
+view 0: 0:car=6
+view 1: 0:car=3
+view 2: 0:car=2, 8:pedestrian=15
+view 3: 0:car=5, 8:pedestrian=17
+view 4: 0:car=1, 8:pedestrian=12
+view 5: 8:pedestrian=1
+view 6: 0:car=6, 8:pedestrian=1, 9:trafficcone/sign=3
+view 7: 0:car=10, 8:pedestrian=3, 9:trafficcone/sign=3
+-- t=13 --
+view 0: 0:car=5
+view 1: 0:car=3
+view 2: 0:car=4, 8:pedestrian=16
+view 3: 0:car=4, 8:pedestrian=17
+view 4: 0:car=1, 8:pedestrian=12
+view 5: 8:pedestrian=1
+view 6: 0:car=6, 8:pedestrian=1, 9:trafficcone/sign=3
+view 7: 0:car=9, 8:pedestrian=3, 9:trafficcone/sign=3
+-- t=14 --
+view 0: 0:car=5
+view 1: 0:car=3
+view 2: 0:car=4, 8:pedestrian=16
+view 3: 0:car=4, 8:pedestrian=17
+view 4: 0:car=1, 8:pedestrian=12
+view 5: 8:pedestrian=1
+view 6: 0:car=6, 8:pedestrian=1, 9:trafficcone/sign=3
+view 7: 0:car=9, 8:pedestrian=3, 9:trafficcone/sign=3
+-- t=15 --
+view 0: 0:car=5
+view 1: 0:car=3
+view 2: 0:car=4, 8:pedestrian=17
+view 3: 0:car=4, 8:pedestrian=18
+view 4: 0:car=1, 8:pedestrian=12
+view 5: 8:pedestrian=1
+view 6: 0:car=5, 8:pedestrian=1, 9:trafficcone/sign=3
+view 7: 0:car=8, 8:pedestrian=3, 9:trafficcone/sign=3
+-- t=16 --
+view 0: 0:car=5
+view 1: 0:car=3
+view 2: 0:car=4, 8:pedestrian=17
+view 3: 0:car=4, 8:pedestrian=17
+view 4: 0:car=1, 8:pedestrian=12
+view 5: 8:pedestrian=1
+view 6: 0:car=5, 8:pedestrian=1, 9:trafficcone/sign=3
+view 7: 0:car=8, 8:pedestrian=3, 9:trafficcone/sign=3
+-- t=17 --
+view 0: 0:car=5
+view 1: 0:car=3
+view 2: 0:car=4, 8:pedestrian=17
+view 3: 0:car=4, 8:pedestrian=17
+view 4: 0:car=1, 8:pedestrian=12
+view 5: 8:pedestrian=1
+view 6: 0:car=5, 8:pedestrian=1, 9:trafficcone/sign=3
+view 7: 0:car=8, 8:pedestrian=3, 9:trafficcone/sign=3
+-- t=18 --
+view 0: 0:car=4
+view 1: 0:car=4
+view 2: 0:car=4, 8:pedestrian=18
+view 3: 0:car=5, 8:pedestrian=17
+view 4: 0:car=1, 8:pedestrian=12
+view 5: 8:pedestrian=1
+view 6: 0:car=5, 8:pedestrian=1, 9:trafficcone/sign=3
+view 7: 0:car=7, 8:pedestrian=3, 9:trafficcone/sign=3

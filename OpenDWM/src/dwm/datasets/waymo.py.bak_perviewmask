@@ -956,15 +956,17 @@ class MotionDataset(torch.utils.data.Dataset):
 
         if u.max() < 0.0:
             return False
+
         if u.min() >= float(image_w):
             return False
+
         if v.max() < 0.0:
             return False
+
         if v.min() >= float(image_h):
             return False
 
         return True
-
     def get_layout_token_boxes(self, frame, camera_calibrations=None):
         max_boxes = self.layout_token_settings.get("max_boxes", 64)
 
@@ -974,9 +976,23 @@ class MotionDataset(torch.utils.data.Dataset):
         camera_calibrations = list(camera_calibrations)
         view_count = max(1, len(camera_calibrations))
 
-        corners = torch.zeros(view_count, max_boxes, 8, 3, dtype=torch.float32)
-        classes = torch.zeros(view_count, max_boxes, dtype=torch.long)
-        masks = torch.zeros(view_count, max_boxes, dtype=torch.float32)
+        corners = torch.zeros(
+            view_count,
+            max_boxes,
+            8,
+            3,
+            dtype=torch.float32,
+        )
+        classes = torch.zeros(
+            view_count,
+            max_boxes,
+            dtype=torch.long,
+        )
+        masks = torch.zeros(
+            view_count,
+            max_boxes,
+            dtype=torch.float32,
+        )
 
         corner_template = torch.tensor(
             self.default_3dbox_corner_template,
@@ -1651,8 +1667,7 @@ class MotionDataset(torch.utils.data.Dataset):
 
         # 给缺失字段补 stub，和其他数据集对齐
         dwm.datasets.common.add_stub_key_data(self.stub_key_data_dict, result)
-
-        if self.layout_token_settings is not None:
+                if self.layout_token_settings is not None:
             bbox_token_corners_list = []
             bbox_token_classes_list = []
             bbox_token_masks_list = []
@@ -1688,7 +1703,8 @@ class MotionDataset(torch.utils.data.Dataset):
                 bbox_token_masks_list,
                 dim=0,
             )
-
+                # 再次写入 angle / dist
+        # 这两项前面已经写过，这里保留你当前逻辑，不改动
         if "angle" in item:
             result["angle"] = torch.tensor(item["angle"]).float()
 

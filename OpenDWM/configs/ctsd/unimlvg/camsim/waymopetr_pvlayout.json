@@ -1,7 +1,7 @@
 {
     "device": "cuda",
     "ddp_backend": "nccl",
-    "train_epochs": 4,
+    "train_epochs": 10,
     "generator_seed": 0,
     "same_dataset_per_global_batch": true,
     "data_shuffle": true,
@@ -17,7 +17,7 @@
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
-            "mesh_shape": [1, 4]
+            "mesh_shape": [1, 8]
         }
     },
     "optimizer": {
@@ -883,7 +883,7 @@
                     "split":"validation",
                     "dataset_root":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_link",
                     "info_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_balanced/validation.info.json",
-                    "sequence_length": 35,
+                    "sequence_length": 19,
                     "fps_stride_tuples": [
                         [6,9]
                     ],

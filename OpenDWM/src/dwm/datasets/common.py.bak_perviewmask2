@@ -1318,17 +1318,7 @@ class DatasetAdapter(torch.utils.data.Dataset):
         crop_vertical_anchor=0.5,
         default_height=288,
         default_width=512,
-        random_camera_order_augment=None,        append_bbox_dynamic_bev_mask=True,
-        bbox_dynamic_bev_num_classes=10,
-        bbox_dynamic_bev_map_key="hdmap_bev_images",
-        bbox_dynamic_bev_bbox_key="bbox_token_corners",
-        bbox_dynamic_bev_class_key="bbox_token_classes",
-        bbox_dynamic_bev_mask_key="bbox_token_masks",
-        bbox_dynamic_bev_x_min=-80.0,
-        bbox_dynamic_bev_x_max=80.0,
-        bbox_dynamic_bev_y_min=-80.0,
-        bbox_dynamic_bev_y_max=80.0,
-
+        random_camera_order_augment=None,
     ):
         self.base_dataset = base_dataset
         self.transform_list = transform_list
@@ -1340,18 +1330,6 @@ class DatasetAdapter(torch.utils.data.Dataset):
         self.crop_vertical_anchor = crop_vertical_anchor
         self.default_height = default_height
         self.default_width = default_width
-
-        self.append_bbox_dynamic_bev_mask = bool(append_bbox_dynamic_bev_mask)
-        self.bbox_dynamic_bev_num_classes = int(bbox_dynamic_bev_num_classes)
-        self.bbox_dynamic_bev_map_key = bbox_dynamic_bev_map_key
-        self.bbox_dynamic_bev_bbox_key = bbox_dynamic_bev_bbox_key
-        self.bbox_dynamic_bev_class_key = bbox_dynamic_bev_class_key
-        self.bbox_dynamic_bev_mask_key = bbox_dynamic_bev_mask_key
-        self.bbox_dynamic_bev_x_min = float(bbox_dynamic_bev_x_min)
-        self.bbox_dynamic_bev_x_max = float(bbox_dynamic_bev_x_max)
-        self.bbox_dynamic_bev_y_min = float(bbox_dynamic_bev_y_min)
-        self.bbox_dynamic_bev_y_max = float(bbox_dynamic_bev_y_max)
-
 
         if random_camera_order_augment is None:
             self.random_camera_order_augment = None
@@ -1564,20 +1542,7 @@ class DatasetAdapter(torch.utils.data.Dataset):
                 if i in item:
                     item.pop(i)
 
-        if self.append_bbox_dynamic_bev_mask:
-            item = _append_dynamic_bev_masks_from_bbox_tokens(
-                item,
-                map_key=self.bbox_dynamic_bev_map_key,
-                bbox_key=self.bbox_dynamic_bev_bbox_key,
-                class_key=self.bbox_dynamic_bev_class_key,
-                mask_key=self.bbox_dynamic_bev_mask_key,
-                num_classes=self.bbox_dynamic_bev_num_classes,
-                x_min=self.bbox_dynamic_bev_x_min,
-                x_max=self.bbox_dynamic_bev_x_max,
-                y_min=self.bbox_dynamic_bev_y_min,
-                y_max=self.bbox_dynamic_bev_y_max,
-            )
-
+        item = _append_dynamic_bev_masks_from_bbox_tokens(item)
         return item
 
 
