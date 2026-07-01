@@ -855,149 +855,16 @@ class MotionDataset(torch.utils.data.Dataset):
         nearest_time = dwm.datasets.common.find_nearest(
             time_list, sample_data["timestamp"], return_item=True)
         return image_descriptions["{}|{}".format(scene_camera, nearest_time)]
-    @staticmethod
-    def _layout_box_visible_in_av2_camera(
-        corners_np,
-        ref_timestamp,
-        extrinsics,
-        intrinsics,
-        poses,
-        sample_data,
-    ):
-        if sample_data is None:
-            return False
-
-        if not str(sample_data.get("sensor", "")).startswith("cameras"):
-            return False
-
-        corners_np = np.asarray(corners_np, dtype=np.float32)
-
-        if corners_np.shape != (8, 3):
-            return False
-
-        if not np.isfinite(corners_np).all():
-            return False
-
-        sensor_name = sample_data["sensor"][8:]
-
-        try:
-            idx = bisect.bisect_left(intrinsics["sensor_name"], sensor_name)
-            if idx < 0 or idx >= len(intrinsics["sensor_name"]):
-                return False
-            if intrinsics["sensor_name"][idx] != sensor_name:
-                return False
-
-            image_w, image_h = [
-                intrinsics[key][idx]
-                for key in MotionDataset.intrinsic_size_keys
-            ]
-
-            image_w = int(image_w)
-            image_h = int(image_h)
-
-            if image_w <= 0 or image_h <= 0:
-                return False
-
-            intrinsic = np.eye(4, dtype=np.float32)
-            intrinsic[:3, :3] = dwm.datasets.common.make_intrinsic_matrix(
-                [
-                    intrinsics[key][idx]
-                    for key in MotionDataset.intrinsic_focal_keys
-                ],
-                [
-                    intrinsics[key][idx]
-                    for key in MotionDataset.intrinsic_center_keys
-                ],
-            )
-
-            ego_from_camera = MotionDataset.get_transform(
-                extrinsics,
-                "sensor_name",
-                sensor_name,
-            ).astype(np.float32)
-
-            world_from_ref = MotionDataset.get_transform(
-                poses,
-                "timestamp_ns",
-                ref_timestamp,
-            ).astype(np.float32)
-
-            world_from_camera_ego = MotionDataset.get_transform(
-                poses,
-                "timestamp_ns",
-                sample_data["timestamp"],
-            ).astype(np.float32)
-
-            camera_from_ref = np.linalg.solve(
-                world_from_camera_ego @ ego_from_camera,
-                world_from_ref,
-            ).astype(np.float32)
-
-            image_from_ref = intrinsic @ camera_from_ref
-
-        except Exception:
-            return False
-
-        corners_h = np.concatenate(
-            [
-                corners_np,
-                np.ones((corners_np.shape[0], 1), dtype=np.float32),
-            ],
-            axis=1,
-        )
-
-        proj = (image_from_ref @ corners_h.T).T
-        depth = proj[:, 2]
-        valid_depth = depth > 1e-5
-
-        if not np.any(valid_depth):
-            return False
-
-        proj = proj[valid_depth]
-        depth = depth[valid_depth]
-
-        u = proj[:, 0] / depth
-        v = proj[:, 1] / depth
-
-        if u.max() < 0.0:
-            return False
-        if u.min() >= float(image_w):
-            return False
-        if v.max() < 0.0:
-            return False
-        if v.min() >= float(image_h):
-            return False
-
-        return True
-
-    def get_layout_token_boxes(
-        self,
-        annotations,
-        sample_data,
-        poses,
-        frame_items=None,
-        extrinsics=None,
-        intrinsics=None,
-    ):
+    def get_layout_token_boxes(self, annotations, sample_data, poses):
         max_boxes = self.layout_token_settings.get("max_boxes", 64)
         max_allowed_error = self.layout_token_settings.get(
             "max_annotation_time_error_ns",
             100 * 1000000,
         )
 
-        if frame_items is None:
-            frame_items = []
-
-        camera_items = [
-            i for i in frame_items
-            if str(i.get("sensor", "")).startswith("cameras")
-        ]
-
-        view_count = max(1, len(camera_items))
-
-        corners = torch.zeros(view_count, max_boxes, 8, 3, dtype=torch.float32)
-        classes = torch.zeros(view_count, max_boxes, dtype=torch.long)
-        masks = torch.zeros(view_count, max_boxes, dtype=torch.float32)
+        corners = torch.zeros(max_boxes, 8, 3, dtype=torch.float32)
+        classes = torch.zeros(max_boxes, dtype=torch.long)
+        masks = torch.zeros(max_boxes, dtype=torch.float32)
 
         corner_template = np.array(
             self.default_3dbox_corner_template,
@@ -1016,11 +883,7 @@ class MotionDataset(torch.utils.data.Dataset):
         else:
             prev_ts = annotation_timestamps[idx - 1]
             next_ts = annotation_timestamps[idx]
-            nearest_anno_ts = (
-                prev_ts
-                if abs(target_ts - prev_ts) <= abs(next_ts - target_ts)
-                else next_ts
-            )
+            nearest_anno_ts = prev_ts if abs(target_ts - prev_ts) <= abs(next_ts - target_ts) else next_ts
 
         if abs(int(nearest_anno_ts) - target_ts) > max_allowed_error:
             return corners, classes, masks
@@ -1069,33 +932,10 @@ class MotionDataset(torch.utils.data.Dataset):
 
             p = current_ego_from_box @ scale @ corner_template
             ego_corners = torch.tensor(p[:3].T, dtype=torch.float32)
-            ego_corners_np = ego_corners.numpy()
 
-            class_id = int(self.get_layout_token_class_id(category))
-
-            for view_idx in range(view_count):
-                corners[view_idx, kept] = ego_corners
-                classes[view_idx, kept] = class_id
-
-                if len(camera_items) == 0:
-                    masks[view_idx, kept] = 1.0
-                    continue
-
-                if extrinsics is None or intrinsics is None:
-                    visible = False
-                else:
-                    visible = MotionDataset._layout_box_visible_in_av2_camera(
-                        ego_corners_np,
-                        target_ts,
-                        extrinsics,
-                        intrinsics,
-                        poses,
-                        camera_items[view_idx],
-                    )
-
-                if visible:
-                    masks[view_idx, kept] = 1.0
-
+            corners[kept] = ego_corners
+            classes[kept] = self.get_layout_token_class_id(category)
+            masks[kept] = 1.0
             kept += 1
 
         return corners, classes, masks
@@ -1492,7 +1332,7 @@ class MotionDataset(torch.utils.data.Dataset):
 
                     images_i.append(image)
 
-                elif j["sensor"] == "lidar" and not self.hide_lidar:
+                elif j["sensor"] == "lidar":
                     with open(path, "rb") as f:
                         points = pyarrow.feather.read_feather(f)
 
@@ -1801,25 +1641,6 @@ class MotionDataset(torch.utils.data.Dataset):
                 with self.fs.open(annotation_path) as f:
                     annotations = pyarrow.feather.read_table(f).to_pydict()
 
-            if poses is None:
-                pose_path = "{}/{}/city_SE3_egovehicle.feather" \
-                    .format(item["split"], item["scene_id"])
-                with self.fs.open(pose_path) as f:
-                    poses = pyarrow.feather.read_table(f).to_pydict()
-
-            if extrinsics is None:
-                extrinsic_path = \
-                    "{}/{}/calibration/egovehicle_SE3_sensor.feather" \
-                    .format(item["split"], item["scene_id"])
-                with self.fs.open(extrinsic_path) as f:
-                    extrinsics = pyarrow.feather.read_table(f).to_pydict()
-
-            if intrinsics is None:
-                intrinsic_path = "{}/{}/calibration/intrinsics.feather" \
-                    .format(item["split"], item["scene_id"])
-                with self.fs.open(intrinsic_path) as f:
-                    intrinsics = pyarrow.feather.read_table(f).to_pydict()
-
             bbox_token_corners_list = []
             bbox_token_classes_list = []
             bbox_token_masks_list = []
@@ -1832,9 +1653,6 @@ class MotionDataset(torch.utils.data.Dataset):
                         annotations,
                         ref_sample_data,
                         poses,
-                        frame_items=time_step,
-                        extrinsics=extrinsics,
-                        intrinsics=intrinsics,
                     )
 
                 bbox_token_corners_list.append(bbox_corners)

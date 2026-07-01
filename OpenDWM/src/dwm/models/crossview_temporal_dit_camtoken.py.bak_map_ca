@@ -14,7 +14,6 @@ from dwm.models.crossview_temporal import VTSelfAttentionBlock, AlphaBlender, Mi
 from dwm.models.mdtoken_encoders import (
     BBoxTokenEncoder,
     BEVMapResidualEncoder,
-    BEVMapTokenEncoder,
 )
 
 
@@ -506,7 +505,6 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         qk_norm_on_additional_modules=None,
         mdtoken_bbox_config: Optional[dict] = None,
         mdtoken_map_config: Optional[dict] = None,
-        mdtoken_map_cross_attn: bool = True,
         disable_view_index_embedding: bool = False,
         mask_module=None,
         mdtoken_add_plucker_to_hidden: bool = False,
@@ -526,7 +524,6 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         self.disable_view_index_embedding = bool(disable_view_index_embedding)
         self.mdtoken_add_plucker_to_hidden = bool(mdtoken_add_plucker_to_hidden)
         self.mdtoken_plucker_scale = float(mdtoken_plucker_scale)
-        self.mdtoken_map_cross_attn = bool(mdtoken_map_cross_attn)
         # image condition adapter
         if condition_image_adapter_config is not None:
             self.condition_image_adapter = \
@@ -577,13 +574,6 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                 out_dim=self.inner_dim,
                 **mdtoken_map_config,
             )
-            if self.mdtoken_map_cross_attn:
-                self.map_token_encoder = BEVMapTokenEncoder(
-                    out_dim=self.inner_dim,
-                    **mdtoken_map_config,
-                )
-            else:
-                self.map_token_encoder = None
         self._mdtoken_debug_dumped = False
         self.enable_crossview = enable_crossview
         self.crossview_attention_type = crossview_attention_type
@@ -942,10 +932,6 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                     )
 
                 hidden_states = hidden_states + map_residual
-
-                if getattr(self, "map_token_encoder", None) is not None:
-                    map_tokens = self.map_token_encoder(map_flat)
-                    extra_condition_tokens.append(map_tokens)
 
             if len(extra_condition_tokens) > 0:
                 encoder_hidden_states = torch.cat(

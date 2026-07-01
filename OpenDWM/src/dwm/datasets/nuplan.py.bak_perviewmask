@@ -1599,33 +1599,23 @@ class MotionDataset(torch.utils.data.Dataset):
 
         if pts2[:, 0].max() < 0.0:
             return False
+
         if pts2[:, 0].min() >= float(image_w):
             return False
+
         if pts2[:, 1].max() < 0.0:
             return False
+
         if pts2[:, 1].min() >= float(image_h):
             return False
 
         return True
-
-    def get_layout_token_boxes(
-        self,
-        info,
-        cam_infos=None,
-        img_sizes=None,
-        cam_Ks=None,
-    ):
+    def get_layout_token_boxes(self, info):
         max_boxes = self.layout_token_settings.get("max_boxes", 64)
 
-        if cam_infos is None:
-            cam_infos = []
-
-        cam_infos = list(cam_infos)
-        view_count = max(1, len(cam_infos))
-
-        corners = torch.zeros(view_count, max_boxes, 8, 3, dtype=torch.float32)
-        classes = torch.zeros(view_count, max_boxes, dtype=torch.long)
-        masks = torch.zeros(view_count, max_boxes, dtype=torch.float32)
+        corners = torch.zeros(max_boxes, 8, 3, dtype=torch.float32)
+        classes = torch.zeros(max_boxes, dtype=torch.long)
+        masks = torch.zeros(max_boxes, dtype=torch.float32)
 
         boxes = info.get("gt_boxes", None)
         if boxes is None:
@@ -1635,58 +1625,25 @@ class MotionDataset(torch.utils.data.Dataset):
         names = list(names) if isinstance(names, (list, tuple, np.ndarray)) else []
 
         kept = 0
-
         for i, box in enumerate(boxes):
             if kept >= max_boxes:
                 break
 
             box_np = np.asarray(box[:7], dtype=np.float32)
-
-            if box_np.shape[0] < 7:
-                continue
-
-            if not np.isfinite(box_np).all():
-                continue
-
             box_corners = _box_corners_lidar_xyz(
                 box_np,
                 z_is_center=True,
             )
 
-            if box_corners is None:
-                continue
-
-            if not np.isfinite(box_corners).all():
-                continue
-
             class_name = names[i] if i < len(names) else "car"
-            class_id = int(self.get_layout_token_class_id(class_name))
-            box_corners_t = torch.from_numpy(box_corners).float()
 
-            for view_idx in range(view_count):
-                corners[view_idx, kept] = box_corners_t
-                classes[view_idx, kept] = class_id
-
-                if len(cam_infos) == 0:
-                    masks[view_idx, kept] = 1.0
-                    continue
-
-                visible = False
-
-                if img_sizes is not None and cam_Ks is not None:
-                    visible = self._layout_box_visible_in_nuplan_camera(
-                        box_corners,
-                        cam_infos[view_idx],
-                        img_sizes[view_idx],
-                        cam_Ks[view_idx],
-                    )
-
-                if visible:
-                    masks[view_idx, kept] = 1.0
-
+            corners[kept] = torch.from_numpy(box_corners).float()
+            classes[kept] = self.get_layout_token_class_id(class_name)
+            masks[kept] = 1.0
             kept += 1
 
         return corners, classes, masks
+
     def get_layout_token_class_id(self, category_name):
         name = str(category_name).lower()
 
@@ -1917,14 +1874,9 @@ class MotionDataset(torch.utils.data.Dataset):
             bbox_token_classes_list = []
             bbox_token_masks_list = []
 
-            for t, info in enumerate(seq):
+            for info in seq:
                 bbox_corners, bbox_classes, bbox_masks = \
-                    self.get_layout_token_boxes(
-                        info,
-                        cam_infos=cam_infos[t],
-                        img_sizes=img_sizes[t],
-                        cam_Ks=cam_Ks[t],
-                    )
+                    self.get_layout_token_boxes(info)
 
                 bbox_token_corners_list.append(bbox_corners)
                 bbox_token_classes_list.append(bbox_classes)

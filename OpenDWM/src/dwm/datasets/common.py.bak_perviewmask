@@ -660,313 +660,6 @@ class RandomCameraOrderAugment:
         return item    
 
 
-def _mdtoken_to_numpy_or_none(x):
-    if x is None:
-        return None
-
-    if torch.is_tensor(x):
-        return x.detach().cpu().numpy()
-
-    return np.asarray(x)
-
-
-def _mdtoken_order_polygon_np(pts):
-    pts = np.asarray(pts, dtype=np.float32)
-
-    if pts.ndim != 2 or pts.shape[0] < 3:
-        return []
-
-    center = pts.mean(axis=0)
-    angles = np.arctan2(
-        pts[:, 1] - center[1],
-        pts[:, 0] - center[0],
-    )
-    order = np.argsort(angles)
-
-    return [
-        (float(pts[i, 0]), float(pts[i, 1]))
-        for i in order
-    ]
-
-
-def _mdtoken_xy_to_uv_np(x, y, w, h, x_min, x_max, y_min, y_max):
-    u = (float(x) - float(x_min)) / max(float(x_max - x_min), 1e-6)
-    v = (float(y_max) - float(y)) / max(float(y_max - y_min), 1e-6)
-
-    u = u * float(w)
-    v = v * float(h)
-
-    return u, v
-
-
-def _mdtoken_select_time_slice(arr, t):
-    if arr is None:
-        return None
-
-    arr = np.asarray(arr)
-
-    if arr.ndim >= 1 and arr.shape[0] > t:
-        return arr[t]
-
-    return arr
-
-
-def _mdtoken_select_bev_boxes(arr, t):
-    cur = _mdtoken_select_time_slice(arr, t)
-
-    if cur is None:
-        return None
-
-    cur = np.asarray(cur)
-
-    if cur.ndim == 4 and cur.shape[-2:] == (8, 3):
-        return cur[0]
-
-    if cur.ndim == 3 and cur.shape[-2:] == (8, 3):
-        return cur
-
-    return cur
-
-
-def _mdtoken_select_bev_classes(arr, t):
-    cur = _mdtoken_select_time_slice(arr, t)
-
-    if cur is None:
-        return None
-
-    cur = np.asarray(cur)
-
-    if cur.ndim == 2:
-        return cur[0]
-
-    return cur
-
-
-def _mdtoken_select_bev_masks(arr, t):
-    cur = _mdtoken_select_time_slice(arr, t)
-
-    if cur is None:
-        return None
-
-    cur = np.asarray(cur)
-
-    if cur.ndim == 2:
-        return (cur > 0).any(axis=0).astype(np.float32)
-
-    return cur
-
-
-def _mdtoken_rasterize_bev_boxes(
-    boxes,
-    classes,
-    masks,
-    h,
-    w,
-    num_classes,
-    x_min,
-    x_max,
-    y_min,
-    y_max,
-):
-    dyn = np.zeros((num_classes, h, w), dtype=np.float32)
-
-    if boxes is None or masks is None:
-        return dyn
-
-    boxes = np.asarray(boxes, dtype=np.float32)
-    masks = np.asarray(masks)
-
-    if boxes.ndim != 3 or boxes.shape[-2:] != (8, 3):
-        return dyn
-
-    if classes is None:
-        classes = np.zeros((boxes.shape[0],), dtype=np.int64)
-    else:
-        classes = np.asarray(classes)
-
-    for i in range(boxes.shape[0]):
-        if i >= masks.shape[0]:
-            continue
-
-        if float(masks[i]) <= 0:
-            continue
-
-        cls_id = int(classes[i]) if i < classes.shape[0] else 0
-
-        if cls_id < 0 or cls_id >= num_classes:
-            continue
-
-        box = boxes[i]
-
-        if not np.isfinite(box).all():
-            continue
-
-        bottom_idx = np.argsort(box[:, 2])[:4]
-        bottom_xy = box[bottom_idx, :2]
-
-        pts = np.asarray(
-            [
-                _mdtoken_xy_to_uv_np(
-                    x,
-                    y,
-                    w,
-                    h,
-                    x_min,
-                    x_max,
-                    y_min,
-                    y_max,
-                )
-                for x, y in bottom_xy
-            ],
-            dtype=np.float32,
-        )
-
-        if pts[:, 0].max() < 0:
-            continue
-
-        if pts[:, 0].min() >= w:
-            continue
-
-        if pts[:, 1].max() < 0:
-            continue
-
-        if pts[:, 1].min() >= h:
-            continue
-
-        poly = _mdtoken_order_polygon_np(pts)
-
-        if len(poly) < 3:
-            continue
-
-        channel = Image.fromarray(
-            (dyn[cls_id] * 255.0).astype(np.uint8),
-            mode="L",
-        )
-        draw = ImageDraw.Draw(channel)
-        draw.polygon(poly, fill=255)
-        dyn[cls_id] = np.asarray(channel, dtype=np.float32) / 255.0
-
-    return dyn
-
-
-def _mdtoken_append_dynamic_to_tensor_maps(
-    maps_tensor,
-    bboxes_np,
-    classes_np,
-    masks_np,
-    num_classes,
-    x_min,
-    x_max,
-    y_min,
-    y_max,
-):
-    device = maps_tensor.device
-    dtype = maps_tensor.dtype
-
-    maps_np = maps_tensor.detach().float().cpu().numpy()
-
-    if maps_np.ndim == 4:
-        t_count, _, h, w = maps_np.shape
-        out = np.zeros((t_count, 3 + num_classes, h, w), dtype=np.float32)
-
-        for t in range(t_count):
-            boxes_t = _mdtoken_select_bev_boxes(bboxes_np, t)
-            classes_t = _mdtoken_select_bev_classes(classes_np, t)
-            masks_t = _mdtoken_select_bev_masks(masks_np, t)
-
-            dyn = _mdtoken_rasterize_bev_boxes(
-                boxes_t,
-                classes_t,
-                masks_t,
-                h,
-                w,
-                num_classes,
-                x_min,
-                x_max,
-                y_min,
-                y_max,
-            )
-
-            out[t, :3] = maps_np[t, :3]
-            out[t, 3:] = dyn
-
-        return torch.from_numpy(out).to(device=device, dtype=dtype)
-
-    if maps_np.ndim == 5:
-        t_count, view_count, _, h, w = maps_np.shape
-        out = np.zeros((t_count, view_count, 3 + num_classes, h, w), dtype=np.float32)
-
-        for t in range(t_count):
-            boxes_t = _mdtoken_select_bev_boxes(bboxes_np, t)
-            classes_t = _mdtoken_select_bev_classes(classes_np, t)
-            masks_t = _mdtoken_select_bev_masks(masks_np, t)
-
-            dyn = _mdtoken_rasterize_bev_boxes(
-                boxes_t,
-                classes_t,
-                masks_t,
-                h,
-                w,
-                num_classes,
-                x_min,
-                x_max,
-                y_min,
-                y_max,
-            )
-
-            for v in range(view_count):
-                out[t, v, :3] = maps_np[t, v, :3]
-                out[t, v, 3:] = dyn
-
-        return torch.from_numpy(out).to(device=device, dtype=dtype)
-
-    return maps_tensor
-
-
-def _mdtoken_append_dynamic_to_hwc_array(
-    arr,
-    t,
-    bboxes_np,
-    classes_np,
-    masks_np,
-    num_classes,
-    x_min,
-    x_max,
-    y_min,
-    y_max,
-):
-    arr = np.asarray(arr)
-
-    if arr.ndim != 3:
-        return arr
-
-    h, w = arr.shape[:2]
-    static = arr[:, :, :3].astype(np.uint8)
-
-    boxes_t = _mdtoken_select_bev_boxes(bboxes_np, t)
-    classes_t = _mdtoken_select_bev_classes(classes_np, t)
-    masks_t = _mdtoken_select_bev_masks(masks_np, t)
-
-    dyn_chw = _mdtoken_rasterize_bev_boxes(
-        boxes_t,
-        classes_t,
-        masks_t,
-        h,
-        w,
-        num_classes,
-        x_min,
-        x_max,
-        y_min,
-        y_max,
-    )
-    dyn_hwc = np.transpose(
-        (dyn_chw * 255.0).astype(np.uint8),
-        (1, 2, 0),
-    )
-
-    return np.concatenate([static, dyn_hwc], axis=-1)
-
-
 def _append_dynamic_bev_masks_from_bbox_tokens(
     result,
     map_key="hdmap_bev_images",
@@ -979,6 +672,28 @@ def _append_dynamic_bev_masks_from_bbox_tokens(
     y_min=-80.0,
     y_max=80.0,
 ):
+    """
+    Build dynamic-object BEV masks directly from bbox_token_corners/classes/masks.
+
+    This makes the dense BEV object mask and bbox-token condition share exactly
+    the same source and coordinate frame.
+
+    Expected common shapes after DatasetAdapter transforms:
+        result[map_key]:    [T, C, H, W] or [T, V, C, H, W]
+        bbox_token_corners: [T, S, 8, 3] or [T, V, S, 8, 3]
+        bbox_token_classes: [T, S]       or [T, V, S]
+        bbox_token_masks:   [T, S]       or [T, V, S]
+
+    Output:
+        result[map_key] with C = 3 + num_classes.
+        First 3 channels are static RGB map.
+        Last num_classes channels are rasterized dynamic object masks.
+    """
+    import os
+    import numpy as np
+    import torch
+    from PIL import Image, ImageDraw
+
     if os.environ.get("DWM_DISABLE_BBOX_DYNAMIC_BEV", "0") == "1":
         return result
 
@@ -992,89 +707,235 @@ def _append_dynamic_bev_masks_from_bbox_tokens(
         return result
 
     maps = result[map_key]
-    bboxes_np = _mdtoken_to_numpy_or_none(result.get(bbox_key, None))
-    classes_np = _mdtoken_to_numpy_or_none(result.get(class_key, None))
-    masks_np = _mdtoken_to_numpy_or_none(result.get(mask_key, None))
+    bboxes = result[bbox_key]
+    classes = result.get(class_key, None)
+    masks = result.get(mask_key, None)
+
+    def to_numpy(x):
+        if x is None:
+            return None
+        if isinstance(x, torch.Tensor):
+            return x.detach().cpu().numpy()
+        return np.asarray(x)
+
+    bboxes_np = to_numpy(bboxes)
+    classes_np = to_numpy(classes)
+    masks_np = to_numpy(masks)
 
     if bboxes_np is None or masks_np is None:
         return result
 
-    if torch.is_tensor(maps):
-        result[map_key] = _mdtoken_append_dynamic_to_tensor_maps(
-            maps,
-            bboxes_np,
-            classes_np,
-            masks_np,
-            int(num_classes),
-            float(x_min),
-            float(x_max),
-            float(y_min),
-            float(y_max),
+    def order_polygon(pts):
+        pts = np.asarray(pts, dtype=np.float32)
+        center = pts.mean(axis=0)
+        angles = np.arctan2(
+            pts[:, 1] - center[1],
+            pts[:, 0] - center[0],
         )
-        return result
+        return pts[np.argsort(angles)]
 
-    if isinstance(maps, (list, tuple)):
-        new_maps = []
+    def xy_to_uv(x, y, w, h):
+        # Match current config:
+        #   u = 1.6*x + 128 for W=256
+        #   v = -1.6*y + 128 for H=256
+        # Generalized to range [-80, 80].
+        u = (float(x) - x_min) / max(x_max - x_min, 1e-6) * float(w)
+        v = (y_max - float(y)) / max(y_max - y_min, 1e-6) * float(h)
+        return u, v
 
-        for t, map_item in enumerate(maps):
-            new_maps.append(
-                _mdtoken_append_dynamic_to_hwc_array(
-                    map_item,
-                    t,
-                    bboxes_np,
-                    classes_np,
-                    masks_np,
-                    int(num_classes),
-                    float(x_min),
-                    float(x_max),
-                    float(y_min),
-                    float(y_max),
-                )
+    def select_t_v(arr, t, v=None):
+        if arr is None:
+            return None
+
+        arr = np.asarray(arr)
+
+        # [T, V, ...]
+        if v is not None and arr.ndim >= 3 and arr.shape[0] > t:
+            # If second dimension looks like view dimension.
+            if arr.shape[1] > v and arr.ndim >= 3:
+                return arr[t, v]
+
+        # [T, ...]
+        if arr.ndim >= 1 and arr.shape[0] > t:
+            return arr[t]
+
+        return arr
+
+    def rasterize_one_frame(boxes, cls, msk, h, w, fill_value):
+        dyn = np.zeros((num_classes, h, w), dtype=np.float32)
+
+        if boxes is None or msk is None:
+            return dyn
+
+        boxes = np.asarray(boxes, dtype=np.float32)
+        msk = np.asarray(msk)
+
+        if cls is not None:
+            cls = np.asarray(cls)
+        else:
+            cls = np.zeros((boxes.shape[0],), dtype=np.int64)
+
+        if boxes.ndim != 3 or boxes.shape[-2:] != (8, 3):
+            return dyn
+
+        for i in range(boxes.shape[0]):
+            if i >= msk.shape[0]:
+                continue
+
+            if float(msk[i]) <= 0:
+                continue
+
+            cls_id = int(cls[i]) if i < cls.shape[0] else 0
+            if cls_id < 0 or cls_id >= num_classes:
+                continue
+
+            box = boxes[i]
+            if not np.isfinite(box).all():
+                continue
+
+            bottom_idx = np.argsort(box[:, 2])[:4]
+            bottom_xy = box[bottom_idx, :2]
+
+            pts = np.asarray(
+                [xy_to_uv(x, y, w, h) for x, y in bottom_xy],
+                dtype=np.float32,
             )
 
+            # Skip boxes fully outside.
+            if pts[:, 0].max() < 0 or pts[:, 0].min() >= w:
+                continue
+            if pts[:, 1].max() < 0 or pts[:, 1].min() >= h:
+                continue
+
+            pts = order_polygon(pts)
+
+            channel = Image.fromarray(
+                (dyn[cls_id] * fill_value).astype(np.uint8),
+                mode="L",
+            )
+            draw = ImageDraw.Draw(channel)
+            draw.polygon(
+                [(float(x), float(y)) for x, y in pts],
+                fill=int(fill_value),
+            )
+            dyn[cls_id] = np.asarray(channel, dtype=np.float32) / float(fill_value)
+
+        return dyn
+
+    def process_chw_tensor(maps_tensor):
+        device = maps_tensor.device
+        dtype = maps_tensor.dtype
+
+        maps_np = maps_tensor.detach().float().cpu().numpy()
+
+        # [T, C, H, W]
+        if maps_np.ndim == 4:
+            T, C, H, W = maps_np.shape
+            out = np.zeros((T, 3 + num_classes, H, W), dtype=np.float32)
+
+            for t in range(T):
+                static = maps_np[t, :3]
+                boxes_t = select_t_v(bboxes_np, t)
+                cls_t = select_t_v(classes_np, t)
+                mask_t = select_t_v(masks_np, t)
+
+                dyn = rasterize_one_frame(
+                    boxes_t,
+                    cls_t,
+                    mask_t,
+                    H,
+                    W,
+                    fill_value=255,
+                )
+
+                out[t, :3] = static
+                out[t, 3:] = dyn
+
+            return torch.from_numpy(out).to(device=device, dtype=dtype)
+
+        # [T, V, C, H, W]
+        if maps_np.ndim == 5:
+            T, V, C, H, W = maps_np.shape
+            out = np.zeros((T, V, 3 + num_classes, H, W), dtype=np.float32)
+
+            for t in range(T):
+                for v in range(V):
+                    static = maps_np[t, v, :3]
+                    boxes_tv = select_t_v(bboxes_np, t, v)
+                    cls_tv = select_t_v(classes_np, t, v)
+                    mask_tv = select_t_v(masks_np, t, v)
+
+                    dyn = rasterize_one_frame(
+                        boxes_tv,
+                        cls_tv,
+                        mask_tv,
+                        H,
+                        W,
+                        fill_value=255,
+                    )
+
+                    out[t, v, :3] = static
+                    out[t, v, 3:] = dyn
+
+            return torch.from_numpy(out).to(device=device, dtype=dtype)
+
+        return maps_tensor
+
+    def process_hwc_array(arr, t=0, v=None):
+        arr = np.asarray(arr)
+
+        # HWC
+        if arr.ndim == 3:
+            H, W = arr.shape[:2]
+            static = arr[:, :, :3].astype(np.uint8)
+
+            boxes_tv = select_t_v(bboxes_np, t, v)
+            cls_tv = select_t_v(classes_np, t, v)
+            mask_tv = select_t_v(masks_np, t, v)
+
+            dyn_chw = rasterize_one_frame(
+                boxes_tv,
+                cls_tv,
+                mask_tv,
+                H,
+                W,
+                fill_value=255,
+            )
+            dyn_hwc = np.transpose((dyn_chw * 255.0).astype(np.uint8), (1, 2, 0))
+
+            return np.concatenate([static, dyn_hwc], axis=-1)
+
+        return arr
+
+    # Most likely path after transforms: torch.Tensor [T,C,H,W].
+    if isinstance(maps, torch.Tensor):
+        result[map_key] = process_chw_tensor(maps)
+        return result
+
+    # Robust fallback for pre-transform list[PIL/numpy].
+    if isinstance(maps, (list, tuple)):
+        new_maps = []
+        for t, m in enumerate(maps):
+            new_maps.append(process_hwc_array(m, t=t, v=None))
         result[map_key] = new_maps
         return result
 
+    # Robust fallback for numpy [T,H,W,C] or [H,W,C].
     maps_np = np.asarray(maps)
-
     if maps_np.ndim == 4:
         new_maps = []
-
         for t in range(maps_np.shape[0]):
-            new_maps.append(
-                _mdtoken_append_dynamic_to_hwc_array(
-                    maps_np[t],
-                    t,
-                    bboxes_np,
-                    classes_np,
-                    masks_np,
-                    int(num_classes),
-                    float(x_min),
-                    float(x_max),
-                    float(y_min),
-                    float(y_max),
-                )
-            )
-
+            new_maps.append(process_hwc_array(maps_np[t], t=t, v=None))
         result[map_key] = np.stack(new_maps, axis=0)
         return result
 
     if maps_np.ndim == 3:
-        result[map_key] = _mdtoken_append_dynamic_to_hwc_array(
-            maps_np,
-            0,
-            bboxes_np,
-            classes_np,
-            masks_np,
-            int(num_classes),
-            float(x_min),
-            float(x_max),
-            float(y_min),
-            float(y_max),
-        )
+        result[map_key] = process_hwc_array(maps_np, t=0, v=None)
         return result
 
     return result
+
+
 
 class DatasetAdapter(torch.utils.data.Dataset):
     @staticmethod
@@ -1318,17 +1179,7 @@ class DatasetAdapter(torch.utils.data.Dataset):
         crop_vertical_anchor=0.5,
         default_height=288,
         default_width=512,
-        random_camera_order_augment=None,        append_bbox_dynamic_bev_mask=True,
-        bbox_dynamic_bev_num_classes=10,
-        bbox_dynamic_bev_map_key="hdmap_bev_images",
-        bbox_dynamic_bev_bbox_key="bbox_token_corners",
-        bbox_dynamic_bev_class_key="bbox_token_classes",
-        bbox_dynamic_bev_mask_key="bbox_token_masks",
-        bbox_dynamic_bev_x_min=-80.0,
-        bbox_dynamic_bev_x_max=80.0,
-        bbox_dynamic_bev_y_min=-80.0,
-        bbox_dynamic_bev_y_max=80.0,
-
+        random_camera_order_augment=None,
     ):
         self.base_dataset = base_dataset
         self.transform_list = transform_list
@@ -1340,18 +1191,6 @@ class DatasetAdapter(torch.utils.data.Dataset):
         self.crop_vertical_anchor = crop_vertical_anchor
         self.default_height = default_height
         self.default_width = default_width
-
-        self.append_bbox_dynamic_bev_mask = bool(append_bbox_dynamic_bev_mask)
-        self.bbox_dynamic_bev_num_classes = int(bbox_dynamic_bev_num_classes)
-        self.bbox_dynamic_bev_map_key = bbox_dynamic_bev_map_key
-        self.bbox_dynamic_bev_bbox_key = bbox_dynamic_bev_bbox_key
-        self.bbox_dynamic_bev_class_key = bbox_dynamic_bev_class_key
-        self.bbox_dynamic_bev_mask_key = bbox_dynamic_bev_mask_key
-        self.bbox_dynamic_bev_x_min = float(bbox_dynamic_bev_x_min)
-        self.bbox_dynamic_bev_x_max = float(bbox_dynamic_bev_x_max)
-        self.bbox_dynamic_bev_y_min = float(bbox_dynamic_bev_y_min)
-        self.bbox_dynamic_bev_y_max = float(bbox_dynamic_bev_y_max)
-
 
         if random_camera_order_augment is None:
             self.random_camera_order_augment = None
@@ -1564,20 +1403,7 @@ class DatasetAdapter(torch.utils.data.Dataset):
                 if i in item:
                     item.pop(i)
 
-        if self.append_bbox_dynamic_bev_mask:
-            item = _append_dynamic_bev_masks_from_bbox_tokens(
-                item,
-                map_key=self.bbox_dynamic_bev_map_key,
-                bbox_key=self.bbox_dynamic_bev_bbox_key,
-                class_key=self.bbox_dynamic_bev_class_key,
-                mask_key=self.bbox_dynamic_bev_mask_key,
-                num_classes=self.bbox_dynamic_bev_num_classes,
-                x_min=self.bbox_dynamic_bev_x_min,
-                x_max=self.bbox_dynamic_bev_x_max,
-                y_min=self.bbox_dynamic_bev_y_min,
-                y_max=self.bbox_dynamic_bev_y_max,
-            )
-
+        item = _append_dynamic_bev_masks_from_bbox_tokens(item)
         return item
 
 
