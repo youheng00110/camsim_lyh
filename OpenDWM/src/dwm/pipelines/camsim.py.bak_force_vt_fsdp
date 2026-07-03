@@ -1838,20 +1838,10 @@ class CrossviewTemporalSD():
                 else:
                     ignored_modules = None
 
-                from torch.distributed.fsdp.wrap import ModuleWrapPolicy
-                from diffusers.models.attention import JointTransformerBlock
-                from dwm.models.crossview_temporal import VTSelfAttentionBlock
-
-                ddp_wrapper_settings = dict(self.common_config["ddp_wrapper_settings"])
-                ddp_wrapper_settings["auto_wrap_policy"] = ModuleWrapPolicy({
-                    JointTransformerBlock,
-                    VTSelfAttentionBlock,
-                })
-
                 self.model_wrapper = FSDP(
                     self.model, device_id=torch.cuda.current_device(),
                     ignored_modules=ignored_modules,
-                    **ddp_wrapper_settings)
+                    **self.common_config["ddp_wrapper_settings"])
             else:
                 raise Exception(
                     "Unknown data parallel framework {}."
