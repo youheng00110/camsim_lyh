@@ -18,7 +18,8 @@
       "_class_name": "torch.distributed.device_mesh.init_device_mesh",
       "device_type": "cuda",
       "mesh_shape": [
-        1, 8
+        1,
+        8
       ]
     }
   },
@@ -151,7 +152,7 @@
       "scheduler": "dwm.schedulers.temporal_independent.FlowMatchEulerDiscreteScheduler",
       "guidance_scale": 2,
       "inference_steps": 38,
-      "all_rank_preview":true,
+      "all_rank_preview":false,
       "preview_image_size": [
         512,
         288
@@ -172,83 +173,85 @@
       "evaluation_item_count": 480
     },
     "model": {
-    "_class_name": "dwm.models.crossview_temporal_dit_PLUCKER_BOXAWARE_PV.DiTCrossviewTemporalConditionModel",
-    "attention_head_dim": 64,
-    "caption_projection_dim": 1536,
-    "in_channels": 16,
-    "joint_attention_dim": 4096,
-    "num_attention_heads": 24,
-    "num_layers": 24,
-    "out_channels": 16,
-    "patch_size": 2,
-    "pooled_projection_dim": 2048,
-    "pos_embed_max_size": 192,
-    "sample_size": 128,
+      "_class_name": "dwm.models.crossview_temporal_dit_PLUCKER_TVROW.DiTCrossviewTemporalConditionModel",
+      "attention_head_dim": 64,
+      "caption_projection_dim": 1536,
+      "in_channels": 16,
+      "joint_attention_dim": 4096,
+      "num_attention_heads": 24,
+      "num_layers": 24,
+      "out_channels": 16,
+      "patch_size": 2,
+      "pooled_projection_dim": 2048,
+      "pos_embed_max_size": 192,
+      "sample_size": 128,
 
-    "perspective_modeling_type": "explicit",
+      "perspective_modeling_type": "explicit",
 
-    "enable_crossview": true,
-    "crossview_attention_type": "rowwise",
-    "crossview_block_layers": [
-      1,
-      5,
-      9,
-      13,
-      17,
-      21
-    ],
-    "crossview_gradient_checkpointing": true,
-
-    "enable_temporal": true,
-    "temporal_attention_type": "rowwise",
-    "temporal_block_layers": [
-      1,
-      5,
-      9,
-      13,
-      17,
-      21
-    ],
-    "temporal_gradient_checkpointing": true,
-
-    "enable_boxaware": true,
-    "boxaware_mode": "scale",
-    "boxaware_apply_to": "crossview",
-    "boxaware_init_scale": 0.25,
-
-    "boxaware_pv_channel_start": 0,
-    "boxaware_pv_channel_count": 3,
-    "boxaware_pv_threshold": 0.01,
-    "boxaware_pv_dilate_pixels": 5,
-    "boxaware_pv_detach": true,
-    "boxaware_debug": false,
-
-    "mixer_type": "AlphaBlender",
-    "merge_factor": 2,
-
-    "condition_image_adapter_config": {
-      "in_channels": 6,
-      "channels": [
-        1536,
-        1536,
-        1536,
-        1536,
-        1536,
-        1536
+      "enable_crossview": false,
+      "crossview_attention_type": "rowwise",
+      "crossview_block_layers": [
+        1,
+        5,
+        9,
+        13,
+        17,
+        21
       ],
-      "is_downblocks": [
-        true,
-        false,
-        false,
-        false,
-        false,
-        false
+      "crossview_gradient_checkpointing": true,
+
+      "enable_temporal": true,
+      "temporal_attention_type": "rowwise",
+      "temporal_block_layers": [
+        1,
+        5,
+        9,
+        13,
+        17,
+        21
       ],
-      "num_res_blocks": 2,
-      "downscale_factor": 8,
-      "use_zero_convs": true
-    }
-  },
+      "temporal_gradient_checkpointing": true,
+
+      "enable_tv": true,
+      "tv_attention_type": "rowwise",
+      "tv_block_layers": [
+        1,
+        5,
+        9,
+        13,
+        17,
+        21
+      ],
+      "tv_gradient_checkpointing": true,
+      "tv_time_radius": 1,
+      "tv_view_radius": 1,
+
+      "mixer_type": "AlphaBlender",
+      "merge_factor": 2,
+
+      "condition_image_adapter_config": {
+        "in_channels": 6,
+        "channels": [
+          1536,
+          1536,
+          1536,
+          1536,
+          1536,
+          1536
+        ],
+        "is_downblocks": [
+          true,
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "num_res_blocks": 2,
+        "downscale_factor": 8,
+        "use_zero_convs": true
+      }
+    },
     "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
     "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplansingle2/checkpoints/20000.pth",
     "model_load_state_args": {

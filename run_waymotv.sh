@@ -1,10 +1,10 @@
-4卡：
-
 source /inspire/ssd/project/advanced-machine-learning/public/inspire_shared/envs/lyhdwm/bin/activate
 cd /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/src
 
-export ENABLE_DEBUGPY=1
-export CUDA_VISIBLE_DEVICES=0
+
+unset ENABLE_DEBUGPY
+unset DEBUGPY_PORT
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export OMP_NUM_THREADS=1
 export TOKENIZERS_PARALLELISM=false
 export PYTHONUNBUFFERED=1
@@ -13,12 +13,11 @@ export PYTHONPATH=/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24
 export PYTHONPATH=/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan-devkit-master:$PYTHONPATH
 export PYTHONPATH=$PYTHONPATH:/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/externals/waymo-open-dataset/src
 torchrun \
-  --nproc_per_node=1 \
+  --nproc_per_node=8 \
   -m dwm.train \
-  -c /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplantvselfdebug.json \
-  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_crosstv \
+  -c /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/waymotvself.json\
+  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_waymotv\
   --log-steps  500 \
   --preview-steps 1000 \
   --checkpointing-steps 6000 \
   --evaluation-steps 200000
-
