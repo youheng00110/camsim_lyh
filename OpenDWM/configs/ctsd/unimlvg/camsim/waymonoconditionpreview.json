@@ -17,7 +17,7 @@
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
-            "mesh_shape": [1, 8]
+            "mesh_shape": [1, 4]
         }
     },
     "optimizer": {
@@ -133,8 +133,8 @@
         },
         "training_config": {
             "text_prompt_condition_ratio": 0,
-            "3dbox_condition_ratio": 0.8,
-            "explicit_view_modeling_ratio": 0.8,
+            "3dbox_condition_ratio": 0.0,
+            "explicit_view_modeling_ratio": 1.0,
             "reference_frame_count": 3,
             "generation_task_ratio": 0.2,
             "image_generation_ratio": 0.5,
@@ -142,20 +142,20 @@
             "reference_visible_rate": 0.5,
             "disable_reference_frame_loss": true,
             "enable_grad_scaler": true,
-            "hdmap_condition_ratio": 0.8,
+            "hdmap_condition_ratio": 0.0,
             "action_condition_ratio": 0.0
         },
         "inference_config": {
             "scheduler": "dwm.schedulers.temporal_independent.FlowMatchEulerDiscreteScheduler",
             "guidance_scale": 2,
             "inference_steps": 38,
-            "all_rank_preview":false,
             "preview_image_size": [
                 512,
                 288
             ],
-            "force_preview_resize":false,
+            "force_preview_resize": false,
             "generate_frames_for_reference": false,
+            "all_rank_preview":true,
             "sequence_length_per_iteration": 19,
             "clear_reference_frame_count": 0,
             "reference_frame_count": 3,
@@ -168,10 +168,15 @@
                 "dist"
             
             ],
-            "evaluation_item_count": 480
+            "evaluation_item_count": 480,
+            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/waymo/nocondition",
+            "eval_frame_dataset_name": "waymo",
+            "eval_frame_manifest_name": "stflow_manifest.jsonl",
+            "eval_frame_export_paired_real": true,
+            "eval_frame_image_quality": 95
         },
         "model": {
-            "_class_name": "dwm.models.crossview_temporal_dit_PLUCKER.DiTCrossviewTemporalConditionModel",
+            "_class_name": "dwm.models.crossview_temporal_dit_nocondition.DiTCrossviewTemporalConditionModel",
             "attention_head_dim": 64,
             "caption_projection_dim": 1536,
             "in_channels": 16,
@@ -208,31 +213,10 @@
             "temporal_gradient_checkpointing": true,
             "mixer_type": "AlphaBlender",
             "merge_factor": 2,
-            "condition_image_adapter_config": {
-                "in_channels": 6,
-                "channels": [
-                    1536,
-                    1536,
-                    1536,
-                    1536,
-                    1536,
-                    1536
-                ],
-                "is_downblocks": [
-                    true,
-                    false,
-                    false,
-                    false,
-                    false,
-                    false
-                ],
-                "num_res_blocks": 2,
-                "downscale_factor": 8,
-                "use_zero_convs": true
-            }
+            "condition_image_adapter_config": null
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_waymosingle2/checkpoints/30000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_waymonocondition/checkpoints/18000.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -863,7 +847,7 @@
                     "info_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_balanced/validation.info.json",
                     "sequence_length": 19,
                     "fps_stride_tuples": [
-                        [6,12]
+                        [6,9]
                     ],
                     "sensor_channels": [
                         "LIDAR_TOP",

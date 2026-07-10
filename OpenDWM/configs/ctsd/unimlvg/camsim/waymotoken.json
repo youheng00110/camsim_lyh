@@ -1,7 +1,7 @@
 {
     "device": "cuda",
     "ddp_backend": "nccl",
-    "train_epochs": 10,
+    "train_epochs": 20,
     "generator_seed": 0,
     "same_dataset_per_global_batch": true,
     "data_shuffle": true,
@@ -9,7 +9,7 @@
     "global_state": {
         "nuscenes_fs": {
             "_class_name": "fsspec.implementations.dirfs.DirFileSystem",
-             "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh",
+            "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh",
             "fs": {
                 "_class_name": "dwm.fs.dirfs.DirFileSystem"
             }
@@ -17,24 +17,35 @@
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
-            "mesh_shape": [1, 8]
+            "mesh_shape": [
+                1,
+                8
+            ]
         }
     },
     "optimizer": {
         "_class_name": "torch.optim.AdamW",
-        "lr": 6e-5
+        "lr": 6e-05
     },
     "pipeline": {
         "_class_name": "dwm.pipelines.camsim.CrossviewTemporalSD",
         "common_config": {
             "frame_prediction_style": "ctsd",
-            "explicit_view_modeling": true,
             "cat_condition": true,
             "cond_with_action": false,
             "print_load_state_info": true,
             "condition_on_all_frames": true,
             "uncondition_image_color": 0.1255,
-            "added_time_ids": "fps_camera_transforms",
+            "debug_pv_layout_condition": false,
+            "explicit_view_modeling": true,
+            "camera_token_modeling": false,
+            "bbox_token_modeling": true,
+            "map_token_modeling": true,
+            "use_pv_layout_condition": false,
+            "added_time_ids": null,
+            "map_token_key": "hdmap_bev_images",
+            "require_bbox_token_input": true,
+            "require_map_token_input": true,
             "explicit_geometry_clip": {
                 "enabled": true,
                 "translation_clip": 100.0,
@@ -133,8 +144,8 @@
         },
         "training_config": {
             "text_prompt_condition_ratio": 0,
-            "3dbox_condition_ratio": 0.8,
-            "explicit_view_modeling_ratio": 0.8,
+            "3dbox_condition_ratio": 0,
+            "explicit_view_modeling_ratio": 1.0,
             "reference_frame_count": 3,
             "generation_task_ratio": 0.2,
             "image_generation_ratio": 0.5,
@@ -142,19 +153,18 @@
             "reference_visible_rate": 0.5,
             "disable_reference_frame_loss": true,
             "enable_grad_scaler": true,
-            "hdmap_condition_ratio": 0.8,
+            "hdmap_condition_ratio": 0.0,
             "action_condition_ratio": 0.0
         },
         "inference_config": {
             "scheduler": "dwm.schedulers.temporal_independent.FlowMatchEulerDiscreteScheduler",
             "guidance_scale": 2,
             "inference_steps": 38,
-            "all_rank_preview":false,
             "preview_image_size": [
                 512,
                 288
             ],
-            "force_preview_resize":false,
+            "force_preview_resize": false,
             "generate_frames_for_reference": false,
             "sequence_length_per_iteration": 19,
             "clear_reference_frame_count": 0,
@@ -166,12 +176,11 @@
                 "distortion",
                 "angle",
                 "dist"
-            
             ],
             "evaluation_item_count": 480
         },
         "model": {
-            "_class_name": "dwm.models.crossview_temporal_dit_PLUCKER.DiTCrossviewTemporalConditionModel",
+            "_class_name": "dwm.models.crossview_temporal_dit_camtoken.DiTCrossviewTemporalConditionModel",
             "attention_head_dim": 64,
             "caption_projection_dim": 1536,
             "in_channels": 16,
@@ -181,10 +190,37 @@
             "out_channels": 16,
             "patch_size": 2,
             "pooled_projection_dim": 2048,
-             "pos_embed_max_size": 192,
+            "pos_embed_max_size": 192,
             "sample_size": 128,
-            "perspective_modeling_type": "explicit",
+            "perspective_modeling_type": "mdtoken_nopv",
+            "mdtoken_add_plucker_to_hidden": true,
+            "mdtoken_plucker_scale": 1.0,
             "enable_crossview": true,
+            "disable_view_index_embedding": true,
+            "mdtoken_bbox_config": {
+                "num_classes": 10,
+                "points_per_box": 8,
+                "num_freqs": 4,
+                "position_min": [
+                    -80.0,
+                    -80.0,
+                    -5.0
+                ],
+                "position_range": [
+                    160.0,
+                    160.0,
+                    10.0
+                ],
+                "zero_after_proj": true
+            },
+            "mdtoken_map_config": {
+                "in_channels": 13,
+                "token_grid_size": [
+                    8,
+                    8
+                ],
+                "zero_after_proj": true
+            },
             "crossview_attention_type": "rowwise",
             "crossview_block_layers": [
                 1,
@@ -243,7 +279,7 @@
             },
             "fvd": {
                 "_class_name": "dwm.metrics.fvd.FrechetVideoDistance",
-                "inception_3d_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/i3d_pretrained_400.pt",
+                "inception_3d_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/ckpt/i3d_pretrained_400.pt",
                 "sequence_count": 19
             }
         }
@@ -260,15 +296,22 @@
                     "sensor_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_sensors",
                     "pkl_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_infos_train.pkl",
                     "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/balanced_windows_metadata.json",
-                    "cache_root":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
+                    "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
                     "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
                     "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
-
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [2,2.5,0.39],[6,2,0.5]
+                        [
+                            2,
+                            2.5,
+                            0.39
+                        ],
+                        [
+                            6,
+                            2,
+                            0.5
+                        ]
                     ],
-
                     "sensor_channels": [
                         "CAM_L1",
                         "CAM_L0",
@@ -279,14 +322,11 @@
                         "CAM_B0",
                         "CAM_L2"
                     ],
-
                     "enable_camera_transforms": true,
                     "enable_ego_transforms": true,
                     "enable_synchronization_check": true,
-
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
-
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/nuplan_scene.json",
                         "align_keys": [
@@ -300,21 +340,75 @@
                             "image_description": 0.16
                         }
                     },
-
                     "stub_key_data_dict": {
-                        "crossview_mask": ["content", {
-                            "_class_name": "torch.tensor",
-                            "data": { "_class_name": "json.loads", "s": "[[1,1,0,0,0,0,0,1],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[0,0,0,0,1,1,1,0],[0,0,0,0,0,1,1,1],[1,0,0,0,0,0,1,1]]" },
-                            "dtype": { "_class_name": "get_class", "class_name": "torch.bool" }
-                        }],
-                    "dataset_tag": [
-                        "content",
-                        {
-                            "_class_name": "torch.tensor",
-                            "data": 0,
-                            "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
-                        }
+                        "crossview_mask": [
+                            "content",
+                            {
+                                "_class_name": "torch.tensor",
+                                "data": {
+                                    "_class_name": "json.loads",
+                                    "s": "[[1,1,0,0,0,0,0,1],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[0,0,0,0,1,1,1,0],[0,0,0,0,0,1,1,1],[1,0,0,0,0,0,1,1]]"
+                                },
+                                "dtype": {
+                                    "_class_name": "get_class",
+                                    "class_name": "torch.bool"
+                                }
+                            }
+                        ],
+                        "dataset_tag": [
+                            "content",
+                            {
+                                "_class_name": "torch.tensor",
+                                "data": 0,
+                                "dtype": {
+                                    "_class_name": "get_class",
+                                    "class_name": "torch.int64"
+                                }
+                            }
                         ]
+                    },
+                    "layout_token_settings": {
+                        "enabled": true,
+                        "max_boxes": 64,
+                        "box_coordinate": "ego",
+                        "box_format": "corners8",
+                        "class_mapping": "driving_10cls",
+                        "use_map_bev_token": true,
+                        "map_token_key": "hdmap_bev_images"
+                    },
+                    "hdmap_bev_settings": {
+                        "bev_size": [
+                            256,
+                            256
+                        ],
+                        "bev_from_ego_transform": [
+                            [
+                                1.6,
+                                0.0,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                -1.6,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                -1.6,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                0.0,
+                                1.0
+                            ]
+                        ],
+                        "append_dynamic_object_mask": false,
+                        "num_object_classes": 10
                     }
                 },
                 {
@@ -325,12 +419,19 @@
                     "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
                     "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
                     "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
-
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [6,2,0.5],[2,2.5,0.39]
+                        [
+                            6,
+                            2,
+                            0.5
+                        ],
+                        [
+                            2,
+                            2.5,
+                            0.39
+                        ]
                     ],
-
                     "sensor_channels": [
                         "CAM_L1",
                         "CAM_L0",
@@ -341,14 +442,11 @@
                         "CAM_R0",
                         "CAM_R1"
                     ],
-
                     "enable_camera_transforms": true,
                     "enable_ego_transforms": true,
                     "enable_synchronization_check": true,
-
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
-
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/nuplan_scene.json",
                         "align_keys": [
@@ -362,21 +460,75 @@
                             "image_description": 0.16
                         }
                     },
-
                     "stub_key_data_dict": {
-                        "crossview_mask": ["content", {
-                            "_class_name": "torch.tensor",
-                            "data": { "_class_name": "json.loads", "s": "[[1,1,0,0,0,0,0,0],[1,1,0,1,0,0,0,0],[0,0,1,0,0,0,0,0],[0,1,0,1,0,1,0,0],[0,0,0,0,1,0,0,0],[0,0,0,1,0,1,0,1],[0,0,0,0,0,0,1,0],[0,0,0,0,0,1,0,1]]"},
-                            "dtype": { "_class_name": "get_class", "class_name": "torch.bool" }
-                        }],
-                    "dataset_tag": [
-                        "content",
-                        {
-                            "_class_name": "torch.tensor",
-                            "data": 0,
-                            "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
-                        }
+                        "crossview_mask": [
+                            "content",
+                            {
+                                "_class_name": "torch.tensor",
+                                "data": {
+                                    "_class_name": "json.loads",
+                                    "s": "[[1,1,0,0,0,0,0,0],[1,1,0,1,0,0,0,0],[0,0,1,0,0,0,0,0],[0,1,0,1,0,1,0,0],[0,0,0,0,1,0,0,0],[0,0,0,1,0,1,0,1],[0,0,0,0,0,0,1,0],[0,0,0,0,0,1,0,1]]"
+                                },
+                                "dtype": {
+                                    "_class_name": "get_class",
+                                    "class_name": "torch.bool"
+                                }
+                            }
+                        ],
+                        "dataset_tag": [
+                            "content",
+                            {
+                                "_class_name": "torch.tensor",
+                                "data": 0,
+                                "dtype": {
+                                    "_class_name": "get_class",
+                                    "class_name": "torch.int64"
+                                }
+                            }
                         ]
+                    },
+                    "layout_token_settings": {
+                        "enabled": true,
+                        "max_boxes": 64,
+                        "box_coordinate": "ego",
+                        "box_format": "corners8",
+                        "class_mapping": "driving_10cls",
+                        "use_map_bev_token": true,
+                        "map_token_key": "hdmap_bev_images"
+                    },
+                    "hdmap_bev_settings": {
+                        "bev_size": [
+                            256,
+                            256
+                        ],
+                        "bev_from_ego_transform": [
+                            [
+                                1.6,
+                                0.0,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                -1.6,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                -1.6,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                0.0,
+                                1.0
+                            ]
+                        ],
+                        "append_dynamic_object_mask": false,
+                        "num_object_classes": 10
                     }
                 },
                 {
@@ -387,13 +539,19 @@
                     "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
                     "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
                     "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
-
-
                     "sequence_length": 20,
                     "fps_stride_tuples": [
-                        [6, 2,0.5],[2,2.5,0.39]
+                        [
+                            6,
+                            2,
+                            0.5
+                        ],
+                        [
+                            2,
+                            2.5,
+                            0.39
+                        ]
                     ],
-
                     "sensor_channels": [
                         "CAM_R1",
                         "CAM_R2",
@@ -404,14 +562,11 @@
                         "CAM_L2",
                         "CAM_L1"
                     ],
-
                     "enable_camera_transforms": true,
                     "enable_ego_transforms": true,
                     "enable_synchronization_check": true,
-
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
-
                     "image_description_settings": {
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/nuplan_scene.json",
                         "align_keys": [
@@ -425,21 +580,75 @@
                             "image_description": 0.16
                         }
                     },
-
                     "stub_key_data_dict": {
-                        "crossview_mask": ["content", {
-                            "_class_name": "torch.tensor",
-                            "data": { "_class_name": "json.loads","s": "[[1,1,0,0,0,0,0,0],[1,1,0,1,0,0,0,0],[0,0,1,0,0,0,0,0],[0,1,0,1,0,1,0,0],[0,0,0,0,1,0,0,0],[0,0,0,1,0,1,0,1],[0,0,0,0,0,0,1,0],[0,0,0,0,0,1,0,1]]"},
-                            "dtype": { "_class_name": "get_class", "class_name": "torch.bool" }
-                        }],
-                    "dataset_tag": [
-                        "content",
-                        {
-                            "_class_name": "torch.tensor",
-                            "data": 0,
-                            "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
-                        }
+                        "crossview_mask": [
+                            "content",
+                            {
+                                "_class_name": "torch.tensor",
+                                "data": {
+                                    "_class_name": "json.loads",
+                                    "s": "[[1,1,0,0,0,0,0,0],[1,1,0,1,0,0,0,0],[0,0,1,0,0,0,0,0],[0,1,0,1,0,1,0,0],[0,0,0,0,1,0,0,0],[0,0,0,1,0,1,0,1],[0,0,0,0,0,0,1,0],[0,0,0,0,0,1,0,1]]"
+                                },
+                                "dtype": {
+                                    "_class_name": "get_class",
+                                    "class_name": "torch.bool"
+                                }
+                            }
+                        ],
+                        "dataset_tag": [
+                            "content",
+                            {
+                                "_class_name": "torch.tensor",
+                                "data": 0,
+                                "dtype": {
+                                    "_class_name": "get_class",
+                                    "class_name": "torch.int64"
+                                }
+                            }
                         ]
+                    },
+                    "layout_token_settings": {
+                        "enabled": true,
+                        "max_boxes": 64,
+                        "box_coordinate": "ego",
+                        "box_format": "corners8",
+                        "class_mapping": "driving_10cls",
+                        "use_map_bev_token": true,
+                        "map_token_key": "hdmap_bev_images"
+                    },
+                    "hdmap_bev_settings": {
+                        "bev_size": [
+                            256,
+                            256
+                        ],
+                        "bev_from_ego_transform": [
+                            [
+                                1.6,
+                                0.0,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                -1.6,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                -1.6,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                0.0,
+                                1.0
+                            ]
+                        ],
+                        "append_dynamic_object_mask": false,
+                        "num_object_classes": 10
                     }
                 },
                 {
@@ -514,6 +723,49 @@
                                 }
                             }
                         ]
+                    },
+                    "layout_token_settings": {
+                        "enabled": true,
+                        "max_boxes": 64,
+                        "box_coordinate": "ego",
+                        "box_format": "corners8",
+                        "class_mapping": "driving_10cls",
+                        "use_map_bev_token": true,
+                        "map_token_key": "hdmap_bev_images"
+                    },
+                    "hdmap_bev_settings": {
+                        "bev_size": [
+                            256,
+                            256
+                        ],
+                        "bev_from_ego_transform": [
+                            [
+                                1.6,
+                                0.0,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                -1.6,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                -1.6,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                0.0,
+                                1.0
+                            ]
+                        ],
+                        "append_dynamic_object_mask": false,
+                        "num_object_classes": 10
                     }
                 },
                 {
@@ -598,6 +850,49 @@
                                 }
                             }
                         ]
+                    },
+                    "layout_token_settings": {
+                        "enabled": true,
+                        "max_boxes": 64,
+                        "box_coordinate": "ego",
+                        "box_format": "corners8",
+                        "class_mapping": "driving_10cls",
+                        "use_map_bev_token": true,
+                        "map_token_key": "hdmap_bev_images"
+                    },
+                    "hdmap_bev_settings": {
+                        "bev_size": [
+                            256,
+                            256
+                        ],
+                        "bev_from_ego_transform": [
+                            [
+                                1.6,
+                                0.0,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                -1.6,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                -1.6,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                0.0,
+                                1.0
+                            ]
+                        ],
+                        "append_dynamic_object_mask": false,
+                        "num_object_classes": 10
                     }
                 },
                 {
@@ -682,6 +977,49 @@
                                 }
                             }
                         ]
+                    },
+                    "layout_token_settings": {
+                        "enabled": true,
+                        "max_boxes": 64,
+                        "box_coordinate": "ego",
+                        "box_format": "corners8",
+                        "class_mapping": "driving_10cls",
+                        "use_map_bev_token": true,
+                        "map_token_key": "hdmap_bev_images"
+                    },
+                    "hdmap_bev_settings": {
+                        "bev_size": [
+                            256,
+                            256
+                        ],
+                        "bev_from_ego_transform": [
+                            [
+                                1.6,
+                                0.0,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                -1.6,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                -1.6,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                0.0,
+                                1.0
+                            ]
+                        ],
+                        "append_dynamic_object_mask": false,
+                        "num_object_classes": 10
                     }
                 },
                 {
@@ -766,9 +1104,51 @@
                                 }
                             }
                         ]
+                    },
+                    "layout_token_settings": {
+                        "enabled": true,
+                        "max_boxes": 64,
+                        "box_coordinate": "ego",
+                        "box_format": "corners8",
+                        "class_mapping": "driving_10cls",
+                        "use_map_bev_token": true,
+                        "map_token_key": "hdmap_bev_images"
+                    },
+                    "hdmap_bev_settings": {
+                        "bev_size": [
+                            256,
+                            256
+                        ],
+                        "bev_from_ego_transform": [
+                            [
+                                1.6,
+                                0.0,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                -1.6,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                -1.6,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                0.0,
+                                1.0
+                            ]
+                        ],
+                        "append_dynamic_object_mask": false,
+                        "num_object_classes": 10
                     }
                 }
-                
             ]
         },
         "transform_list": [
@@ -785,6 +1165,18 @@
                                 512
                             ]
                         },
+                        {
+                            "_class_name": "torchvision.transforms.ToTensor"
+                        }
+                    ]
+                }
+            },
+            {
+                "old_key": "hdmap_bev_images",
+                "new_key": "hdmap_bev_images",
+                "transform": {
+                    "_class_name": "torchvision.transforms.Compose",
+                    "transforms": [
                         {
                             "_class_name": "torchvision.transforms.ToTensor"
                         }
@@ -842,14 +1234,23 @@
             "images",
             "lidar_points",
             "image_description"
-        ]
+        ],
+        "append_bbox_dynamic_bev_mask": true,
+        "bbox_dynamic_bev_num_classes": 10,
+        "bbox_dynamic_bev_map_key": "hdmap_bev_images",
+        "bbox_dynamic_bev_bbox_key": "bbox_token_corners",
+        "bbox_dynamic_bev_class_key": "bbox_token_classes",
+        "bbox_dynamic_bev_mask_key": "bbox_token_masks",
+        "bbox_dynamic_bev_x_min": -80.0,
+        "bbox_dynamic_bev_x_max": 80.0,
+        "bbox_dynamic_bev_y_min": -80.0,
+        "bbox_dynamic_bev_y_max": 80.0
     },
     "validation_dataset": {
-        "_class_name": "dwm.datasets.common.DatasetAdapter",   
+        "_class_name": "dwm.datasets.common.DatasetAdapter",
         "default_height": 288,
         "default_width": 512,
         "base_dataset": {
-            
             "_class_name": "torch.utils.data.ConcatDataset",
             "datasets": [
                 {
@@ -858,12 +1259,15 @@
                         "_class_name": "dwm.fs.dirfs.DirFileSystem",
                         "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_link"
                     },
-                    "split":"validation",
-                    "dataset_root":"/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_link",
+                    "split": "validation",
+                    "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_link",
                     "info_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_balanced/validation.info.json",
                     "sequence_length": 19,
                     "fps_stride_tuples": [
-                        [6,12]
+                        [
+                            6,
+                            9
+                        ]
                     ],
                     "sensor_channels": [
                         "LIDAR_TOP",
@@ -914,12 +1318,57 @@
                             {
                                 "_class_name": "torch.tensor",
                                 "data": 2,
-                                "dtype": { "_class_name": "get_class", "class_name": "torch.int64" }
+                                "dtype": {
+                                    "_class_name": "get_class",
+                                    "class_name": "torch.int64"
+                                }
                             }
+                        ]
+                    },
+                    "layout_token_settings": {
+                        "enabled": true,
+                        "max_boxes": 64,
+                        "box_coordinate": "ego",
+                        "box_format": "corners8",
+                        "class_mapping": "driving_10cls",
+                        "use_map_bev_token": true,
+                        "map_token_key": "hdmap_bev_images"
+                    },
+                    "hdmap_bev_settings": {
+                        "bev_size": [
+                            256,
+                            256
+                        ],
+                        "bev_from_ego_transform": [
+                            [
+                                1.6,
+                                0.0,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                -1.6,
+                                0.0,
+                                128.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                -1.6,
+                                0.0
+                            ],
+                            [
+                                0.0,
+                                0.0,
+                                0.0,
+                                1.0
                             ]
+                        ],
+                        "append_dynamic_object_mask": false,
+                        "num_object_classes": 10
                     }
                 }
-                
             ]
         },
         "transform_list": [
@@ -936,6 +1385,18 @@
                                 512
                             ]
                         },
+                        {
+                            "_class_name": "torchvision.transforms.ToTensor"
+                        }
+                    ]
+                }
+            },
+            {
+                "old_key": "hdmap_bev_images",
+                "new_key": "hdmap_bev_images",
+                "transform": {
+                    "_class_name": "torchvision.transforms.Compose",
+                    "transforms": [
                         {
                             "_class_name": "torchvision.transforms.ToTensor"
                         }
@@ -993,10 +1454,19 @@
             "images",
             "lidar_points",
             "image_description"
-        ]
+        ],
+        "append_bbox_dynamic_bev_mask": true,
+        "bbox_dynamic_bev_num_classes": 10,
+        "bbox_dynamic_bev_map_key": "hdmap_bev_images",
+        "bbox_dynamic_bev_bbox_key": "bbox_token_corners",
+        "bbox_dynamic_bev_class_key": "bbox_token_classes",
+        "bbox_dynamic_bev_mask_key": "bbox_token_masks",
+        "bbox_dynamic_bev_x_min": -80.0,
+        "bbox_dynamic_bev_x_max": 80.0,
+        "bbox_dynamic_bev_y_min": -80.0,
+        "bbox_dynamic_bev_y_max": 80.0
     },
-
-    "training_dataloader": {        
+    "training_dataloader": {
         "batch_size": 1,
         "num_workers": 4,
         "prefetch_factor": 1,

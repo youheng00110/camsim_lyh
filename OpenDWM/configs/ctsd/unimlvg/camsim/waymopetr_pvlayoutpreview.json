@@ -17,7 +17,7 @@
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
-            "mesh_shape": [1, 8]
+            "mesh_shape": [1, 4]
         }
     },
     "optimizer": {
@@ -35,6 +35,17 @@
             "condition_on_all_frames": true,
             "uncondition_image_color": 0.1255,
             "added_time_ids": "fps_camera_transforms",
+            "zero_missing_crossview_weights": false,
+            "petr_visualize_geometry": false,
+            "petr_visualize_once": false,
+            "petr_visualize_all_ranks": false,
+            "petr_visualize_output_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_petr_vis",
+            "petr_visualize_batch_index": 0,
+            "petr_visualize_time_index": 0,
+            "petr_visualize_max_views": 8,
+            "petr_visualize_ray_depth": 30.0,
+            "petr_visualize_frustum_depth": 20.0,
+            "petr_visualize_ray_grid_size": 3,
             "explicit_geometry_clip": {
                 "enabled": true,
                 "translation_clip": 100.0,
@@ -149,13 +160,13 @@
             "scheduler": "dwm.schedulers.temporal_independent.FlowMatchEulerDiscreteScheduler",
             "guidance_scale": 2,
             "inference_steps": 38,
-            "all_rank_preview":false,
             "preview_image_size": [
                 512,
                 288
             ],
             "force_preview_resize":false,
             "generate_frames_for_reference": false,
+            "all_rank_preview":true,            
             "sequence_length_per_iteration": 19,
             "clear_reference_frame_count": 0,
             "reference_frame_count": 3,
@@ -168,10 +179,15 @@
                 "dist"
             
             ],
-            "evaluation_item_count": 480
+            "evaluation_item_count": 480,
+            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/waymo/petr",
+            "eval_frame_dataset_name": "waymo",
+            "eval_frame_manifest_name": "stflow_manifest.jsonl",
+            "eval_frame_export_paired_real": true,
+            "eval_frame_image_quality": 95
         },
         "model": {
-            "_class_name": "dwm.models.crossview_temporal_dit_PLUCKER.DiTCrossviewTemporalConditionModel",
+            "_class_name": "dwm.models.crossview_temporal_dit_PETR.DiTCrossviewTemporalConditionModel",
             "attention_head_dim": 64,
             "caption_projection_dim": 1536,
             "in_channels": 16,
@@ -183,7 +199,19 @@
             "pooled_projection_dim": 2048,
              "pos_embed_max_size": 192,
             "sample_size": 128,
-            "perspective_modeling_type": "explicit",
+            "perspective_modeling_type": "petr",
+            "petr_config": {
+                "depth_num": 64,
+                "depth_start": 1.0,
+                "depth_max": 80.0,
+                "position_range": [-80.0, -80.0, -5.0, 80.0, 80.0, 5.0],
+                "LID": false,
+                "block_out_channels": [256, 256],
+                "use_valid_mask": true,
+                "output_scale": 1.0,
+                "debug": false,
+                "debug_interval": 1
+            },
             "enable_crossview": true,
             "crossview_attention_type": "rowwise",
             "crossview_block_layers": [
@@ -232,7 +260,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_waymosingle2/checkpoints/30000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_waymopetr/checkpoints/18000.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -244,7 +272,7 @@
             "fvd": {
                 "_class_name": "dwm.metrics.fvd.FrechetVideoDistance",
                 "inception_3d_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/i3d_pretrained_400.pt",
-                "sequence_count": 19
+                "sequence_count": 35
             }
         }
     },
@@ -863,7 +891,7 @@
                     "info_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_balanced/validation.info.json",
                     "sequence_length": 19,
                     "fps_stride_tuples": [
-                        [6,12]
+                        [6,9]
                     ],
                     "sensor_channels": [
                         "LIDAR_TOP",

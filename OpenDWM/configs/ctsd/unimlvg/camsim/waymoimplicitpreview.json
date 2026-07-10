@@ -17,7 +17,7 @@
         "device_mesh": {
             "_class_name": "torch.distributed.device_mesh.init_device_mesh",
             "device_type": "cuda",
-            "mesh_shape": [1, 8]
+            "mesh_shape": [1, 4]
         }
     },
     "optimizer": {
@@ -28,7 +28,7 @@
         "_class_name": "dwm.pipelines.camsim.CrossviewTemporalSD",
         "common_config": {
             "frame_prediction_style": "ctsd",
-            "explicit_view_modeling": true,
+            "explicit_view_modeling": false,
             "cat_condition": true,
             "cond_with_action": false,
             "print_load_state_info": true,
@@ -149,13 +149,13 @@
             "scheduler": "dwm.schedulers.temporal_independent.FlowMatchEulerDiscreteScheduler",
             "guidance_scale": 2,
             "inference_steps": 38,
-            "all_rank_preview":false,
             "preview_image_size": [
                 512,
                 288
             ],
             "force_preview_resize":false,
             "generate_frames_for_reference": false,
+            "all_rank_preview":true,
             "sequence_length_per_iteration": 19,
             "clear_reference_frame_count": 0,
             "reference_frame_count": 3,
@@ -168,7 +168,12 @@
                 "dist"
             
             ],
-            "evaluation_item_count": 480
+            "evaluation_item_count": 480,
+            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/waymo/implicit",
+            "eval_frame_dataset_name": "waymo",
+            "eval_frame_manifest_name": "stflow_manifest.jsonl",
+            "eval_frame_export_paired_real": true,
+            "eval_frame_image_quality": 95
         },
         "model": {
             "_class_name": "dwm.models.crossview_temporal_dit_PLUCKER.DiTCrossviewTemporalConditionModel",
@@ -183,7 +188,8 @@
             "pooled_projection_dim": 2048,
              "pos_embed_max_size": 192,
             "sample_size": 128,
-            "perspective_modeling_type": "explicit",
+            "perspective_modeling_type": "implicit",
+            "projection_class_embeddings_input_dim": 2816,
             "enable_crossview": true,
             "crossview_attention_type": "rowwise",
             "crossview_block_layers": [
@@ -232,7 +238,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_waymosingle2/checkpoints/30000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_waymoimplicit/checkpoints/18000.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -863,7 +869,7 @@
                     "info_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_balanced/validation.info.json",
                     "sequence_length": 19,
                     "fps_stride_tuples": [
-                        [6,12]
+                        [6,9]
                     ],
                     "sensor_channels": [
                         "LIDAR_TOP",
