@@ -417,24 +417,13 @@ class STFlowEvaluator:
         return warped, inside[0]
 
     def temporal_l1_error(self, image0, image1, flow, mask0, mask1):
-        # flow is the forward optical flow f_0->1 defined on image0 coordinates.
-        # Sample image1 at p0 + f_0->1(p0) to align image1 with image0.
-        warped_image1, inside = self.warp_image(image1, flow)
-
-        # mask1 is defined in image1 coordinates and must be sampled into
-        # image0 coordinates using the same forward flow.
-        warped_mask1, _ = self.warp_image(
-            mask1.float().unsqueeze(0).unsqueeze(0),
-            flow,
-        )
-        warped_mask1 = warped_mask1[0, 0] > 0.5
-
-        valid = inside & mask0 & warped_mask1
+        warped, inside = self.warp_image(image0, flow)
+        valid = inside & mask0 & mask1
 
         if valid.sum().item() == 0:
             return None
 
-        error_map = torch.abs(image0 - warped_image1).mean(dim=1)[0]
+        error_map = torch.abs(warped - image1).mean(dim=1)[0]
         return error_map[valid].mean().item()
 
     def run_loftr(self, image0, image1):
