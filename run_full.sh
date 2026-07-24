@@ -1,7 +1,6 @@
 source /inspire/ssd/project/advanced-machine-learning/public/inspire_shared/envs/lyhdwm/bin/activate
 cd /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/src
 
-
 unset ENABLE_DEBUGPY
 unset DEBUGPY_PORT
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
@@ -15,9 +14,9 @@ export PYTHONPATH=$PYTHONPATH:/inspire/qb-ilm/project/advanced-machine-learning/
 torchrun \
   --nproc_per_node=8 \
   -m dwm.train \
-  -c /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplantvself.json\
-  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantv\
-  --log-steps  500 \
+  -c /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplanpluckerfull.json\
+  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplanfull\
+  --log-steps  300 \
   --preview-steps 1000 \
   --checkpointing-steps 6000 \
-  --evaluation-steps 200000
+  --evaluation-steps 20000 
