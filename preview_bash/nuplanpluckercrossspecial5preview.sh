@@ -1,3 +1,6 @@
+#!/usr/bin/env bash
+set -e
+
 source /inspire/ssd/project/advanced-machine-learning/public/inspire_shared/envs/lyhdwm/bin/activate
 
 cd /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/src
@@ -22,5 +25,5 @@ torchrun \
   --standalone \
   --nproc_per_node=4 \
   -m dwm.preview \
-  -c /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplanpluckercrossspecial5preview.json\
-  -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_nuplanplucker5_2
+  -c "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplanpluckercrossspecial5preview.json" \
+  -o "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_nuplanpluckercrossspecial5"

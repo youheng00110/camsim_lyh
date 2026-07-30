@@ -270,7 +270,6 @@
         "use_zero_convs": true
       },
       "enable_tv": true,
-      "tv_attention_type": "rowwise",
       "tv_block_layers": [
         1,
         5,
@@ -280,8 +279,10 @@
         21
       ],
       "tv_gradient_checkpointing": true,
+      "tv_attention_type": "full",
       "tv_time_radius": 1,
       "tv_view_radius": 1,
+      "tv_full_batch_chunk_size": 1,
       "tv_use_relative_ego_pose": true,
       "tv_pose_translation_scale": 10.0
     },
