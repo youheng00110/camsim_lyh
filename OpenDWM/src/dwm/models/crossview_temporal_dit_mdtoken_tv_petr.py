@@ -10,6 +10,7 @@ import av
 import numpy as np
 from PIL import Image, ImageDraw
 import dwm.models.adapters
+from dwm.models.petr_camera_encoder import PETRCameraEncoder
 from dwm.models.crossview_temporal import VTSelfAttentionBlock, AlphaBlender, Mixer
 from dwm.models.mdtoken_encoders import (
     BBoxTokenEncoder,
@@ -729,7 +730,6 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         tv_time_radius: int = 1,
         tv_view_radius: int = 1,
         tv_height_chunk_size: int = 0,
-        tv_full_batch_chunk_size: int = 1,
         tv_use_relative_ego_pose: bool = False,
         tv_pose_translation_scale: float = 10.0,
         mdtoken_bbox_config: Optional[dict] = None,
@@ -739,6 +739,7 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         mask_module=None,
         mdtoken_add_plucker_to_hidden: bool = False,
         mdtoken_plucker_scale: float = 1.0,
+        petr_config: Optional[dict] = None,
         **kwargs
     ):
         super().__init__(
@@ -776,12 +777,21 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
 
         self.perspective_modeling_type = perspective_modeling_type
 
-        if perspective_modeling_type in ["explicit", "mdtoken_nopv"]:
+        if perspective_modeling_type == "explicit":
             self.rayencoder = PluckerEncoder(
                 dir_octaves=4,
                 moment_octaves=8,
                 cond_proj_dim=72,
                 in_channels=self.inner_dim,
+            )
+
+        elif perspective_modeling_type == "mdtoken_nopv":
+            if petr_config is None:
+                petr_config = {}
+
+            self.petr_encoder = PETRCameraEncoder(
+                in_channels=self.inner_dim,
+                **petr_config,
             )
 
         elif perspective_modeling_type == "implicit":
@@ -877,14 +887,6 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         self.tv_time_radius = int(tv_time_radius)
         self.tv_view_radius = int(tv_view_radius)
         self.tv_height_chunk_size = int(tv_height_chunk_size)
-
-        self.tv_full_batch_chunk_size = int(
-            tv_full_batch_chunk_size
-        )
-        if self.tv_full_batch_chunk_size <= 0:
-            raise ValueError(
-                "tv_full_batch_chunk_size must be positive."
-            )
 
         if self.enable_tv:
             self.tv_time_pos_embeds = torch.nn.ModuleList([
@@ -1258,465 +1260,6 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
             image_only_indicator=disable_tv,
         ).flatten(0, 1)
 
-
-    def forward_tv_full_block_and_mix_result(
-        self,
-        tv_block: torch.nn.Module,
-        mixer,
-        hidden_states: torch.Tensor,
-        tv_emb: torch.Tensor,
-        batch_size: int,
-        sequence_length: int,
-        view_count: int,
-        width: int,
-        height: int,
-        disable_tv: torch.BoolTensor,
-        crossview_attention_mask: torch.Tensor = None,
-        crossview_attention_index: torch.Tensor = None,
-        tv_relative_pose_emb: torch.Tensor = None,
-    ):
-        """
-        Full spatial local time-view cross-attention.
-
-        Query:
-            current target (t, v), all spatial tokens
-            [N, HW, C]
-
-        Context:
-            3 local times x 3 local views x all spatial tokens
-            [N, 9*HW, C]
-
-        The flattened B*T*V target dimension is processed in chunks
-        to reduce peak memory.
-        """
-        if self.tv_attention_type != "full":
-            raise ValueError(
-                "forward_tv_full_block_and_mix_result requires "
-                f"tv_attention_type='full', got "
-                f"{self.tv_attention_type}."
-            )
-
-        if self.tv_time_radius != 1:
-            raise ValueError(
-                "TV-full currently requires tv_time_radius=1."
-            )
-
-        if self.tv_view_radius != 1:
-            raise ValueError(
-                "TV-full currently requires tv_view_radius=1."
-            )
-
-        if hidden_states.ndim != 3:
-            raise ValueError(
-                "hidden_states should be [B*T*V, HW, C], "
-                f"but got {tuple(hidden_states.shape)}."
-            )
-
-        device = hidden_states.device
-        dtype = hidden_states.dtype
-        channel = hidden_states.shape[-1]
-        token_count = height * width
-
-        expected_flat_batch = (
-            batch_size
-            * sequence_length
-            * view_count
-        )
-
-        if hidden_states.shape[0] != expected_flat_batch:
-            raise ValueError(
-                "Flattened batch mismatch: "
-                f"hidden_states.shape[0]={hidden_states.shape[0]}, "
-                f"expected={expected_flat_batch}."
-            )
-
-        if hidden_states.shape[1] != token_count:
-            raise ValueError(
-                "Spatial token mismatch: "
-                f"hidden_states.shape[1]={hidden_states.shape[1]}, "
-                f"height*width={token_count}."
-            )
-
-        # Keep the current TV behavior:
-        # add time embedding and Plücker embedding before TV attention.
-        tv_hidden_states = (
-            hidden_states
-            + tv_emb.to(
-                device=device,
-                dtype=dtype,
-            )
-        )
-
-        # [B*T*V, HW, C] -> [B,T,V,HW,C]
-        tv_hidden_states = tv_hidden_states.reshape(
-            batch_size,
-            sequence_length,
-            view_count,
-            token_count,
-            channel,
-        )
-
-        # ====================================================
-        # Local temporal indices: [T,3]
-        # ====================================================
-        time_base = torch.arange(
-            sequence_length,
-            device=device,
-            dtype=torch.long,
-        )
-
-        time_offsets = torch.tensor(
-            [-1, 0, 1],
-            device=device,
-            dtype=torch.long,
-        )
-
-        time_index = (
-            time_base[:, None]
-            + time_offsets[None, :]
-        ).clamp(
-            0,
-            sequence_length - 1,
-        )
-
-        # ====================================================
-        # Local view indices: [B,V,3]
-        # ====================================================
-        view_index = build_tv_view_index_from_crossview_mask(
-            crossview_attention_mask,
-            batch_size,
-            view_count,
-            device,
-        )
-
-        if (
-            view_index is None
-            and crossview_attention_index is not None
-        ):
-            view_index = crossview_attention_index.to(
-                device=device,
-                dtype=torch.long,
-            )
-
-            if (
-                view_index.ndim == 2
-                and view_index.shape[1] == view_count * 3
-            ):
-                view_index = view_index.reshape(
-                    view_index.shape[0],
-                    view_count,
-                    3,
-                )
-
-            elif (
-                view_index.ndim == 2
-                and view_index.shape[1] == 3
-                and view_count == 1
-            ):
-                view_index = view_index[:, None, :]
-
-            elif view_index.ndim != 3:
-                raise ValueError(
-                    "crossview_attention_index should be "
-                    "[B,V*3] or [B,V,3] for TV-full."
-                )
-
-            if (
-                view_index.shape[0] == 1
-                and batch_size > 1
-            ):
-                view_index = view_index.expand(
-                    batch_size,
-                    -1,
-                    -1,
-                )
-
-            expected_view_index_shape = (
-                batch_size,
-                view_count,
-                3,
-            )
-
-            if view_index.shape != expected_view_index_shape:
-                raise ValueError(
-                    "Normalized crossview_attention_index "
-                    f"should be {expected_view_index_shape}, "
-                    f"but got {tuple(view_index.shape)}."
-                )
-
-            view_index = view_index.clamp(
-                0,
-                view_count - 1,
-            )
-
-        if view_index is None:
-            view_base = torch.arange(
-                view_count,
-                device=device,
-                dtype=torch.long,
-            )
-
-            view_offsets = torch.tensor(
-                [-1, 0, 1],
-                device=device,
-                dtype=torch.long,
-            )
-
-            view_index = (
-                view_base[:, None]
-                + view_offsets[None, :]
-            ) % view_count
-
-            view_index = view_index.unsqueeze(0).expand(
-                batch_size,
-                -1,
-                -1,
-            )
-
-        # ====================================================
-        # Flatten target B,T,V in exactly the same order used
-        # by hidden_states.flatten(0, 2).
-        # ====================================================
-        flat_batch_index = torch.arange(
-            batch_size,
-            device=device,
-            dtype=torch.long,
-        )[:, None, None].expand(
-            batch_size,
-            sequence_length,
-            view_count,
-        ).reshape(-1)
-
-        flat_time_index = torch.arange(
-            sequence_length,
-            device=device,
-            dtype=torch.long,
-        )[None, :, None].expand(
-            batch_size,
-            sequence_length,
-            view_count,
-        ).reshape(-1)
-
-        flat_view_index = torch.arange(
-            view_count,
-            device=device,
-            dtype=torch.long,
-        )[None, None, :].expand(
-            batch_size,
-            sequence_length,
-            view_count,
-        ).reshape(-1)
-
-        target_count = expected_flat_batch
-
-        chunk_size = min(
-            int(self.tv_full_batch_chunk_size),
-            target_count,
-        )
-
-        output_chunks = []
-
-        # ====================================================
-        # For every target (b,t,v):
-        #
-        # query:
-        #   current t/current v/all HW
-        #
-        # context:
-        #   [t-1,t,t+1]
-        #   x [left,self,right]
-        #   x all HW
-        # ====================================================
-        for chunk_start in range(
-            0,
-            target_count,
-            chunk_size,
-        ):
-            chunk_end = min(
-                chunk_start + chunk_size,
-                target_count,
-            )
-
-            target_b = flat_batch_index[
-                chunk_start:chunk_end
-            ]
-            target_t = flat_time_index[
-                chunk_start:chunk_end
-            ]
-            target_v = flat_view_index[
-                chunk_start:chunk_end
-            ]
-
-            current_chunk_size = target_b.shape[0]
-
-            # [chunk,HW,C]
-            query_hidden_states = tv_hidden_states[
-                target_b,
-                target_t,
-                target_v,
-            ]
-
-            # [chunk,3]
-            source_time_index = time_index[target_t]
-
-            # [chunk,3]
-            source_view_index = view_index[
-                target_b,
-                target_v,
-            ]
-
-            # Advanced indexing broadcasts:
-            #
-            # batch: [chunk,1,1]
-            # time:  [chunk,3,1]
-            # view:  [chunk,1,3]
-            #
-            # output:
-            # [chunk,3_time,3_view,HW,C]
-            local_hidden_states = tv_hidden_states[
-                target_b[:, None, None],
-                source_time_index[:, :, None],
-                source_view_index[:, None, :],
-            ]
-
-            expected_local_shape = (
-                current_chunk_size,
-                3,
-                3,
-                token_count,
-                channel,
-            )
-
-            if (
-                tuple(local_hidden_states.shape)
-                != expected_local_shape
-            ):
-                raise RuntimeError(
-                    "TV-full gather shape mismatch: "
-                    f"got {tuple(local_hidden_states.shape)}, "
-                    f"expected {expected_local_shape}."
-                )
-
-            # [chunk,3,3,HW,C] -> [chunk,9HW,C]
-            context_hidden_states = (
-                local_hidden_states.reshape(
-                    current_chunk_size,
-                    9 * token_count,
-                    channel,
-                )
-            )
-
-            # =================================================
-            # Relative ego pose:
-            # [B,T,3,C]
-            #
-            # Repeat over:
-            # 3 view slots x HW tokens.
-            # =================================================
-            context_pose_embedding = None
-
-            if tv_relative_pose_emb is not None:
-                expected_pose_shape = (
-                    batch_size,
-                    sequence_length,
-                    3,
-                    channel,
-                )
-
-                if (
-                    tuple(tv_relative_pose_emb.shape)
-                    != expected_pose_shape
-                ):
-                    raise ValueError(
-                        "tv_relative_pose_emb should be "
-                        f"{expected_pose_shape}, but got "
-                        f"{tuple(tv_relative_pose_emb.shape)}."
-                    )
-
-                # [chunk,3,C]
-                local_pose_embedding = tv_relative_pose_emb[
-                    target_b,
-                    target_t,
-                ].to(
-                    device=device,
-                    dtype=dtype,
-                )
-
-                # [chunk,3_time,3_view,HW,C]
-                local_pose_embedding = (
-                    local_pose_embedding[
-                        :,
-                        :,
-                        None,
-                        None,
-                        :,
-                    ].expand(
-                        current_chunk_size,
-                        3,
-                        3,
-                        token_count,
-                        channel,
-                    )
-                )
-
-                context_pose_embedding = (
-                    local_pose_embedding.reshape(
-                        current_chunk_size,
-                        9 * token_count,
-                        channel,
-                    )
-                )
-
-            # query:   [chunk,HW,C]
-            # context: [chunk,9HW,C]
-            tv_chunk = tv_block(
-                query_hidden_states,
-                context_hidden_states,
-                context_pose_embedding,
-            )
-
-            if tv_chunk.shape != query_hidden_states.shape:
-                raise RuntimeError(
-                    "TV-full output shape mismatch: "
-                    f"output={tuple(tv_chunk.shape)}, "
-                    f"query={tuple(query_hidden_states.shape)}."
-                )
-
-            output_chunks.append(tv_chunk)
-
-        # Ordering remains flattened B,T,V.
-        tv_hidden_states = torch.cat(
-            output_chunks,
-            dim=0,
-        )
-
-        if tv_hidden_states.shape != hidden_states.shape:
-            raise RuntimeError(
-                "TV-full final shape mismatch: "
-                f"tv={tuple(tv_hidden_states.shape)}, "
-                f"hidden={tuple(hidden_states.shape)}."
-            )
-
-        if mixer is None:
-            return tv_hidden_states
-
-        return mixer(
-            hidden_states.reshape(
-                batch_size,
-                sequence_length * view_count,
-                token_count,
-                channel,
-            ),
-            tv_hidden_states.reshape(
-                batch_size,
-                sequence_length * view_count,
-                token_count,
-                channel,
-            ),
-            image_only_indicator=disable_tv,
-        ).flatten(0, 1)
-
-
     def forward(
         self,
         sample: torch.FloatTensor,
@@ -1903,75 +1446,167 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         elif self.perspective_modeling_type in ["explicit", "mdtoken_nopv"]:
             if camera_intrinsics_norm is None:
                 raise ValueError(
-                    "camera_intrinsics_norm is required for Plücker camera encoding."
+                    "camera_intrinsics_norm is required for camera encoding."
                 )
 
-            if self.perspective_modeling_type == "mdtoken_nopv":
-                # Layout tokens and BEV map are represented in the current ego frame.
-                # Use camera-to-current-ego for Plücker rays to keep the camera frame
-                # consistent with bbox/map conditions, especially after turns.
-                camera_for_ray = camera_transforms
-            else:
+            if self.perspective_modeling_type == "explicit":
+                # 原始 explicit 分支仍然保留 Plücker。
                 camera_for_ray = camera2referego
                 if camera_for_ray is None:
                     camera_for_ray = camera_transforms
 
-            if camera_for_ray is None:
-                raise ValueError(
-                    "camera_transforms is required for mdtoken_nopv Plücker camera "
-                    "encoding, or camera2referego / camera_transforms is required "
-                    "for explicit camera encoding."
+                if camera_for_ray is None:
+                    raise ValueError(
+                        "camera2referego or camera_transforms is required "
+                        "for explicit Plucker encoding."
+                    )
+
+                camera_intrinsics_ray = camera_intrinsics_norm.to(
+                    device=hidden_states.device,
+                    dtype=hidden_states.dtype,
+                ).clone()
+
+                camera_for_ray = camera_for_ray.to(
+                    device=hidden_states.device,
+                    dtype=hidden_states.dtype,
                 )
-            if not hasattr(self, "_mdtoken_plucker_frame_debug_printed"):
-                self._mdtoken_plucker_frame_debug_printed = False
 
-            if not self._mdtoken_plucker_frame_debug_printed:
-                print(
-                    "[mdtoken plucker frame] "
-                    f"type={self.perspective_modeling_type}, "
-                    f"use_camera_transforms={camera_for_ray is camera_transforms}, "
-                    f"has_camera2referego={camera2referego is not None}, "
-                    f"has_camera_transforms={camera_transforms is not None}",
-                    flush=True,
+                camera_intrinsics_ray[..., 0, 0] = (
+                    camera_intrinsics_ray[..., 0, 0] * width
                 )
-                self._mdtoken_plucker_frame_debug_printed = True
-            camera_intrinsics_norm = camera_intrinsics_norm.to(
-                device=hidden_states.device,
-                dtype=hidden_states.dtype,
-            ).clone()
+                camera_intrinsics_ray[..., 1, 1] = (
+                    camera_intrinsics_ray[..., 1, 1] * height
+                )
+                camera_intrinsics_ray[..., 0, 2] = (
+                    camera_intrinsics_ray[..., 0, 2] * width
+                )
+                camera_intrinsics_ray[..., 1, 2] = (
+                    camera_intrinsics_ray[..., 1, 2] * height
+                )
 
-            camera_for_ray = camera_for_ray.to(
-                device=hidden_states.device,
-                dtype=hidden_states.dtype,
-            )
+                rays_o, rays_d = get_rays(
+                    camera_intrinsics_ray.flatten(0, 2),
+                    camera_for_ray.flatten(0, 2),
+                    (height, width),
+                )
 
-            camera_intrinsics_norm[..., 0, 0] = \
-                camera_intrinsics_norm[..., 0, 0] * width
-            camera_intrinsics_norm[..., 1, 1] = \
-                camera_intrinsics_norm[..., 1, 1] * height
-            camera_intrinsics_norm[..., 0, 2] = \
-                camera_intrinsics_norm[..., 0, 2] * width
-            camera_intrinsics_norm[..., 1, 2] = \
-                camera_intrinsics_norm[..., 1, 2] * height
+                rays_d = torch.nn.functional.normalize(
+                    rays_d,
+                    dim=-1,
+                )
+                rays_o_map = rays_o[:, None, None, :].expand_as(
+                    rays_d
+                )
+                rays_m = torch.cross(
+                    rays_o_map,
+                    rays_d,
+                    dim=-1,
+                )
 
-            rays_o, rays_d = get_rays(
-                camera_intrinsics_norm.flatten(0, 2),
-                camera_for_ray.flatten(0, 2),
-                (height, width),
-            )
+                raymap = self.rayencoder(rays_d, rays_m)
+                view_cam_emb = raymap.flatten(1, 2)
 
-            rays_d = torch.nn.functional.normalize(rays_d, dim=-1)
-            rays_o_map = rays_o[:, None, None, :].expand_as(rays_d)
-            rays_m = torch.cross(rays_o_map, rays_d, dim=-1)
+            else:
+                # mdtoken_nopv:
+                # PETR、BEV map 和 bbox token 全部使用当前帧 ego。
+                if camera_transforms is None:
+                    raise ValueError(
+                        "camera_transforms is required for "
+                        "current-ego PETR encoding."
+                    )
 
-            raymap = self.rayencoder(rays_d, rays_m)
-            view_cam_emb = raymap.flatten(1, 2)
-            # 新增：让 Plücker 直接进入 image latent token
-            if (
-                self.perspective_modeling_type == "mdtoken_nopv"
-                and self.mdtoken_add_plucker_to_hidden
-            ):
-                hidden_states = hidden_states + self.mdtoken_plucker_scale * view_cam_emb
+                if camera_intrinsics_norm.ndim != 5:
+                    raise ValueError(
+                        "camera_intrinsics_norm should be [B,T,V,3,3], "
+                        f"but got {tuple(camera_intrinsics_norm.shape)}."
+                    )
+
+                if camera_transforms.ndim != 5:
+                    raise ValueError(
+                        "camera_transforms should be [B,T,V,4,4], "
+                        f"but got {tuple(camera_transforms.shape)}."
+                    )
+
+                # 几何计算使用 float32，输出后再转为 hidden dtype。
+                camera_intrinsics_petr = camera_intrinsics_norm.to(
+                    device=hidden_states.device,
+                    dtype=torch.float32,
+                ).clone()
+
+                camera_for_petr = camera_transforms.to(
+                    device=hidden_states.device,
+                    dtype=torch.float32,
+                )
+
+                camera_intrinsics_petr[..., 0, 0] = (
+                    camera_intrinsics_petr[..., 0, 0] * width
+                )
+                camera_intrinsics_petr[..., 1, 1] = (
+                    camera_intrinsics_petr[..., 1, 1] * height
+                )
+                camera_intrinsics_petr[..., 0, 2] = (
+                    camera_intrinsics_petr[..., 0, 2] * width
+                )
+                camera_intrinsics_petr[..., 1, 2] = (
+                    camera_intrinsics_petr[..., 1, 2] * height
+                )
+
+                petr_map = self.petr_encoder(
+                    camera_intrinsics_petr.flatten(0, 2),
+                    camera_for_petr.flatten(0, 2),
+                    height,
+                    width,
+                )
+
+                expected_petr_shape = (
+                    batch_size * sequence_length * view_count,
+                    height,
+                    width,
+                    self.inner_dim,
+                )
+
+                if tuple(petr_map.shape) != expected_petr_shape:
+                    raise RuntimeError(
+                        "PETR map shape mismatch: "
+                        f"got {tuple(petr_map.shape)}, "
+                        f"expected {expected_petr_shape}."
+                    )
+
+                view_cam_emb = petr_map.flatten(1, 2).to(
+                    device=hidden_states.device,
+                    dtype=hidden_states.dtype,
+                )
+
+                if tuple(view_cam_emb.shape) != tuple(hidden_states.shape):
+                    raise RuntimeError(
+                        "PETR embedding shape mismatch: "
+                        f"view_cam_emb={tuple(view_cam_emb.shape)}, "
+                        f"hidden_states={tuple(hidden_states.shape)}."
+                    )
+
+                if not hasattr(
+                    self,
+                    "_petr_current_ego_debug_printed",
+                ):
+                    self._petr_current_ego_debug_printed = False
+
+                if not self._petr_current_ego_debug_printed:
+                    print(
+                        "[mdtoken PETR] camera coordinate: "
+                        "camera -> current-frame ego; "
+                        f"petr_map={tuple(petr_map.shape)}; "
+                        f"view_cam_emb={tuple(view_cam_emb.shape)}",
+                        flush=True,
+                    )
+                    self._petr_current_ego_debug_printed = True
+
+                # 为兼容已有配置，暂时保留原来的参数名称：
+                # mdtoken_add_plucker_to_hidden 实际控制 PETR 是否直接加入 latent。
+                if self.mdtoken_add_plucker_to_hidden:
+                    hidden_states = (
+                        hidden_states
+                        + self.mdtoken_plucker_scale * view_cam_emb
+                    )
 
         condition_residuals = None if \
             self.condition_image_adapter is None or \
@@ -2196,60 +1831,11 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                 if tv_disable is None:
                     tv_disable = disable_temporal
 
-                if self.tv_attention_type == "rowwise":
-                    tv_forward_function = (
-                        self.forward_tv_rowwise_block_and_mix_result
-                    )
-                elif self.tv_attention_type == "full":
-                    tv_forward_function = (
-                        self.forward_tv_full_block_and_mix_result
-                    )
-                else:
-                    raise ValueError(
-                        "Unsupported tv_attention_type: "
-                        f"{self.tv_attention_type}"
-                    )
-
-                tv_pose_arg = locals().get(
-                    "tv_relative_pose_emb",
-                    None,
-                )
-
-                if (
-                    self.training
-                    and self.tv_gradient_checkpointing
-                ):
-                    hidden_states = (
-                        torch.utils.checkpoint.checkpoint(
-                            tv_forward_function,
-                            self.tv_transformer_blocks[
-                                tv_layer_index
-                            ],
-                            self.tv_mixers[
-                                tv_layer_index
-                            ],
-                            hidden_states,
-                            tv_emb,
-                            batch_size,
-                            sequence_length,
-                            view_count,
-                            width,
-                            height,
-                            tv_disable,
-                            crossview_attention_mask,
-                            crossview_attention_index,
-                            tv_pose_arg,
-                            use_reentrant=False,
-                        )
-                    )
-                else:
-                    hidden_states = tv_forward_function(
-                        self.tv_transformer_blocks[
-                            tv_layer_index
-                        ],
-                        self.tv_mixers[
-                            tv_layer_index
-                        ],
+                if self.training and self.tv_gradient_checkpointing:
+                    hidden_states = torch.utils.checkpoint.checkpoint(
+                        self.forward_tv_rowwise_block_and_mix_result,
+                        self.tv_transformer_blocks[tv_layer_index],
+                        self.tv_mixers[tv_layer_index],
                         hidden_states,
                         tv_emb,
                         batch_size,
@@ -2260,7 +1846,24 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                         tv_disable,
                         crossview_attention_mask,
                         crossview_attention_index,
-                        tv_pose_arg,
+                        tv_relative_pose_emb,
+                        use_reentrant=False,
+                    )
+                else:
+                    hidden_states = self.forward_tv_rowwise_block_and_mix_result(
+                        self.tv_transformer_blocks[tv_layer_index],
+                        self.tv_mixers[tv_layer_index],
+                        hidden_states,
+                        tv_emb,
+                        batch_size,
+                        sequence_length,
+                        view_count,
+                        width,
+                        height,
+                        tv_disable,
+                        crossview_attention_mask,
+                        crossview_attention_index,
+                        tv_relative_pose_emb,
                     )
 
             # temporal

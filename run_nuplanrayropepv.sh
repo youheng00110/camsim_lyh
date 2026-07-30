@@ -17,6 +17,7 @@ torchrun \
   -m dwm.train \
   -c /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/urope.json\
   -o /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplanrayropepv\
+  --resume-from 12000 \
   --log-steps  500 \
   --preview-steps 1000 \
   --checkpointing-steps 6000 \

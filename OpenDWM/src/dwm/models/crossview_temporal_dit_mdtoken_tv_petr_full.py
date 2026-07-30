@@ -10,6 +10,7 @@ import av
 import numpy as np
 from PIL import Image, ImageDraw
 import dwm.models.adapters
+from dwm.models.petr_camera_encoder import PETRCameraEncoder
 from dwm.models.crossview_temporal import VTSelfAttentionBlock, AlphaBlender, Mixer
 from dwm.models.mdtoken_encoders import (
     BBoxTokenEncoder,
@@ -739,6 +740,7 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         mask_module=None,
         mdtoken_add_plucker_to_hidden: bool = False,
         mdtoken_plucker_scale: float = 1.0,
+        petr_config: Optional[dict] = None,
         **kwargs
     ):
         super().__init__(
@@ -776,12 +778,21 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
 
         self.perspective_modeling_type = perspective_modeling_type
 
-        if perspective_modeling_type in ["explicit", "mdtoken_nopv"]:
+        if perspective_modeling_type == "explicit":
             self.rayencoder = PluckerEncoder(
                 dir_octaves=4,
                 moment_octaves=8,
                 cond_proj_dim=72,
                 in_channels=self.inner_dim,
+            )
+
+        elif perspective_modeling_type == "mdtoken_nopv":
+            if petr_config is None:
+                petr_config = {}
+
+            self.petr_encoder = PETRCameraEncoder(
+                in_channels=self.inner_dim,
+                **petr_config,
             )
 
         elif perspective_modeling_type == "implicit":
@@ -1338,7 +1349,7 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
             )
 
         # Keep the current TV behavior:
-        # add time embedding and Plücker embedding before TV attention.
+        # add time embedding and camera geometry embedding before TV attention.
         tv_hidden_states = (
             hidden_states
             + tv_emb.to(
@@ -1903,75 +1914,167 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
         elif self.perspective_modeling_type in ["explicit", "mdtoken_nopv"]:
             if camera_intrinsics_norm is None:
                 raise ValueError(
-                    "camera_intrinsics_norm is required for Plücker camera encoding."
+                    "camera_intrinsics_norm is required for camera encoding."
                 )
 
-            if self.perspective_modeling_type == "mdtoken_nopv":
-                # Layout tokens and BEV map are represented in the current ego frame.
-                # Use camera-to-current-ego for Plücker rays to keep the camera frame
-                # consistent with bbox/map conditions, especially after turns.
-                camera_for_ray = camera_transforms
-            else:
+            if self.perspective_modeling_type == "explicit":
+                # 原始 explicit 分支仍然保留 Plücker。
                 camera_for_ray = camera2referego
                 if camera_for_ray is None:
                     camera_for_ray = camera_transforms
 
-            if camera_for_ray is None:
-                raise ValueError(
-                    "camera_transforms is required for mdtoken_nopv Plücker camera "
-                    "encoding, or camera2referego / camera_transforms is required "
-                    "for explicit camera encoding."
+                if camera_for_ray is None:
+                    raise ValueError(
+                        "camera2referego or camera_transforms is required "
+                        "for explicit Plucker encoding."
+                    )
+
+                camera_intrinsics_ray = camera_intrinsics_norm.to(
+                    device=hidden_states.device,
+                    dtype=hidden_states.dtype,
+                ).clone()
+
+                camera_for_ray = camera_for_ray.to(
+                    device=hidden_states.device,
+                    dtype=hidden_states.dtype,
                 )
-            if not hasattr(self, "_mdtoken_plucker_frame_debug_printed"):
-                self._mdtoken_plucker_frame_debug_printed = False
 
-            if not self._mdtoken_plucker_frame_debug_printed:
-                print(
-                    "[mdtoken plucker frame] "
-                    f"type={self.perspective_modeling_type}, "
-                    f"use_camera_transforms={camera_for_ray is camera_transforms}, "
-                    f"has_camera2referego={camera2referego is not None}, "
-                    f"has_camera_transforms={camera_transforms is not None}",
-                    flush=True,
+                camera_intrinsics_ray[..., 0, 0] = (
+                    camera_intrinsics_ray[..., 0, 0] * width
                 )
-                self._mdtoken_plucker_frame_debug_printed = True
-            camera_intrinsics_norm = camera_intrinsics_norm.to(
-                device=hidden_states.device,
-                dtype=hidden_states.dtype,
-            ).clone()
+                camera_intrinsics_ray[..., 1, 1] = (
+                    camera_intrinsics_ray[..., 1, 1] * height
+                )
+                camera_intrinsics_ray[..., 0, 2] = (
+                    camera_intrinsics_ray[..., 0, 2] * width
+                )
+                camera_intrinsics_ray[..., 1, 2] = (
+                    camera_intrinsics_ray[..., 1, 2] * height
+                )
 
-            camera_for_ray = camera_for_ray.to(
-                device=hidden_states.device,
-                dtype=hidden_states.dtype,
-            )
+                rays_o, rays_d = get_rays(
+                    camera_intrinsics_ray.flatten(0, 2),
+                    camera_for_ray.flatten(0, 2),
+                    (height, width),
+                )
 
-            camera_intrinsics_norm[..., 0, 0] = \
-                camera_intrinsics_norm[..., 0, 0] * width
-            camera_intrinsics_norm[..., 1, 1] = \
-                camera_intrinsics_norm[..., 1, 1] * height
-            camera_intrinsics_norm[..., 0, 2] = \
-                camera_intrinsics_norm[..., 0, 2] * width
-            camera_intrinsics_norm[..., 1, 2] = \
-                camera_intrinsics_norm[..., 1, 2] * height
+                rays_d = torch.nn.functional.normalize(
+                    rays_d,
+                    dim=-1,
+                )
+                rays_o_map = rays_o[:, None, None, :].expand_as(
+                    rays_d
+                )
+                rays_m = torch.cross(
+                    rays_o_map,
+                    rays_d,
+                    dim=-1,
+                )
 
-            rays_o, rays_d = get_rays(
-                camera_intrinsics_norm.flatten(0, 2),
-                camera_for_ray.flatten(0, 2),
-                (height, width),
-            )
+                raymap = self.rayencoder(rays_d, rays_m)
+                view_cam_emb = raymap.flatten(1, 2)
 
-            rays_d = torch.nn.functional.normalize(rays_d, dim=-1)
-            rays_o_map = rays_o[:, None, None, :].expand_as(rays_d)
-            rays_m = torch.cross(rays_o_map, rays_d, dim=-1)
+            else:
+                # mdtoken_nopv:
+                # PETR、BEV map 和 bbox token 全部使用当前帧 ego。
+                if camera_transforms is None:
+                    raise ValueError(
+                        "camera_transforms is required for "
+                        "current-ego PETR encoding."
+                    )
 
-            raymap = self.rayencoder(rays_d, rays_m)
-            view_cam_emb = raymap.flatten(1, 2)
-            # 新增：让 Plücker 直接进入 image latent token
-            if (
-                self.perspective_modeling_type == "mdtoken_nopv"
-                and self.mdtoken_add_plucker_to_hidden
-            ):
-                hidden_states = hidden_states + self.mdtoken_plucker_scale * view_cam_emb
+                if camera_intrinsics_norm.ndim != 5:
+                    raise ValueError(
+                        "camera_intrinsics_norm should be [B,T,V,3,3], "
+                        f"but got {tuple(camera_intrinsics_norm.shape)}."
+                    )
+
+                if camera_transforms.ndim != 5:
+                    raise ValueError(
+                        "camera_transforms should be [B,T,V,4,4], "
+                        f"but got {tuple(camera_transforms.shape)}."
+                    )
+
+                # 几何计算使用 float32，输出后再转为 hidden dtype。
+                camera_intrinsics_petr = camera_intrinsics_norm.to(
+                    device=hidden_states.device,
+                    dtype=torch.float32,
+                ).clone()
+
+                camera_for_petr = camera_transforms.to(
+                    device=hidden_states.device,
+                    dtype=torch.float32,
+                )
+
+                camera_intrinsics_petr[..., 0, 0] = (
+                    camera_intrinsics_petr[..., 0, 0] * width
+                )
+                camera_intrinsics_petr[..., 1, 1] = (
+                    camera_intrinsics_petr[..., 1, 1] * height
+                )
+                camera_intrinsics_petr[..., 0, 2] = (
+                    camera_intrinsics_petr[..., 0, 2] * width
+                )
+                camera_intrinsics_petr[..., 1, 2] = (
+                    camera_intrinsics_petr[..., 1, 2] * height
+                )
+
+                petr_map = self.petr_encoder(
+                    camera_intrinsics_petr.flatten(0, 2),
+                    camera_for_petr.flatten(0, 2),
+                    height,
+                    width,
+                )
+
+                expected_petr_shape = (
+                    batch_size * sequence_length * view_count,
+                    height,
+                    width,
+                    self.inner_dim,
+                )
+
+                if tuple(petr_map.shape) != expected_petr_shape:
+                    raise RuntimeError(
+                        "PETR map shape mismatch: "
+                        f"got {tuple(petr_map.shape)}, "
+                        f"expected {expected_petr_shape}."
+                    )
+
+                view_cam_emb = petr_map.flatten(1, 2).to(
+                    device=hidden_states.device,
+                    dtype=hidden_states.dtype,
+                )
+
+                if tuple(view_cam_emb.shape) != tuple(hidden_states.shape):
+                    raise RuntimeError(
+                        "PETR embedding shape mismatch: "
+                        f"view_cam_emb={tuple(view_cam_emb.shape)}, "
+                        f"hidden_states={tuple(hidden_states.shape)}."
+                    )
+
+                if not hasattr(
+                    self,
+                    "_petr_current_ego_debug_printed",
+                ):
+                    self._petr_current_ego_debug_printed = False
+
+                if not self._petr_current_ego_debug_printed:
+                    print(
+                        "[mdtoken PETR] camera coordinate: "
+                        "camera -> current-frame ego; "
+                        f"petr_map={tuple(petr_map.shape)}; "
+                        f"view_cam_emb={tuple(view_cam_emb.shape)}",
+                        flush=True,
+                    )
+                    self._petr_current_ego_debug_printed = True
+
+                # 为兼容已有配置，暂时保留原来的参数名称：
+                # mdtoken_add_plucker_to_hidden 实际控制 PETR 是否直接加入 latent。
+                if self.mdtoken_add_plucker_to_hidden:
+                    hidden_states = (
+                        hidden_states
+                        + self.mdtoken_plucker_scale * view_cam_emb
+                    )
 
         condition_residuals = None if \
             self.condition_image_adapter is None or \
