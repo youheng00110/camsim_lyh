@@ -1,0 +1,54 @@
+加载 A：/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantokenearly/checkpoints/24000.pth
+加载 B：/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantokenearly/checkpoints/30000.pth
+
+A state_dict 来源：<checkpoint root>，总张量数：1069
+B state_dict 来源：<checkpoint root>，总张量数：1069
+共同 crossview+norm 参数：36
+仅 A 存在：0
+仅 B 存在：0
+
+========================================================================================================================
+按 relative L2 从大到小排列
+========================================================================================================================
+  relative L2     mean abs      max abs     cosine  parameter
+ 4.077507e-01 2.637606e-03 1.825470e-02   0.916385  crossview_transformer_blocks.5.norm3.bias
+ 3.647974e-01 2.056145e-03 1.896715e-02   0.931693  crossview_transformer_blocks.5.norm_in.bias
+ 2.771560e-01 3.453351e-03 9.349074e-03   0.965937  crossview_transformer_blocks.3.norm3.bias
+ 2.670560e-01 2.068457e-03 2.812330e-02   0.965175  crossview_transformer_blocks.2.norm_in.bias
+ 2.443247e-01 1.708945e-03 1.944060e-02   0.971617  crossview_transformer_blocks.1.norm_in.bias
+ 2.421027e-01 7.789086e-04 1.099886e-02   0.980989  crossview_transformer_blocks.1.norm1.bias
+ 2.277993e-01 2.535017e-03 1.712056e-02   0.996171  crossview_transformer_blocks.0.norm_in.bias
+ 1.801871e-01 1.304991e-03 1.949860e-02   0.995409  crossview_transformer_blocks.0.norm3.bias
+ 1.794684e-01 6.259845e-04 6.444622e-03   0.986934  crossview_transformer_blocks.2.norm1.bias
+ 1.403742e-01 1.334659e-03 1.747043e-02   0.990650  crossview_transformer_blocks.3.norm_in.bias
+ 1.340590e-01 1.134804e-03 1.449779e-02   0.992079  crossview_transformer_blocks.1.norm3.bias
+ 1.322796e-01 1.603061e-03 1.126730e-02   0.998524  crossview_transformer_blocks.0.norm1.bias
+ 1.284940e-01 1.134934e-03 1.942766e-02   0.992676  crossview_transformer_blocks.4.norm_in.bias
+ 1.226539e-01 7.176667e-04 4.828855e-02   0.996608  crossview_transformer_blocks.3.norm1.bias
+ 1.006171e-01 1.161590e-03 2.566481e-02   0.996845  crossview_transformer_blocks.5.norm1.bias
+ 9.475780e-02 9.351316e-04 1.408412e-02   0.995503  crossview_transformer_blocks.4.norm3.bias
+ 8.880917e-02 6.998570e-04 6.527257e-02   0.997084  crossview_transformer_blocks.4.norm1.bias
+ 7.304708e-02 5.994217e-04 8.158853e-03   0.997329  crossview_transformer_blocks.2.norm3.bias
+ 1.566151e-02 1.388939e-02 5.274308e-02   0.999967  crossview_transformer_blocks.5.norm3.weight
+ 1.368274e-02 1.104402e-02 5.326426e-02   0.999960  crossview_transformer_blocks.3.norm3.weight
+ 1.295417e-02 1.130518e-02 4.771471e-02   0.999975  crossview_transformer_blocks.5.norm_in.weight
+ 1.053969e-02 8.265321e-03 4.561222e-02   0.999957  crossview_transformer_blocks.2.norm_in.weight
+ 8.030564e-03 6.337473e-03 5.318213e-02   0.999984  crossview_transformer_blocks.5.norm1.weight
+ 7.816099e-03 4.750456e-03 4.312861e-02   0.999970  crossview_transformer_blocks.0.norm_in.weight
+ 6.674906e-03 4.812909e-03 2.981466e-02   0.999979  crossview_transformer_blocks.1.norm_in.weight
+ 6.445959e-03 4.767844e-03 3.362632e-02   0.999983  crossview_transformer_blocks.3.norm1.weight
+ 6.441268e-03 4.706282e-03 4.327917e-02   0.999982  crossview_transformer_blocks.3.norm_in.weight
+ 6.175134e-03 4.434502e-03 3.676105e-02   0.999983  crossview_transformer_blocks.2.norm1.weight
+ 5.867156e-03 4.327776e-03 2.980822e-02   0.999984  crossview_transformer_blocks.2.norm3.weight
+ 5.181701e-03 3.782021e-03 2.442944e-02   0.999991  crossview_transformer_blocks.0.norm1.weight
+ 5.169984e-03 3.638946e-03 2.746350e-02   0.999989  crossview_transformer_blocks.0.norm3.weight
+ 5.067736e-03 3.288870e-03 2.905440e-02   0.999988  crossview_transformer_blocks.1.norm1.weight
+ 4.816927e-03 3.420303e-03 2.921826e-02   0.999989  crossview_transformer_blocks.1.norm3.weight
+ 4.390590e-03 3.225059e-03 3.267074e-02   0.999991  crossview_transformer_blocks.4.norm1.weight
+ 3.040533e-03 2.294103e-03 2.745831e-02   0.999995  crossview_transformer_blocks.4.norm3.weight
+ 3.031850e-03 1.781431e-03 3.111756e-02   0.999996  crossview_transformer_blocks.4.norm_in.weight
+
+整体 L2 差异：1.40771464e+00
+整体相对 L2：8.40125161e-03
+整体 RMSE：5.98642807e-03
+CSV 已保存：/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/crossview_norm_24000_vs_30000.csv

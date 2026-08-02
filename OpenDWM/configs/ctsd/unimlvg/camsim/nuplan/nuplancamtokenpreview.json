@@ -179,7 +179,7 @@
                 "dist"
             ],
             "evaluation_item_count": 480,
-            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard1000/tokenearly18000_preview_paired_200",
+            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard1000/tokenearly24000_preview_paired_200",
             "eval_frame_dataset_name": "nuplan",
             "eval_frame_manifest_name": "stflow_manifest.jsonl",
             "eval_frame_export_paired_real": true,
@@ -274,7 +274,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantokennew/checkpoints/52000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantokenearly/checkpoints/24000.pth",
         "model_load_state_args": {
             "strict": false
         },

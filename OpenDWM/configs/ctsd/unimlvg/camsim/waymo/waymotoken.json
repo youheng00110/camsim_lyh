@@ -1392,18 +1392,6 @@
                 }
             },
             {
-                "old_key": "hdmap_bev_images",
-                "new_key": "hdmap_bev_images",
-                "transform": {
-                    "_class_name": "torchvision.transforms.Compose",
-                    "transforms": [
-                        {
-                            "_class_name": "torchvision.transforms.ToTensor"
-                        }
-                    ]
-                }
-            },
-            {
                 "old_key": "3dbox_images",
                 "new_key": "3dbox_images",
                 "transform": {
@@ -1416,6 +1404,18 @@
                                 512
                             ]
                         },
+                        {
+                            "_class_name": "torchvision.transforms.ToTensor"
+                        }
+                    ]
+                }
+            },
+            {
+                "old_key": "hdmap_bev_images",
+                "new_key": "hdmap_bev_images",
+                "transform": {
+                    "_class_name": "torchvision.transforms.Compose",
+                    "transforms": [
                         {
                             "_class_name": "torchvision.transforms.ToTensor"
                         }

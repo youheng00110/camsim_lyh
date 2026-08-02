@@ -270,7 +270,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantokenearly/checkpoints/24000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplantokennew/checkpoints/52000.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -1083,49 +1083,6 @@
                                 }
                             }
                         ]
-                    },
-                    "layout_token_settings": {
-                        "enabled": true,
-                        "max_boxes": 64,
-                        "box_coordinate": "ego",
-                        "box_format": "corners8",
-                        "class_mapping": "driving_10cls",
-                        "use_map_bev_token": true,
-                        "map_token_key": "hdmap_bev_images"
-                    },
-                    "hdmap_bev_settings": {
-                        "bev_size": [
-                            256,
-                            256
-                        ],
-                        "bev_from_ego_transform": [
-                            [
-                                1.6,
-                                0.0,
-                                0.0,
-                                128.0
-                            ],
-                            [
-                                0.0,
-                                -1.6,
-                                0.0,
-                                128.0
-                            ],
-                            [
-                                0.0,
-                                0.0,
-                                -1.6,
-                                0.0
-                            ],
-                            [
-                                0.0,
-                                0.0,
-                                0.0,
-                                1.0
-                            ]
-                        ],
-                        "append_dynamic_object_mask": false,
-                        "num_object_classes": 10
                     }
                 }
             ]
