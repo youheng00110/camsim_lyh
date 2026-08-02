@@ -1,0 +1,836 @@
+#!/bin/bash
+
+source /inspire/ssd/project/advanced-machine-learning/public/inspire_shared/envs/lyhdwm/bin/activate
+
+set -uo pipefail
+
+
+# ============================================================
+# 0. 环境
+# ============================================================
+
+cd /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/src || exit 1
+
+export OMP_NUM_THREADS=1
+export TOKENIZERS_PARALLELISM=false
+export PYTHONUNBUFFERED=1
+
+export OPENDWM_ROOT=/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM
+export CAMSIM_ROOT=/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh
+
+export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
+export PYTHONPATH="$OPENDWM_ROOT/externals/TATS/tats/fvd:$PYTHONPATH"
+export PYTHONPATH="$CAMSIM_ROOT/nuplan-devkit-master:$PYTHONPATH"
+export PYTHONPATH="$OPENDWM_ROOT/externals/waymo-open-dataset/src:$PYTHONPATH"
+
+
+# ============================================================
+# 1. 本地权重
+# ============================================================
+
+export TORCH_HOME=/root/.cache/torch
+
+CKPT_ROOT=$CAMSIM_ROOT/ckpt
+CACHE_DIR=$TORCH_HOME/hub/checkpoints
+
+export RAFT_CHECKPOINT=$CKPT_ROOT/raft_large_C_T_SKHT_V2-ff5fadd5.pth
+export LOFTR_CHECKPOINT=$CKPT_ROOT/loftr_outdoor.ckpt
+export I3D_CHECKPOINT=$CKPT_ROOT/i3d_pretrained_400.pt
+
+RAFT_CACHE=$CACHE_DIR/raft_large_C_T_SKHT_V2-ff5fadd5.pth
+LOFTR_CACHE=$CACHE_DIR/loftr_outdoor.ckpt
+
+
+for CHECKPOINT in \
+    "$RAFT_CHECKPOINT" \
+    "$LOFTR_CHECKPOINT" \
+    "$I3D_CHECKPOINT"
+do
+    if [ ! -f "$CHECKPOINT" ]
+    then
+        echo "Checkpoint not found: $CHECKPOINT"
+        exit 1
+    fi
+done
+
+
+mkdir -p "$CACHE_DIR"
+
+echo "============================================================"
+echo "Install local checkpoints"
+echo "============================================================"
+
+cp -f "$RAFT_CHECKPOINT" "$RAFT_CACHE"
+cp -f "$LOFTR_CHECKPOINT" "$LOFTR_CACHE"
+
+ls -lh "$RAFT_CACHE"
+ls -lh "$LOFTR_CACHE"
+ls -lh "$I3D_CHECKPOINT"
+
+
+# ============================================================
+# 2. 离线验证 RAFT 和 LoFTR 权重
+# ============================================================
+
+echo
+echo "============================================================"
+echo "Verify local RAFT and LoFTR checkpoints"
+echo "============================================================"
+
+CUDA_VISIBLE_DEVICES="" python - <<'PY'
+from kornia.feature import LoFTR
+from torchvision.models.optical_flow import (
+    Raft_Large_Weights,
+    raft_large,
+)
+
+print("Loading RAFT...")
+raft_model = raft_large(
+    weights=Raft_Large_Weights.DEFAULT,
+    progress=False,
+)
+
+print("Loading LoFTR...")
+loftr_model = LoFTR(pretrained="outdoor")
+
+print("Local checkpoints loaded successfully.")
+
+del raft_model
+del loftr_model
+PY
+
+VERIFY_EXIT=$?
+
+if [ "$VERIFY_EXIT" -ne 0 ]
+then
+    echo "Local checkpoint verification failed."
+    exit "$VERIFY_EXIT"
+fi
+
+
+# ============================================================
+# 3. 数据配置
+# ============================================================
+
+BASE=/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/4camnuplanhard1000
+
+MAX_VIDEOS=1000
+GATE=16
+
+NAMES=(
+    box30000_preview_paired_200
+    implicit_preview_paired_200
+    nocondition18000_preview_paired_200
+    nuplanfull_preview_paired_200
+    petr_preview_paired_200
+    plucker5cam
+    pvonly_preview_paired_200
+    tokenearly18000_preview_paired_200
+    tvself_preview_paired_200
+)
+
+
+if [ ! -d "$BASE" ]
+then
+    echo "Base directory not found:"
+    echo "$BASE"
+    exit 1
+fi
+
+
+echo
+echo "============================================================"
+echo "Task numbering and GPU assignment"
+echo "============================================================"
+
+for INDEX in "${!NAMES[@]}"
+do
+    GPU=$((INDEX % 4))
+    echo "[$INDEX] GPU $GPU -> ${NAMES[$INDEX]}"
+done
+
+
+# ============================================================
+# 4. 检查并合并到前 1000 个视频
+#
+# 已合并有效条件：
+#   1. stflow_manifest.jsonl 存在
+#   2. JSONL 可以解析
+#   3. 正好有 1000 条
+#   4. 首尾视频的首尾帧图片存在
+#
+# 满足条件就跳过合并。
+# ============================================================
+
+echo
+echo "============================================================"
+echo "Check and merge manifests"
+echo "============================================================"
+
+for NAME in "${NAMES[@]}"
+do
+    SRC=$BASE/$NAME
+    DST=$BASE/${NAME}_merged1000
+    MANIFEST=$DST/stflow_manifest.jsonl
+
+    echo
+    echo "------------------------------------------------------------"
+    echo "METHOD: $NAME"
+    echo "SRC: $SRC"
+    echo "DST: $DST"
+    echo "------------------------------------------------------------"
+
+    MERGED_VALID=0
+
+    if [ -f "$MANIFEST" ]
+    then
+        python - "$MANIFEST" "$DST" "$MAX_VIDEOS" <<'PY'
+import json
+import os
+import sys
+
+manifest_path = sys.argv[1]
+root = sys.argv[2]
+expected_count = int(sys.argv[3])
+
+items = []
+
+with open(manifest_path, "r", encoding="utf-8") as file:
+    for line_number, line in enumerate(file, start=1):
+        if not line.strip():
+            continue
+
+        try:
+            items.append(json.loads(line))
+        except json.JSONDecodeError as error:
+            print(
+                f"Invalid JSON at line {line_number}: {error}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+if len(items) != expected_count:
+    print(
+        f"Manifest count mismatch: {len(items)} != {expected_count}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+for item_index in [0, len(items) - 1]:
+    item = items[item_index]
+
+    frames = item.get("frames", [])
+
+    if not frames:
+        print(
+            f"Video {item_index} has no frames.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    for frame_index in [0, len(frames) - 1]:
+        frame = frames[frame_index]
+        views = frame.get("views", [])
+
+        if not views:
+            print(
+                f"Video {item_index}, frame {frame_index} has no views.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        image_path = views[0].get("image_path")
+
+        if not image_path:
+            print(
+                f"Missing image_path at video {item_index}, "
+                f"frame {frame_index}.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        if not os.path.isabs(image_path):
+            image_path = os.path.join(root, image_path)
+
+        if not os.path.isfile(image_path):
+            print(
+                f"Image does not exist: {image_path}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+print(f"Valid merged manifest: {len(items)} videos")
+PY
+
+        CHECK_EXIT=$?
+
+        if [ "$CHECK_EXIT" -eq 0 ]
+        then
+            MERGED_VALID=1
+        fi
+    fi
+
+
+    if [ "$MERGED_VALID" -eq 1 ]
+    then
+        echo "Already merged correctly. Skip merge."
+        continue
+    fi
+
+
+    echo "Merged result missing or invalid. Rebuild."
+
+    if [ ! -d "$SRC" ]
+    then
+        echo "Source directory not found: $SRC"
+        exit 1
+    fi
+
+
+    if ! python -m dwm.tools.merge_rank_preview_manifests_interleave \
+        --input-root "$SRC" \
+        --output-root "$DST" \
+        --dataset-name nuplan \
+        --max-videos "$MAX_VIDEOS" \
+        --overwrite
+    then
+        echo "Hard-link merge failed."
+        echo "Retry with --copy."
+
+        python -m dwm.tools.merge_rank_preview_manifests_interleave \
+            --input-root "$SRC" \
+            --output-root "$DST" \
+            --dataset-name nuplan \
+            --max-videos "$MAX_VIDEOS" \
+            --overwrite \
+            --copy
+
+        COPY_EXIT=$?
+
+        if [ "$COPY_EXIT" -ne 0 ]
+        then
+            echo "Copy merge failed: $NAME"
+            exit "$COPY_EXIT"
+        fi
+    fi
+
+
+    if [ ! -f "$MANIFEST" ]
+    then
+        echo "Manifest not found after merge:"
+        echo "$MANIFEST"
+        exit 1
+    fi
+
+
+    VIDEO_COUNT=$(grep -cve '^[[:space:]]*$' "$MANIFEST")
+
+    echo "Merged video count: $VIDEO_COUNT"
+
+    if [ "$VIDEO_COUNT" -ne "$MAX_VIDEOS" ]
+    then
+        echo "Expected $MAX_VIDEOS videos, found $VIDEO_COUNT."
+        exit 1
+    fi
+done
+
+
+# ============================================================
+# 5. 四卡并行 ST-Flow / Traj gate16
+#
+# GPU 0：0、4、8
+# GPU 1：1、5
+# GPU 2：2、6
+# GPU 3：3、7
+#
+# 不设置 startframe。
+# ============================================================
+
+echo
+echo "============================================================"
+echo "Run ST-Flow gate16 on four GPUs"
+echo "============================================================"
+
+STFLOW_PIDS=()
+
+for GPU in 0 1 2 3
+do
+(
+    set -euo pipefail
+
+CAMERA_PAIRS="CAM_00__CAM_01,CAM_01__CAM_02,CAM_02__CAM_03"
+
+    export CUDA_VISIBLE_DEVICES="$GPU"
+
+    echo "[GPU $GPU] ST-Flow worker started."
+
+    for ((INDEX=GPU; INDEX<${#NAMES[@]}; INDEX+=4))
+    do
+        NAME=${NAMES[$INDEX]}
+        ROOT=$BASE/${NAME}_merged1000
+        MANIFEST=$ROOT/stflow_manifest.jsonl
+        OUTPUT=$ROOT/stflow_traj_result_gate16.json
+        LOG_DIR=$ROOT/eval_logs
+        LOG_FILE=$LOG_DIR/stflow_gate16.log
+
+        mkdir -p "$LOG_DIR"
+
+        echo
+        echo "============================================================"
+        echo "[GPU $GPU] ST-Flow / Traj"
+        echo "INDEX: $INDEX"
+        echo "METHOD: $NAME"
+        echo "OUTPUT: $OUTPUT"
+        echo "============================================================"
+
+        python -m dwm.tools.evaluate_stflow \
+            --camera-pairs "${CAMERA_PAIRS}" \
+            --manifest "$MANIFEST" \
+            --output "$OUTPUT" \
+            --device cuda \
+            --max-videos "$MAX_VIDEOS" \
+            --frame-stride 2 \
+            --min-matches 16 \
+            --max-matches 256 \
+            --loftr-confidence 0.1 \
+            --pair-policy dataset \
+            --cross-gate-px "$GATE" \
+            2>&1 | tee "$LOG_FILE"
+
+        echo "[GPU $GPU] ST-Flow completed: $NAME"
+    done
+
+    echo "[GPU $GPU] ST-Flow worker completed."
+) &
+
+    STFLOW_PIDS+=("$!")
+done
+
+
+STFLOW_STATUS=0
+
+for PID in "${STFLOW_PIDS[@]}"
+do
+    if ! wait "$PID"
+    then
+        echo "ST-Flow worker failed: PID=$PID"
+        STFLOW_STATUS=1
+    fi
+done
+
+
+if [ "$STFLOW_STATUS" -ne 0 ]
+then
+    echo "At least one ST-Flow worker failed."
+    exit 1
+fi
+
+
+# ============================================================
+# 6. 检查 ST-Flow 结果
+# ============================================================
+
+echo
+echo "============================================================"
+echo "Check ST-Flow results"
+echo "============================================================"
+
+python - "$BASE" <<'PY'
+import json
+import math
+import os
+import sys
+
+base = sys.argv[1]
+
+names = [
+    "box30000_preview_paired_200",
+    "implicit_preview_paired_200",
+    "nocondition18000_preview_paired_200",
+    "nuplanfull_preview_paired_200",
+    "petr_preview_paired_200",
+    "plucker5cam",
+    "pvonly_preview_paired_200",
+    "tokenearly18000_preview_paired_200",
+    "tvself_preview_paired_200",
+]
+
+failed = False
+
+print()
+print("| Index | Method | Status | Temporal-L1 | Cross-Raw-Epi | Traj-Epi | Traj-Inlier@2 |")
+print("|---:|---|---|---:|---:|---:|---:|")
+
+for index, name in enumerate(names):
+    result_path = os.path.join(
+        base,
+        name + "_merged1000",
+        "stflow_traj_result_gate16.json",
+    )
+
+    if not os.path.isfile(result_path):
+        print(f"| {index} | {name} | MISSING | - | - | - | - |")
+        failed = True
+        continue
+
+    try:
+        with open(result_path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except Exception as error:
+        print(f"| {index} | {name} | INVALID JSON | - | - | - | - |")
+        print("  ", error)
+        failed = True
+        continue
+
+    mean = data.get("mean", {})
+
+    temporal = mean.get("temporal_l1")
+    cross_raw = mean.get("cross_raw_epi_px")
+    traj = mean.get("traj_epi_px")
+    traj_inlier2 = mean.get("traj_inlier2")
+
+    required = [
+        temporal,
+        cross_raw,
+        traj,
+        traj_inlier2,
+    ]
+
+    valid = all(
+        isinstance(value, (int, float))
+        and math.isfinite(float(value))
+        for value in required
+    )
+
+    status = "OK" if valid else "INVALID VALUE"
+
+    if not valid:
+        failed = True
+
+    def fmt(value, digits):
+        if not isinstance(value, (int, float)):
+            return "-"
+        if not math.isfinite(float(value)):
+            return "-"
+        return f"{float(value):.{digits}f}"
+
+    print(
+        f"| {index} | {name} | {status} "
+        f"| {fmt(temporal, 6)} "
+        f"| {fmt(cross_raw, 3)} "
+        f"| {fmt(traj, 3)} "
+        f"| {fmt(traj_inlier2, 4)} |"
+    )
+
+if failed:
+    sys.exit(1)
+PY
+
+STFLOW_CHECK_EXIT=$?
+
+if [ "$STFLOW_CHECK_EXIT" -ne 0 ]
+then
+    echo "At least one ST-Flow result is missing or invalid."
+    exit 1
+fi
+
+
+# ============================================================
+# 7. 四卡并行 FVD
+# ============================================================
+
+echo
+echo "============================================================"
+echo "Run FVD on four GPUs"
+echo "============================================================"
+
+FVD_PIDS=()
+
+for GPU in 0 1 2 3
+do
+(
+    set -euo pipefail
+
+    export CUDA_VISIBLE_DEVICES="$GPU"
+
+    echo "[GPU $GPU] FVD worker started."
+
+    for ((INDEX=GPU; INDEX<${#NAMES[@]}; INDEX+=4))
+    do
+        NAME=${NAMES[$INDEX]}
+        ROOT=$BASE/${NAME}_merged1000
+        MANIFEST=$ROOT/stflow_manifest.jsonl
+        LOG_DIR=$ROOT/eval_logs
+
+        mkdir -p "$LOG_DIR"
+
+
+        SEQ_COUNT=$(python - "$MANIFEST" <<'PY'
+import json
+import sys
+from collections import Counter
+
+manifest_path = sys.argv[1]
+frame_counts = []
+
+with open(manifest_path, "r", encoding="utf-8") as file:
+    for line in file:
+        if not line.strip():
+            continue
+
+        item = json.loads(line)
+        frame_counts.append(len(item["frames"]))
+
+distribution = Counter(frame_counts)
+
+if not frame_counts:
+    print("Manifest is empty.", file=sys.stderr)
+    sys.exit(1)
+
+if len(distribution) != 1:
+    print(
+        f"Inconsistent frame counts: {dict(distribution)}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+print(frame_counts[0])
+PY
+        )
+
+
+        FVD_OUTPUT=$ROOT/paired_fvd_result_all${SEQ_COUNT}.json
+        FVD_LOG=$LOG_DIR/fvd_all${SEQ_COUNT}.log
+
+        echo
+        echo "============================================================"
+        echo "[GPU $GPU] FVD"
+        echo "INDEX: $INDEX"
+        echo "METHOD: $NAME"
+        echo "SEQUENCE_COUNT: $SEQ_COUNT"
+        echo "OUTPUT: $FVD_OUTPUT"
+        echo "============================================================"
+
+
+        if ! python -m dwm.tools.evaluate_fvd_from_paired_manifest \
+            --manifest "$MANIFEST" \
+            --output "$FVD_OUTPUT" \
+            --i3d-checkpoint "$I3D_CHECKPOINT" \
+            --device cuda \
+            --max-videos "$MAX_VIDEOS" \
+            --sequence-count "$SEQ_COUNT" \
+            --batch-size 2 \
+            2>&1 | tee "$FVD_LOG"
+        then
+            echo "[GPU $GPU] FVD batch-size=2 failed."
+            echo "[GPU $GPU] Retry with batch-size=1."
+
+            python -m dwm.tools.evaluate_fvd_from_paired_manifest \
+                --manifest "$MANIFEST" \
+                --output "$FVD_OUTPUT" \
+                --i3d-checkpoint "$I3D_CHECKPOINT" \
+                --device cuda \
+                --max-videos "$MAX_VIDEOS" \
+                --sequence-count "$SEQ_COUNT" \
+                --batch-size 1 \
+                2>&1 | tee -a "$FVD_LOG"
+        fi
+
+        echo "[GPU $GPU] FVD completed: $NAME"
+    done
+
+    echo "[GPU $GPU] FVD worker completed."
+) &
+
+    FVD_PIDS+=("$!")
+done
+
+
+FVD_STATUS=0
+
+for PID in "${FVD_PIDS[@]}"
+do
+    if ! wait "$PID"
+    then
+        echo "FVD worker failed: PID=$PID"
+        FVD_STATUS=1
+    fi
+done
+
+
+# ============================================================
+# 8. 检测并汇总 FVD
+# ============================================================
+
+echo
+echo "============================================================"
+echo "Detect FVD results"
+echo "============================================================"
+
+python - "$BASE" <<'PY'
+import glob
+import json
+import math
+import os
+import sys
+
+base = sys.argv[1]
+
+names = [
+    "box30000_preview_paired_200",
+    "implicit_preview_paired_200",
+    "nocondition18000_preview_paired_200",
+    "nuplanfull_preview_paired_200",
+    "petr_preview_paired_200",
+    "plucker5cam",
+    "pvonly_preview_paired_200",
+    "tokenearly18000_preview_paired_200",
+    "tvself_preview_paired_200",
+]
+
+summary = {}
+failed = False
+
+print()
+print("| Index | Method | FVD status | FVD value | Result file |")
+print("|---:|---|---|---:|---|")
+
+for index, name in enumerate(names):
+    root = os.path.join(base, name + "_merged1000")
+
+    candidates = sorted(
+        glob.glob(
+            os.path.join(
+                root,
+                "paired_fvd_result_all*.json",
+            )
+        ),
+        key=os.path.getmtime,
+    )
+
+    if not candidates:
+        summary[name] = {
+            "status": "missing",
+            "fvd": None,
+            "file": None,
+        }
+
+        print(f"| {index} | {name} | MISSING | - | - |")
+        failed = True
+        continue
+
+    result_path = candidates[-1]
+
+    try:
+        with open(result_path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except Exception as error:
+        summary[name] = {
+            "status": "invalid_json",
+            "fvd": None,
+            "file": result_path,
+            "error": str(error),
+        }
+
+        print(
+            f"| {index} | {name} | INVALID JSON | - | "
+            f"{result_path} |"
+        )
+
+        failed = True
+        continue
+
+    fvd_value = data.get("fvd")
+
+    if fvd_value is None:
+        for key, value in data.items():
+            if (
+                "fvd" in str(key).lower()
+                and isinstance(value, (int, float))
+            ):
+                fvd_value = value
+                break
+
+    valid_value = (
+        isinstance(fvd_value, (int, float))
+        and math.isfinite(float(fvd_value))
+    )
+
+    if not valid_value:
+        summary[name] = {
+            "status": "missing_fvd_value",
+            "fvd": fvd_value,
+            "file": result_path,
+            "available_keys": list(data.keys()),
+        }
+
+        print(
+            f"| {index} | {name} | NO VALID FVD | - | "
+            f"{result_path} |"
+        )
+
+        failed = True
+        continue
+
+    summary[name] = {
+        "status": "ok",
+        "fvd": float(fvd_value),
+        "file": result_path,
+    }
+
+    print(
+        f"| {index} | {name} | OK | "
+        f"{float(fvd_value):.6f} | {result_path} |"
+    )
+
+summary_path = os.path.join(
+    base,
+    "fvd_detection_summary.json",
+)
+
+with open(summary_path, "w", encoding="utf-8") as file:
+    json.dump(
+        summary,
+        file,
+        indent=2,
+        ensure_ascii=False,
+    )
+
+print()
+print("FVD summary:", summary_path)
+
+if failed:
+    sys.exit(1)
+PY
+
+FVD_CHECK_EXIT=$?
+
+
+# ============================================================
+# 9. 最终状态
+# ============================================================
+
+echo
+echo "============================================================"
+echo "Final status"
+echo "============================================================"
+
+if [ "$FVD_STATUS" -ne 0 ]
+then
+    echo "At least one FVD worker failed."
+    exit 1
+fi
+
+if [ "$FVD_CHECK_EXIT" -ne 0 ]
+then
+    echo "At least one FVD result is missing or invalid."
+    exit 1
+fi
+
+echo "All 9 methods completed successfully."
+echo
+echo "Base:"
+echo "$BASE"
+echo
+echo "FVD summary:"
+echo "$BASE/fvd_detection_summary.json"
