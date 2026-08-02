@@ -25,5 +25,5 @@ torchrun \
   --standalone \
   --nproc_per_node=4 \
   -m dwm.preview \
-  -c "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplanimplicitpreview.json" \
+  -c "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplan/nuplanimplicitpreview.json" \
   -o "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_nuplanimplicit"

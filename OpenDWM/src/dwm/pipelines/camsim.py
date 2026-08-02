@@ -3053,6 +3053,109 @@ class CrossviewTemporalSD():
     def preview_pipeline(
         self, batch: dict, output_path: str, global_step: int
     ):
+        # Export source:
+        #   "model": run the original generation preview.
+        #   "box":   only save dataset-provided 3D-box projection images.
+        eval_frame_export_source = str(
+            self.inference_config.get(
+                "eval_frame_export_source",
+                "model",
+            )
+        ).strip().lower()
+
+        if eval_frame_export_source not in {"model", "box"}:
+            raise ValueError(
+                "eval_frame_export_source must be 'model' or 'box', "
+                "but got {!r}.".format(eval_frame_export_source)
+            )
+
+        if eval_frame_export_source == "box":
+            if "3dbox_images" not in batch:
+                raise KeyError(
+                    "eval_frame_export_source='box' requires "
+                    "batch['3dbox_images']. Check the validation dataset "
+                    "3D-box image settings."
+                )
+
+            dist_on = (
+                torch.distributed.is_available()
+                and torch.distributed.is_initialized()
+            )
+            rank = torch.distributed.get_rank() if dist_on else 0
+            all_rank_preview = bool(
+                self.inference_config.get(
+                    "all_rank_preview",
+                    False,
+                )
+            )
+            save_this_rank = self.should_save or (
+                dist_on and all_rank_preview
+            )
+
+            if save_this_rank:
+                # A dedicated path can be configured later. If it is absent,
+                # put box outputs under the existing export root to avoid
+                # overwriting previously generated RGB frames.
+                box_export_path = self.inference_config.get(
+                    "eval_frame_box_export_path",
+                    None,
+                )
+
+                if box_export_path is None:
+                    eval_frame_export_path = self.inference_config.get(
+                        "eval_frame_export_path",
+                        None,
+                    )
+                    if eval_frame_export_path is None:
+                        raise KeyError(
+                            "Box export requires either "
+                            "'eval_frame_box_export_path' or "
+                            "'eval_frame_export_path'."
+                        )
+
+                    box_export_path = os.path.join(
+                        eval_frame_export_path,
+                        "box_projection",
+                    )
+
+                # Keep the same all-rank directory convention as the
+                # original generated-frame export.
+                if all_rank_preview and dist_on:
+                    box_export_path = os.path.join(
+                        box_export_path,
+                        "rank_{:02d}".format(rank),
+                    )
+
+                dwm.utils.preview.save_ctsd_eval_frames_for_preview(
+                    batch["3dbox_images"],
+                    batch,
+                    self.inference_config,
+                    output_dir=box_export_path,
+                    dataset_name=self.inference_config.get(
+                        "eval_frame_dataset_name",
+                        "unknown",
+                    ),
+                    manifest_name=self.inference_config.get(
+                        "eval_frame_box_manifest_name",
+                        "box_manifest.jsonl",
+                    ),
+                    image_quality=self.inference_config.get(
+                        "eval_frame_box_image_quality",
+                        100,
+                    ),
+                    export_paired_real=False,
+                )
+
+                print(
+                    "[BOX_PREVIEW_EXPORT] rank={} saved box projections to {}"
+                    .format(rank, box_export_path),
+                    flush=True,
+                )
+
+            # Important: stop before latent construction, diffusion inference,
+            # generated-frame export, preview image, and preview video saving.
+            return
+
         batch_size, sequence_length, view_count = batch["vae_images"].shape[:3]
         latent_height = batch["vae_images"].shape[-2] // \
             (2 ** (len(self.vae.config.down_block_types) - 1))
