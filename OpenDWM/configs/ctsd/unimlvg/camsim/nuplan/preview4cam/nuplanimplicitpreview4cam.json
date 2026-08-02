@@ -170,6 +170,7 @@
             "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/4camnuplanhard1000/implicit_preview_paired_200",
             "eval_frame_dataset_name": "nuplan",
             "eval_frame_manifest_name": "stflow_manifest.jsonl",
+            "eval_frame_export_source": "box",
             "eval_frame_export_paired_real": true,
             "eval_frame_image_quality": 95
         },
