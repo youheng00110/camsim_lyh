@@ -1540,8 +1540,6 @@ class MotionDataset(torch.utils.data.Dataset):
                         self.motion_intervals_by_scene[s] = []
                     self.motion_intervals_by_scene[s].append(interval)
 
-                #print("[Dataset DEBUG] Interval scenes:", len(self.motion_intervals_by_scene))
-
 
                 # ===============================
                 # 构建 scene_channel_sample_data
@@ -1572,11 +1570,6 @@ class MotionDataset(torch.utils.data.Dataset):
                 # enumerate_segments
                 # ===============================
 
-                #print("[nuscenceDataset DEBUG] sequence_length:", self.sequence_length)
-                #print("[nuscenceDataset DEBUG] sensor_channels:", self.sensor_channels)
-                #print("[nuscenceDataset DEBUG] fps_stride_tuples:", self.fps_stride_tuples)
-                #print("[nuscenceDataset DEBUG] number of scenes:", len(tables["scene"]))
-                #print("[nuscenceDataset] Enumerating segments...")
 
                 t_enumerate = time.time()
                 t_interval_match = 0
@@ -1684,13 +1677,6 @@ class MotionDataset(torch.utils.data.Dataset):
                                 "dist": matched_interval["dist"]
                             })
 
-
-
-                #print(f"[nuscenceDataset DEBUG] Total windows generated: {total_windows}")
-                #print(f"[nuscenceDataset DEBUG] Windows matched with intervals: {matched_windows}")
-                #print(f"[nuscenceDataset DEBUG] Final dataset size: {len(self.items)}")
-
-
                 if total_windows == 0:
                     raise RuntimeError(
                         "[Dataset ERROR] enumerate_segments generated 0 windows."
@@ -1729,7 +1715,6 @@ class MotionDataset(torch.utils.data.Dataset):
 
                 self.items = []
 
-                DEFAULT_OVERLAP_RATIO = 0.9
 
                 for scene, channel_sample_data in scene_channel_sample_data:
                     for fps_stride_cfg in self.fps_stride_tuples:

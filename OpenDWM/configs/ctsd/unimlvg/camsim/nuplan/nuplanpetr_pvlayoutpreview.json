@@ -181,13 +181,27 @@
                 "angle",
                 "dist"
             ],
-            "evaluation_item_count": 480,
-            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard1000/petr_preview_paired_200",
-            "eval_frame_dataset_name": "nuplan",
-            "eval_frame_manifest_name": "stflow_manifest.jsonl",
-            "eval_frame_export_source": "box",
-            "eval_frame_export_paired_real": true,
-            "eval_frame_image_quality": 95
+            {
+                "evaluation_item_count": 480,
+
+                "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard1000/shared_box_preview_paired_200",
+
+                "eval_frame_dataset_name": "nuplan",
+                "eval_frame_manifest_name": "box_manifest.jsonl",
+
+                "eval_frame_export_source": "box",
+                "eval_frame_export_paired_real": false,
+                "eval_frame_image_quality": 95,
+
+                "eval_frame_export_box_image": true,
+                "eval_frame_export_box_params": true,
+
+                "eval_frame_box_key": "3dbox_records",
+                "eval_frame_lidar2image_key": "lidar2image",
+
+                "eval_frame_box_format": "xyz_lwh_yaw",
+                "eval_frame_box_coordinate_frame": "lidar"
+            }
         },
         "model": {
             "_class_name": "dwm.models.crossview_temporal_dit_PETR.DiTCrossviewTemporalConditionModel",

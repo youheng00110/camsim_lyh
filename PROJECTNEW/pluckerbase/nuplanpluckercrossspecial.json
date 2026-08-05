@@ -1,7 +1,7 @@
 {
     "device": "cuda",
     "ddp_backend": "nccl",
-    "train_epochs": 10,
+    "train_epochs": 20,
     "generator_seed": 0,
     "same_dataset_per_global_batch": true,
     "data_shuffle": true,
@@ -19,7 +19,7 @@
             "device_type": "cuda",
             "mesh_shape": [
                 1,
-                4
+                8
             ]
         }
     },
@@ -152,7 +152,6 @@
             "scheduler": "dwm.schedulers.temporal_independent.FlowMatchEulerDiscreteScheduler",
             "guidance_scale": 2,
             "inference_steps": 38,
-            "all_rank_preview": true,
             "preview_image_size": [
                 512,
                 288
@@ -170,13 +169,7 @@
                 "angle",
                 "dist"
             ],
-            "evaluation_item_count": 480,
-            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard1000/nuplandwmori_preview_paired_200",
-            "eval_frame_dataset_name": "nuplan",
-            "eval_frame_manifest_name": "stflow_manifest.jsonl",
-            "eval_frame_export_source": "model",
-            "eval_frame_export_paired_real": true,
-            "eval_frame_image_quality": 95
+            "evaluation_item_count": 480
         },
         "model": {
             "_class_name": "dwm.models.crossview_temporal_dit_PLUCKER.DiTCrossviewTemporalConditionModel",
@@ -240,7 +233,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/ckpt/ctsd_unimlvg_tirda_bm_nwa_60k.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplansingle2/checkpoints/20000.pth",
         "model_load_state_args": {
             "strict": false
         },
@@ -271,16 +264,19 @@
                     },
                     "split": "training",
                     "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_link",
+                    "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_balanced/balanced_windows_metadata.json",
                     "info_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/waymo_balanced/training.info.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
                         [
                             6,
-                            4
+                            2.5,
+                            0.95
                         ],
                         [
                             2,
-                            8
+                            6,
+                            0.39
                         ]
                     ],
                     "sensor_channels": [
@@ -427,15 +423,18 @@
                     "split": "train",
                     "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_link",
                     "index_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_json",
+                    "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_balanced/balanced_windows.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
                         [
                             6,
-                            4
+                            2.5,
+                            0.95
                         ],
                         [
                             2,
-                            8
+                            6,
+                            0.39
                         ]
                     ],
                     "sensor_channels": [
@@ -508,15 +507,18 @@
                     "split": "train",
                     "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_link",
                     "index_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_json",
+                    "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_balanced/balanced_windows.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
                         [
                             6,
-                            8
+                            2.5,
+                            0.95
                         ],
                         [
                             2,
-                            12
+                            6,
+                            0.39
                         ]
                     ],
                     "sensor_channels": [
@@ -589,15 +591,18 @@
                     "split": "train",
                     "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_link",
                     "index_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_json",
+                    "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/avrgo2_balanced/balanced_windows.json",
                     "sequence_length": 20,
                     "fps_stride_tuples": [
                         [
                             6,
-                            8
+                            2.5,
+                            0.95
                         ],
                         [
                             2,
-                            12
+                            6,
+                            0.39
                         ]
                     ],
                     "sensor_channels": [
@@ -901,7 +906,7 @@
     "validation_dataloader": {
         "batch_size": 1,
         "num_workers": 1,
-        "prefetch_factor": 2,
+        "prefetch_factor": 3,
         "collate_fn": {
             "_class_name": "dwm.datasets.common.CollateFnIgnoring",
             "keys": [

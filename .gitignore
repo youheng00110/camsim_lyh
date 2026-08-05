@@ -31,6 +31,7 @@ mini_sensors/
 # 上面的 output/*/ 只会忽略一级子目录，不会匹配 output/ 本身，也不会影响已经被 ! 保留的路径
 
 # 额外保险：强制忽略大文件/模型，即使在 preview/log 里也不上传
+output_song/
 output/**/*.pth
 output/**/*.pt
 output/**/*.ckpt

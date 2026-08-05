@@ -104,6 +104,9 @@ def prepare_evaluation_instances(
         visibility_config.get("min_gt_visible_connected_pixels", 1)
     )
 
+    disable_gt_occlusion = bool(
+        visibility_config.get("disable_gt_occlusion", False)
+    )
     occupied = np.zeros((image_height, image_width), dtype=bool)
     prepared_by_index: dict[int, dict[str, Any]] = {}
     depth_order = sorted(
@@ -124,8 +127,14 @@ def prepare_evaluation_instances(
             image_height,
         )
         amodal_pixels = int(amodal_mask.sum())
-        visible_mask = np.logical_and(amodal_mask, np.logical_not(occupied))
-        occupied = np.logical_or(occupied, amodal_mask)
+        if disable_gt_occlusion:
+            visible_mask = amodal_mask
+        else:
+            visible_mask = np.logical_and(
+                amodal_mask,
+                np.logical_not(occupied),
+            )
+            occupied = np.logical_or(occupied, amodal_mask)
         visible_analysis = analyze_binary_mask(visible_mask)
         visible_pixels = int(visible_analysis["pixel_count"])
         visible_ratio = visible_pixels / max(amodal_pixels, 1)
@@ -165,11 +174,14 @@ def prepare_evaluation_instances(
         value for value in prepared_projections if value["ignore_reason"] is not None
     ]
 
-    sam_min_connected_pixels = 0
-    if evaluated_projections:
-        sam_min_connected_pixels = min(
-            int(value["visible_connected_pixel_count"])
-            for value in evaluated_projections
+    # SAM prediction filtering must not depend on GT instance size.
+    # A value of 0 disables non-empty mask area filtering.
+    sam_min_connected_pixels = int(
+        matching_config.get("min_sam_connected_pixels", 0)
+    )
+    if sam_min_connected_pixels < 0:
+        raise ValueError(
+            "matching.min_sam_connected_pixels must be non-negative"
         )
 
     allow_bbox_fallback = bool(
@@ -416,6 +428,7 @@ def build_frame_result(
         "frame_token": str(item["frame"]["frame_token"]),
         "timestamp": float(item["frame"]["timestamp"]),
         "image_path": str(item["image_path"]),
+        "box_image_path": item.get("box_image_path"),
         "image_width": int(item["width"]),
         "image_height": int(item["height"]),
         "raw_gt_count": len(prepared["raw_projections"]),
@@ -450,6 +463,8 @@ def build_frame_result(
         "preview_camera_name": "camera_name",
         "preview_view_index": "view_index",
         "preview_is_reference_frame": "is_reference_frame",
+        "box_manifest_path": "box_manifest_path",
+        "box_video_id": "box_video_id",
     }
     for frame_key, result_key in preview_fields.items():
         if frame_key in item["frame"]:

@@ -15,6 +15,8 @@ import yaml
 from torch.utils.data import Dataset
 from torchvision.io import ImageReadMode, read_image
 
+from shared_box_projection import attach_shared_box_images, video_pose_signature
+
 
 BOX_EDGE_INDICES = (
     (0, 1), (1, 2), (2, 3), (3, 0),
@@ -33,6 +35,14 @@ class FrameSourceDataset(Dataset):
             if not image_path.is_file():
                 raise FileNotFoundError(f"Image does not exist: {image_path}")
 
+            box_image_path_value = item.get("box_image_path")
+            if box_image_path_value:
+                box_image_path = Path(str(box_image_path_value))
+                if not box_image_path.is_file():
+                    raise FileNotFoundError(
+                        f"Shared box image does not exist: {box_image_path}"
+                    )
+
     def __len__(self) -> int:
         return len(self.items)
 
@@ -46,6 +56,28 @@ class FrameSourceDataset(Dataset):
         item["image"] = image
         item["height"] = int(image.shape[1])
         item["width"] = int(image.shape[2])
+
+        box_image_path_value = item.get("box_image_path")
+        if box_image_path_value:
+            box_image = read_image(
+                str(box_image_path_value),
+                mode=ImageReadMode.RGB,
+            )
+            if box_image.ndim != 3 or box_image.shape[0] != 3:
+                raise ValueError(
+                    f"Invalid shared box image shape {tuple(box_image.shape)} "
+                    f"for {box_image_path_value}"
+                )
+            if tuple(box_image.shape[-2:]) != tuple(image.shape[-2:]):
+                raise ValueError(
+                    "Generated image and shared box image size mismatch: "
+                    f"generated={tuple(image.shape[-2:])}, "
+                    f"box={tuple(box_image.shape[-2:])}, "
+                    f"generated_path={item['image_path']}, "
+                    f"box_path={box_image_path_value}"
+                )
+            item["box_image"] = box_image
+
         return item
 
 
@@ -198,6 +230,7 @@ def load_preview_frames(
                     manifest_item.get("video_id", f"video_{line_index:06d}")
                 )
                 dataset_name = str(manifest_item.get("dataset_name", "unknown"))
+                video_signature = video_pose_signature(manifest_item)
                 frame_entries = manifest_item.get("frames", [])
                 if not isinstance(frame_entries, list):
                     raise TypeError(
@@ -322,6 +355,7 @@ def load_preview_frames(
                                 "preview_manifest_path": str(manifest_path),
                                 "preview_dataset_name": dataset_name,
                                 "preview_video_id": video_id,
+                                "preview_video_signature": video_signature,
                                 "preview_time_index": time_index,
                                 "preview_camera_name": camera_name,
                                 "preview_view_index": view_index,
@@ -377,30 +411,50 @@ def load_preview_frames(
 def load_frames_from_config(config: dict[str, Any]) -> list[dict[str, Any]]:
     paths = config.get("paths", {})
     preview_root = paths.get("preview_root")
-    limit_frames = int(
-        config.get("runtime", {}).get("limit_frames", 0)
-    )
+    limit_frames = int(config.get("runtime", {}).get("limit_frames", 0))
     max_records = limit_frames if limit_frames > 0 else None
 
     if preview_root:
-        return load_preview_frames(
+        frames = load_preview_frames(
             preview_root,
             config.get("preview", {}),
             max_records=max_records,
         )
+    else:
+        data_dir_value = paths.get("data_dir")
+        if not data_dir_value:
+            raise KeyError(
+                "paths must contain either preview_root or data_dir"
+            )
 
-    data_dir_value = paths.get("data_dir")
-    if not data_dir_value:
-        raise KeyError("paths must contain either preview_root or data_dir")
-    data_dir = Path(str(data_dir_value)).expanduser().resolve()
-    if (data_dir / "frames.jsonl").is_file():
-        return load_unpacked_frames(data_dir)
-    if any(data_dir.glob("**/stflow_manifest.jsonl")):
-        return load_preview_frames(data_dir, config.get("preview", {}))
-    raise FileNotFoundError(
-        f"Could not find frames.jsonl or stflow_manifest.jsonl under {data_dir}"
-    )
+        data_dir = Path(
+            str(data_dir_value)
+        ).expanduser().resolve()
 
+        if (data_dir / "frames.jsonl").is_file():
+            frames = load_unpacked_frames(data_dir)
+        elif any(data_dir.glob("**/stflow_manifest.jsonl")):
+            frames = load_preview_frames(
+                data_dir,
+                config.get("preview", {}),
+                max_records=max_records,
+            )
+        else:
+            raise FileNotFoundError(
+                "Could not find frames.jsonl or "
+                f"stflow_manifest.jsonl under {data_dir}"
+            )
+
+    shared_box_root = paths.get("shared_box_root")
+
+    if shared_box_root:
+        frames = attach_shared_box_images(
+            frames=frames,
+            shared_box_root=shared_box_root,
+            settings=config.get("shared_box", {}),
+        )
+
+    return frames
 
 def normalize_frame_record(
     record: dict[str, Any],
@@ -609,13 +663,15 @@ def build_source_items(
                     f"Unsupported source type {source_type} for source {source_name}"
                 )
 
-            items.append(
-                {
-                    "source": effective_source_name,
-                    "image_path": str(image_path),
-                    "frame": frame,
-                }
-            )
+            item = {
+                "source": effective_source_name,
+                "image_path": str(image_path),
+                "frame": frame,
+            }
+            box_image_path = frame.get("box_image_path")
+            if box_image_path:
+                item["box_image_path"] = str(box_image_path)
+            items.append(item)
     return items
 
 

@@ -36,6 +36,7 @@ from sam31_detector import (
     discover_checkpoint,
     predict_with_oom_backoff,
 )
+from shared_box_projection import project_manifest_boxes
 
 
 def initialize_runtime() -> tuple[int, int, int, torch.device]:
@@ -161,11 +162,18 @@ def main() -> None:
                 )
 
             if rank == 0:
+                matched_box_count = sum(
+                    1 for frame in frames if "boxes_3d" in frame
+                )
                 report = {
                     "frames": len(frames),
+                    "shared_box_matched": matched_box_count,
+                    "shared_box_missing": len(frames) - matched_box_count,
                     "sources": source_counts,
                     "first_image": frames[0]["rgb_path"],
+                    "first_box_image": frames[0].get("box_image_path"),
                     "last_image": frames[-1]["rgb_path"],
+                    "last_box_image": frames[-1].get("box_image_path"),
                 }
                 print(
                     json.dumps(
@@ -210,12 +218,24 @@ def main() -> None:
                 metadata: list[dict[str, Any]] = []
 
                 for item in batch:
-                    projections = project_frame_boxes(
-                        frame=item["frame"],
-                        image_width=int(item["width"]),
-                        image_height=int(item["height"]),
-                        annotation_config=config["annotation"],
-                    )
+                    frame = item["frame"]
+                    if "boxes_3d" in frame:
+                        projections = project_manifest_boxes(
+                            boxes_3d=frame["boxes_3d"],
+                            T_lidar_to_camera=frame["T_lidar_to_camera"],
+                            lidar_to_image=frame["lidar_to_image"],
+                            image_width=int(item["width"]),
+                            image_height=int(item["height"]),
+                            annotation_config=config["annotation"],
+                        )
+                    else:
+                        projections = project_frame_boxes(
+                            frame=frame,
+                            image_width=int(item["width"]),
+                            image_height=int(item["height"]),
+                            annotation_config=config["annotation"],
+                        )
+
                     item["gt_projections"] = projections
                     images.append(item["image"])
                     metadata.append(item)

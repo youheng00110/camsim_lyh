@@ -364,56 +364,12 @@ def save_ctsd_eval_frames_for_preview(
     real_images = batch["vae_images"].detach().cpu()
     batch_size, sequence_length, view_count = real_images.shape[:3]
     camera_names = _preview_get_camera_names(batch, view_count)
-
-    export_box_params = bool(
-        inference_config.get(
-            "eval_frame_export_box_params",
-            False,
-        )
-    )
-    box_key = str(
-        inference_config.get(
-            "eval_frame_box_key",
-            "3dbox_records",
-        )
-    )
-    lidar_to_camera_key = str(
-        inference_config.get(
-            "eval_frame_lidar_to_camera_key",
-            "lidar_to_camera",
-        )
-    )
-
-    box_records_batch = batch.get(
-        box_key,
-        None,
-    )
     video_offset = _preview_count_manifest_lines(manifest_path)
 
     with open(manifest_path, "a", encoding="utf-8") as manifest_file:
         for b in range(batch_size):
             video_id = f"{dataset_name}_video_{video_offset + b:06d}"
             frames = []
-
-            sample_box_records = None
-
-            if (
-                export_box_params
-                and isinstance(
-                    box_records_batch,
-                    (list, tuple),
-                )
-            ):
-                # CollateFnIgnoring 返回：
-                # batch["3dbox_records"] = [
-                #     sample0_records,
-                #     sample1_records,
-                #     ...
-                # ]
-                if len(box_records_batch) == batch_size:
-                    sample_box_records = box_records_batch[b]
-                elif batch_size == 1:
-                    sample_box_records = box_records_batch
 
             for t in range(sequence_length):
                 frame_record = {
@@ -426,32 +382,6 @@ def save_ctsd_eval_frames_for_preview(
                     if ego_transform.ndim == 3:
                         ego_transform = ego_transform[0]
                     frame_record["T_ego_to_world"] = _preview_json_tensor(ego_transform)
-
-                if (
-                    export_box_params
-                    and isinstance(
-                        sample_box_records,
-                        (list, tuple),
-                    )
-                    and t < len(sample_box_records)
-                ):
-                    frame_record["boxes_3d"] = (
-                        sample_box_records[t]
-                    )
-                    frame_record["box_format"] = str(
-                        inference_config.get(
-                            "eval_frame_box_format",
-                            "xyz_dxdy_dz_yaw",
-                        )
-                    )
-                    frame_record[
-                        "box_coordinate_frame"
-                    ] = str(
-                        inference_config.get(
-                            "eval_frame_box_coordinate_frame",
-                            "lidar",
-                        )
-                    )
 
                 for v in range(view_count):
                     camera_name = camera_names[v]
@@ -502,57 +432,6 @@ def save_ctsd_eval_frames_for_preview(
                         view_record["T_cam_to_ego"] = _preview_json_tensor(
                             batch["camera_transforms"][b, t, v]
                         )
-                    if (
-                        export_box_params
-                        and lidar_to_camera_key in batch
-                        and "camera_intrinsics" in batch
-                    ):
-                        lidar_to_camera = (
-                            batch[lidar_to_camera_key][b, t, v]
-                            .detach()
-                            .cpu()
-                            .float()
-                        )
-                        camera_intrinsic = (
-                            batch["camera_intrinsics"][b, t, v]
-                            .detach()
-                            .cpu()
-                            .float()
-                        )
-
-                        if tuple(
-                            lidar_to_camera.shape[-2:]
-                        ) != (4, 4):
-                            raise ValueError(
-                                "lidar_to_camera must be 4x4, "
-                                f"got {tuple(lidar_to_camera.shape)}"
-                            )
-
-                        if camera_intrinsic.shape[-2] < 3:
-                            raise ValueError(
-                                "camera_intrinsics must contain "
-                                "at least 3 rows"
-                            )
-
-                        K3 = camera_intrinsic[:3, :3]
-
-                        lidar_to_image = torch.eye(
-                            4,
-                            dtype=torch.float32,
-                        )
-                        lidar_to_image[:3, :4] = (
-                            K3
-                            @ lidar_to_camera[:3, :4]
-                        )
-
-                        view_record[
-                            "T_lidar_to_camera"
-                        ] = lidar_to_camera.tolist()
-
-                        view_record[
-                            "lidar_to_image"
-                        ] = lidar_to_image.tolist()
-
                     if "image_size" in batch:
                         view_record["image_size"] = _preview_json_tensor(
                             batch["image_size"][b, t, v]

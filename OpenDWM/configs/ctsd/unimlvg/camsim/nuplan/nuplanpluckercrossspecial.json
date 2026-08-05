@@ -152,7 +152,6 @@
             "scheduler": "dwm.schedulers.temporal_independent.FlowMatchEulerDiscreteScheduler",
             "guidance_scale": 2,
             "inference_steps": 38,
-            "all_rank_preview": true,
             "preview_image_size": [
                 512,
                 288
@@ -170,12 +169,7 @@
                 "angle",
                 "dist"
             ],
-            "evaluation_item_count": 480,
-            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard/0plucker_special_noid_preview_paired_200",
-            "eval_frame_dataset_name": "nuplan",
-            "eval_frame_manifest_name": "stflow_manifest.jsonl",
-            "eval_frame_export_paired_real": true,
-            "eval_frame_image_quality": 95
+            "evaluation_item_count": 480
         },
         "model": {
             "_class_name": "dwm.models.crossview_temporal_dit_PLUCKER.DiTCrossviewTemporalConditionModel",
@@ -239,7 +233,7 @@
             }
         },
         "pretrained_model_name_or_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/lyhmigration/stable-diffusion-3-medium",
-        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplanplucker_special_noid/checkpoints/28000.pth",
+        "model_checkpoint_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/train_nuplansingle2/checkpoints/20000.pth",
         "model_load_state_args": {
             "strict": false
         },

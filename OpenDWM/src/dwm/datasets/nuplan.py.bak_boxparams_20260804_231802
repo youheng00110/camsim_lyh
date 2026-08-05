@@ -411,31 +411,6 @@ def _project_pts(pts_xyz, T_4x4):
     return np.stack([u, v, q[:, 2]], axis=1)
 
 
-def _lidar2camera_from_caminfo(cam_info):
-    """Return camera_from_lidar as a 4x4 rigid transform.
-
-    NuPlan gt_boxes are stored in the LiDAR coordinate frame.
-    cam_info stores camera_from_lidar inversely as
-    sensor2lidar_rotation / sensor2lidar_translation.
-    """
-    R_c2l = np.asarray(
-        cam_info["sensor2lidar_rotation"],
-        dtype=np.float32,
-    ).reshape(3, 3)
-    t_c2l = np.asarray(
-        cam_info["sensor2lidar_translation"],
-        dtype=np.float32,
-    ).reshape(3)
-
-    R_l2c = R_c2l.T
-    t_l2c = -R_l2c @ t_c2l
-
-    transform = np.eye(4, dtype=np.float32)
-    transform[:3, :3] = R_l2c
-    transform[:3, 3] = t_l2c
-    return transform
-
-
 def _lidar2image_from_caminfo(cam_info, K3):
     # cam_info: contains sensor2lidar_rotation/translation
     R_c2l = np.asarray(cam_info["sensor2lidar_rotation"], np.float32).reshape(3, 3)
@@ -1552,110 +1527,6 @@ class MotionDataset(torch.utils.data.Dataset):
     # ---------------------------
     # 3dbox from gt_line
     # ---------------------------
-    def _get_3dbox_records_from_gtline(self, info):
-        """Return independent 7-DoF GT boxes for one frame.
-
-        box7_lidar order:
-            [x, y, z, dx, dy, dz, yaw]
-
-        x, y, z:
-            box center in LiDAR coordinates
-
-        dx, dy, dz:
-            box extent along the local x/y/z axes
-
-        yaw:
-            rotation around the LiDAR z axis, in radians
-        """
-        boxes = info.get("gt_boxes", None)
-        if boxes is None:
-            boxes = []
-
-        names = info.get("gt_names", None)
-        names = (
-            list(names)
-            if isinstance(names, (list, tuple, np.ndarray))
-            else []
-        )
-
-        tracks = info.get("track_token", None)
-        if tracks is None:
-            tracks = info.get("gt_track_token", None)
-        tracks = (
-            list(tracks)
-            if isinstance(tracks, (list, tuple, np.ndarray))
-            else []
-        )
-
-        frame_token = str(
-            info.get(
-                self.token_key,
-                info.get("token", ""),
-            )
-        )
-
-        records = []
-
-        for box_index, box in enumerate(boxes):
-            box7 = np.asarray(
-                box[:7],
-                dtype=np.float32,
-            ).reshape(-1)
-
-            if box7.shape[0] != 7:
-                continue
-
-            if not np.isfinite(box7).all():
-                continue
-
-            class_name = (
-                str(names[box_index])
-                if box_index < len(names)
-                else "unknown"
-            )
-
-            track_token = (
-                str(tracks[box_index])
-                if (
-                    box_index < len(tracks)
-                    and tracks[box_index] is not None
-                )
-                else ""
-            )
-
-            gt_id = (
-                track_token
-                if track_token
-                else f"{frame_token}:{box_index}"
-            )
-
-            records.append(
-                {
-                    "gt_id": gt_id,
-                    "track_token": track_token,
-                    "class_name": class_name,
-                    "box7_lidar": [
-                        float(value)
-                        for value in box7.tolist()
-                    ],
-                    "center_xyz": [
-                        float(box7[0]),
-                        float(box7[1]),
-                        float(box7[2]),
-                    ],
-                    "size_dx_dy_dz": [
-                        float(box7[3]),
-                        float(box7[4]),
-                        float(box7[5]),
-                    ],
-                    "yaw": float(box7[6]),
-                    "coordinate_frame": "lidar",
-                    "z_is_center": True,
-                }
-            )
-
-        return records
-
     def _get_3dbox_image_from_gtline(self, info, im_size, lidar2image_4x4):
         W, H = int(im_size[0]), int(im_size[1])
         img = Image.new("RGB", (W, H))
@@ -2041,45 +1912,6 @@ class MotionDataset(torch.utils.data.Dataset):
         assert camera_intr.shape[-2:] == (3, 3), camera_intr.shape
         result["camera_intrinsics"] = camera_intr
         result["image_size"] = torch.tensor(np.asarray([[[w,h] for (w,h) in row] for row in img_sizes]), dtype=torch.long)
-
-        # Instance-level GT boxes.
-        #
-        # This remains a Python nested list because each frame can contain
-        # a different number of objects:
-        #     [T][N_t][record]
-        result["3dbox_records"] = [
-            self._get_3dbox_records_from_gtline(frame_info)
-            for frame_info in seq
-        ]
-
-        # Fixed-shape camera_from_lidar transforms:
-        #     [T, V, 4, 4]
-        #
-        # We deliberately save lidar_to_camera rather than a precomputed
-        # lidar_to_image matrix. DatasetAdapter may resize/crop the images
-        # and update camera_intrinsics afterwards. preview.py will combine
-        # the final updated K with this rigid transform.
-        lidar_to_camera = []
-
-        for row_infos in cam_infos:
-            row_transforms = []
-
-            for cam_info in row_infos:
-                if cam_info is None:
-                    row_transforms.append(
-                        np.eye(4, dtype=np.float32)
-                    )
-                else:
-                    row_transforms.append(
-                        _lidar2camera_from_caminfo(cam_info)
-                    )
-
-            lidar_to_camera.append(row_transforms)
-
-        result["lidar_to_camera"] = torch.tensor(
-            np.asarray(lidar_to_camera),
-            dtype=torch.float32,
-        )
         if self.layout_token_settings is not None:
             bbox_token_corners_list = []
             bbox_token_classes_list = []

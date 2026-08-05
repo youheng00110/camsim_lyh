@@ -920,8 +920,6 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                 for pose_encoder in self.tv_relative_pose_embeds:
                     torch.nn.init.zeros_(pose_encoder[-1].weight)
 
-        # Depth Net 
-        self.depth_net = None   # TODO: support joint training of image and lidar
 
         # Mask Reconstruction
         self.mask_module = mask_module
@@ -1592,7 +1590,7 @@ class DiTCrossviewTemporalConditionModel(diffusers.SD3Transformer2DModel):
                 != expected_local_shape
             ):
                 raise RuntimeError(
-                    "TV-full gather shape mismatch: "
+                    "TV-full gather shape mview_cam_embismatch: "
                     f"got {tuple(local_hidden_states.shape)}, "
                     f"expected {expected_local_shape}."
                 )

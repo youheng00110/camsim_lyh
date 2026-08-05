@@ -68,12 +68,7 @@
             "camera_ego_sensor_indices": [
                 0,
                 1,
-                2,
-                3,
-                4,
-                5,
-                6,
-                7
+                2
             ],
             "distribution_framework": "fsdp",
             "ddp_wrapper_settings": {
@@ -171,12 +166,13 @@
                 "dist"
             ],
             "evaluation_item_count": 480,
-            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard1000/nuplandwmori_preview_paired_200",
+            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuscenesablation/nuscenesablationori3",
             "eval_frame_dataset_name": "nuplan",
             "eval_frame_manifest_name": "stflow_manifest.jsonl",
             "eval_frame_export_source": "model",
             "eval_frame_export_paired_real": true,
             "eval_frame_image_quality": 95
+
         },
         "model": {
             "_class_name": "dwm.models.crossview_temporal_dit_PLUCKER.DiTCrossviewTemporalConditionModel",
@@ -740,48 +736,41 @@
             "_class_name": "torch.utils.data.ConcatDataset",
             "datasets": [
                 {
-                    "_class_name": "dwm.datasets.nuplan.MotionDataset",
-                    "sensor_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_sensors",
-                    "pkl_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/mini_infos_val.pkl",
-                    "cache_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_cache",
-                    "dataset_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/plan_data/mini",
-                    "map_root": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_link/maps",
-                    "balanced_json_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_balanced/val_hard_box_turn_windows_metadata.json",
+                    "_class_name": "dwm.datasets.nuscenes.MotionDataset",
+                    "fs": {
+                        "_class_name": "dwm.common.get_state",
+                        "key": "nuscenes_fs"
+                    },
+                    "dataset_name": "interp_12Hz_trainval",
+                    "split": "val",
                     "sequence_length": 19,
                     "fps_stride_tuples": [
                         [
                             6,
-                            1.2,
-                            0.1
+                            2.5,
+                            0.3
                         ]
                     ],
                     "sensor_channels": [
-                        "CAM_L2",
-                        "CAM_L1",
-                        "CAM_L0",
-                        "CAM_F0",
-                        "CAM_R0",
-                        "CAM_R1",
-                        "CAM_R2",
-                        "CAM_B0"
+                        "LIDAR_TOP",
+                        "CAM_FRONT_LEFT",
+                        "CAM_FRONT",
+                        "CAM_FRONT_RIGHT"
+
                     ],
+                    "keyframe_only": true,
+                    "enable_synchronization_check": false,
                     "enable_camera_transforms": true,
                     "enable_ego_transforms": true,
-                    "enable_synchronization_check": true,
                     "_3dbox_image_settings": {},
                     "hdmap_image_settings": {},
                     "image_description_settings": {
-                        "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuplan_prepo/nuplan_scene.json",
+                        "path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuscenes_caption/nuscenes_v1.0-trainval_caption_v2_val.json",
+                        "time_list_dict_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/nuscenes_caption/nuscenes_v1.0-trainval_caption_v2_times_val.json",
                         "align_keys": [
                             "time",
                             "weather"
-                        ],
-                        "reorder_keys": true,
-                        "drop_rates": {
-                            "environment": 0.04,
-                            "objects": 0.08,
-                            "image_description": 0.16
-                        }
+                        ]
                     },
                     "stub_key_data_dict": {
                         "crossview_mask": [
@@ -790,7 +779,7 @@
                                 "_class_name": "torch.tensor",
                                 "data": {
                                     "_class_name": "json.loads",
-                                    "s": "[[1,1,0,0,0,0,0,1],[1,1,1,0,0,0,0,0],[0,1,1,1,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,1,1,1,0,0],[0,0,0,0,1,1,1,0],[0,0,0,0,0,1,1,1],[1,0,0,0,0,0,1,1]]"
+                                    "s": "[[1,1,0],[1,1,1],[0,1,1]]"
                                 },
                                 "dtype": {
                                     "_class_name": "get_class",
@@ -802,7 +791,7 @@
                             "content",
                             {
                                 "_class_name": "torch.tensor",
-                                "data": 0,
+                                "data": 1,
                                 "dtype": {
                                     "_class_name": "get_class",
                                     "class_name": "torch.int64"
