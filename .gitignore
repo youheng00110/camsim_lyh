@@ -1,7 +1,7 @@
 # 忽略克隆的 OpenDWM 仓库（整目录忽略）
 
 *.png
-
+/sam3-eval/sam3-eval/configs_nuplan1000_box3d/logs/
 # 忽略 waymo_link 符号链接（无论指向文件还是目录）
 /waymo_link
 /gpu_check_logs
