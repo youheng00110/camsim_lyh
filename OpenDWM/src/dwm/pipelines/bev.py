@@ -449,7 +449,6 @@ class BEVPipeline:
             "camera_intrinsics",
             "image_size",
             "camera_transforms",
-            "ego_transforms",
             "reference_ego_transforms",
             "bbox_token_corners",
             "bbox_token_classes",
@@ -467,20 +466,18 @@ class BEVPipeline:
         camera_intrinsics_norm[..., 1, 1] /= image_size[..., 1]
         camera_intrinsics_norm[..., 0, 2] /= image_size[..., 0]
         camera_intrinsics_norm[..., 1, 2] /= image_size[..., 1]
+        camera_intrinsics_norm = camera_intrinsics_norm[:, :1]
 
-        camera_to_sensor_ego = batch["camera_transforms"].double()
-        world_from_sensor_ego = batch["ego_transforms"].double()
-        world_from_reference_ego = batch["reference_ego_transforms"].double()
-        world_from_camera = world_from_sensor_ego @ camera_to_sensor_ego
-        camera_to_reference_ego = torch.linalg.solve(
-            world_from_reference_ego[:, :, None],
-            world_from_camera,
-        ).float()
+        camera_to_ego = batch["camera_transforms"][:, :1].float()
+
+        world_from_reference_ego = (
+            batch["reference_ego_transforms"].double()
+        )
         ego_to_initial = torch.linalg.solve(
             world_from_reference_ego[:, :1],
             world_from_reference_ego,
         ).float()
-
+        
         bbox_corners = batch["bbox_token_corners"].float()
         bbox_classes = batch["bbox_token_classes"].long()
         bbox_view_masks = batch["bbox_token_masks"].float()
@@ -496,8 +493,8 @@ class BEVPipeline:
                 [camera_intrinsics_norm, camera_intrinsics_norm],
                 dim=0,
             )
-            camera_to_reference_ego = torch.cat(
-                [camera_to_reference_ego, camera_to_reference_ego],
+            camera_to_ego = torch.cat(
+                [camera_to_ego, camera_to_ego],
                 dim=0,
             )
             ego_to_initial = torch.cat([ego_to_initial, ego_to_initial], dim=0)
@@ -530,7 +527,7 @@ class BEVPipeline:
             "encoder_hidden_states": encoder_hidden_states,
             "pooled_projections": pooled_projections,
             "camera_intrinsics_norm": camera_intrinsics_norm.to(self.device),
-            "camera_to_reference_ego": camera_to_reference_ego.to(self.device),
+            "camera_to_ego": camera_to_ego.to(self.device),
             "ego_to_initial": ego_to_initial.to(self.device),
             "bbox_corners": bbox_corners.to(self.device),
             "bbox_classes": bbox_classes.to(self.device),

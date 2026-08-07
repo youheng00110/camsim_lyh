@@ -70,16 +70,17 @@ class PluckerEncoder(torch.nn.Module):
         features = features.view(batch_size, height, width, -1)
         return self.proj(features)
 
-
 def get_rays(
     camera_intrinsics: torch.Tensor,
-    camera_to_reference_ego: torch.Tensor,
+    camera_to_ego: torch.Tensor,
     target_size: Union[int, tuple[int, int]],
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    device = camera_to_reference_ego.device
-    output_dtype = camera_to_reference_ego.dtype
+    device = camera_to_ego.device
+    output_dtype = camera_to_ego.dtype
+
     camera_intrinsics = camera_intrinsics.float()
-    camera_to_reference_ego = camera_to_reference_ego.float()
+    camera_to_ego = camera_to_ego.float()
+
     if isinstance(target_size, int):
         height = target_size
         width = target_size
@@ -87,33 +88,61 @@ def get_rays(
         height, width = target_size
 
     pixel_x, pixel_y = torch.meshgrid(
-        torch.arange(width, device=device, dtype=torch.float32) + 0.5,
-        torch.arange(height, device=device, dtype=torch.float32) + 0.5,
+        torch.arange(
+            width,
+            device=device,
+            dtype=torch.float32,
+        ) + 0.5,
+        torch.arange(
+            height,
+            device=device,
+            dtype=torch.float32,
+        ) + 0.5,
         indexing="xy",
     )
+
     homogeneous_pixels = torch.stack(
         [
             pixel_x.reshape(-1),
             pixel_y.reshape(-1),
-            torch.ones(height * width, device=device),
+            torch.ones(
+                height * width,
+                device=device,
+                dtype=torch.float32,
+            ),
         ],
         dim=0,
     )
+
     camera_directions = torch.linalg.solve(
         camera_intrinsics,
         homogeneous_pixels.unsqueeze(0),
     )
-    ray_directions = camera_to_reference_ego[:, :3, :3] @ camera_directions
-    ray_directions = torch.nn.functional.normalize(ray_directions, dim=1)
-    ray_directions = ray_directions.transpose(1, 2).reshape(
+
+    ray_directions = (
+        camera_to_ego[:, :3, :3]
+        @ camera_directions
+    )
+    ray_directions = torch.nn.functional.normalize(
+        ray_directions,
+        dim=1,
+    )
+    ray_directions = ray_directions.transpose(
+        1,
+        2,
+    ).reshape(
         -1,
         height,
         width,
         3,
     )
-    ray_origins = camera_to_reference_ego[:, :3, 3]
-    return ray_origins.to(output_dtype), ray_directions.to(output_dtype)
 
+    ray_origins = camera_to_ego[:, :3, 3]
+
+    return (
+        ray_origins.to(output_dtype),
+        ray_directions.to(output_dtype),
+    )
 
 class BEVConditionedSD3TransformerModel(diffusers.SD3Transformer2DModel):
     @diffusers.configuration_utils.register_to_config
@@ -245,44 +274,78 @@ class BEVConditionedSD3TransformerModel(diffusers.SD3Transformer2DModel):
     def build_first_frame_plucker_map(
         self,
         camera_intrinsics_norm: torch.Tensor,
-        camera_to_reference_ego: torch.Tensor,
+        camera_to_ego: torch.Tensor,
         height: int,
         width: int,
         output_dtype: torch.dtype,
     ) -> torch.Tensor:
-        if camera_intrinsics_norm.ndim != 5 or camera_intrinsics_norm.shape[-2:] != (3, 3):
+        if (
+            camera_intrinsics_norm.ndim != 5
+            or camera_intrinsics_norm.shape[-2:] != (3, 3)
+        ):
             raise ValueError(
-                "camera_intrinsics_norm must be [B,T,V,3,3], "
+                "camera_intrinsics_norm must be "
+                "[B,1,V,3,3], "
                 f"got {tuple(camera_intrinsics_norm.shape)}."
             )
-        if camera_to_reference_ego.ndim != 5 or camera_to_reference_ego.shape[-2:] != (4, 4):
+
+        if (
+            camera_to_ego.ndim != 5
+            or camera_to_ego.shape[-2:] != (4, 4)
+        ):
             raise ValueError(
-                "camera_to_reference_ego must be [B,T,V,4,4], "
-                f"got {tuple(camera_to_reference_ego.shape)}."
+                "camera_to_ego must be "
+                "[B,1,V,4,4], "
+                f"got {tuple(camera_to_ego.shape)}."
             )
 
-        batch_size, _, view_count = camera_to_reference_ego.shape[:3]
-        intrinsics = camera_intrinsics_norm[:, :1].to(
-            device=camera_to_reference_ego.device,
+        if camera_intrinsics_norm.shape[1] != 1:
+            raise ValueError(
+                "camera_intrinsics_norm must contain "
+                "only the fixed first-frame intrinsic, "
+                f"got T={camera_intrinsics_norm.shape[1]}."
+            )
+
+        if camera_to_ego.shape[1] != 1:
+            raise ValueError(
+                "camera_to_ego must contain only "
+                "the fixed first-frame rig calibration, "
+                f"got T={camera_to_ego.shape[1]}."
+            )
+
+        batch_size, _, view_count = camera_to_ego.shape[:3]
+
+        intrinsics = camera_intrinsics_norm.to(
+            device=camera_to_ego.device,
             dtype=torch.float32,
         ).clone()
+
         intrinsics[..., 0, 0] *= width
         intrinsics[..., 1, 1] *= height
         intrinsics[..., 0, 2] *= width
         intrinsics[..., 1, 2] *= height
-        first_camera_to_reference_ego = camera_to_reference_ego[:, :1].float()
 
         ray_origins, ray_directions = get_rays(
             intrinsics.flatten(0, 2),
-            first_camera_to_reference_ego.flatten(0, 2),
+            camera_to_ego.float().flatten(0, 2),
             (height, width),
         )
-        ray_origins = ray_origins[:, None, None].expand_as(ray_directions)
-        ray_moments = torch.cross(ray_origins, ray_directions, dim=-1)
+
+        ray_origins = ray_origins[
+            :, None, None
+        ].expand_as(ray_directions)
+
+        ray_moments = torch.cross(
+            ray_origins,
+            ray_directions,
+            dim=-1,
+        )
+
         plucker_map = self.rayencoder(
             ray_directions.to(output_dtype),
             ray_moments.to(output_dtype),
         )
+
         return plucker_map.view(
             batch_size,
             view_count,
@@ -294,7 +357,7 @@ class BEVConditionedSD3TransformerModel(diffusers.SD3Transformer2DModel):
     def build_condition_inputs(
         self,
         camera_intrinsics_norm: torch.Tensor,
-        camera_to_reference_ego: torch.Tensor,
+        camera_to_ego: torch.Tensor,
         ego_to_initial: torch.Tensor,
         bbox_corners: torch.Tensor,
         bbox_classes: torch.Tensor,
@@ -326,7 +389,7 @@ class BEVConditionedSD3TransformerModel(diffusers.SD3Transformer2DModel):
 
         plucker_map = self.build_first_frame_plucker_map(
             camera_intrinsics_norm,
-            camera_to_reference_ego,
+            camera_to_ego,
             height,
             width,
             hidden_dtype,
@@ -561,7 +624,7 @@ class BEVConditionedSD3TransformerModel(diffusers.SD3Transformer2DModel):
         encoder_hidden_states: torch.FloatTensor,
         pooled_projections: torch.FloatTensor,
         camera_intrinsics_norm: torch.Tensor,
-        camera_to_reference_ego: torch.Tensor,
+        camera_to_ego: torch.Tensor,
         ego_to_initial: torch.Tensor,
         bbox_corners: torch.Tensor,
         bbox_classes: torch.Tensor,
@@ -604,7 +667,7 @@ class BEVConditionedSD3TransformerModel(diffusers.SD3Transformer2DModel):
             base_time_embedding,
         ) = self.build_condition_inputs(
             camera_intrinsics_norm,
-            camera_to_reference_ego,
+            camera_to_ego,
             ego_to_initial,
             bbox_corners,
             bbox_classes,

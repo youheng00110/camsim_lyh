@@ -8,7 +8,7 @@ cd /inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/
 unset ENABLE_DEBUGPY
 unset DEBUGPY_PORT
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0
 export OMP_NUM_THREADS=1
 export TOKENIZERS_PARALLELISM=false
 export PYTHONUNBUFFERED=1
@@ -23,7 +23,7 @@ export PYTHONPATH=$OPENDWM_ROOT/externals/waymo-open-dataset/src:$PYTHONPATH
 
 torchrun \
   --standalone \
-  --nproc_per_node=4 \
+  --nproc_per_node=1 \
   -m dwm.preview \
-  -c "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM/configs/ctsd/unimlvg/camsim/nuplan/nuplandwmpreview.json" \
-  -o "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_nuplandwm"
+  -c "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/OpenDWM_PV/nusceablation/nuscenesdwmpreview.json" \
+  -o "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/debug_nuplandwm2"

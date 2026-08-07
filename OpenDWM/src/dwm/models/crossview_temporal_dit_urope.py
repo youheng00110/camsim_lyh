@@ -4,13 +4,13 @@ import diffusers
 import einops
 import torch
 
-from dwm.models.crossview_temporal_dit_rayrope import (
-    DiTCrossviewTemporalConditionModel as RayRoPEModelBase,
+from dwm.models.crossview_temporal_dit import (
+    DiTCrossviewTemporalConditionModel as OpenDWMModelBase,
 )
 from dwm.models.urope.block import VTURoPEAttentionBlock
 
 
-class DiTCrossviewTemporalConditionModel(RayRoPEModelBase):
+class DiTCrossviewTemporalConditionModel(OpenDWMModelBase):
     """OpenDWM DiT with full cross-view URoPE self-attention."""
 
     @diffusers.configuration_utils.register_to_config
@@ -71,7 +71,6 @@ class DiTCrossviewTemporalConditionModel(RayRoPEModelBase):
             condition_image_adapter_config=condition_image_adapter_config,
             enable_crossview=enable_crossview,
             enable_temporal=enable_temporal,
-            rayrope_config=None,
             crossview_attention_type=crossview_attention_type,
             temporal_attention_type=temporal_attention_type,
             merge_factor=merge_factor,
@@ -106,6 +105,23 @@ class DiTCrossviewTemporalConditionModel(RayRoPEModelBase):
                 for _ in range(len(crossview_block_layers))
             ])
 
+    def forward(
+        self,
+        *args,
+        camera_intrinsics_norm=None,
+        camera2referego=None,
+        **kwargs,
+    ):
+        self._urope_camera_intrinsics_norm = camera_intrinsics_norm
+        self._urope_camera2referego = camera2referego
+
+        return super().forward(
+            *args,
+            camera_intrinsics_norm=camera_intrinsics_norm,
+            camera2referego=camera2referego,
+            **kwargs,
+        )
+
     def forward_crossview_block_and_mix_result(
         self,
         crossview_block,
@@ -124,6 +140,20 @@ class DiTCrossviewTemporalConditionModel(RayRoPEModelBase):
         camera2referego=None,
     ):
         del crossview_attention_index
+
+        if camera_intrinsics_norm is None:
+            camera_intrinsics_norm = getattr(
+                self,
+                "_urope_camera_intrinsics_norm",
+                None,
+            )
+
+        if camera2referego is None:
+            camera2referego = getattr(
+                self,
+                "_urope_camera2referego",
+                None,
+            )
 
         if camera_intrinsics_norm is None or camera2referego is None:
             raise ValueError(

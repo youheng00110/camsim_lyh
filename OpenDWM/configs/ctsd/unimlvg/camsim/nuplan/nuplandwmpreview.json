@@ -171,10 +171,9 @@
                 "dist"
             ],
             "evaluation_item_count": 480,
-            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard1000/nuplandwmori_preview_paired_200",
+            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuscenesablation/dwmori",
             "eval_frame_dataset_name": "nuplan",
             "eval_frame_manifest_name": "stflow_manifest.jsonl",
-            "eval_frame_export_source": "model",
             "eval_frame_export_paired_real": true,
             "eval_frame_image_quality": 95
         },
@@ -901,7 +900,7 @@
     "validation_dataloader": {
         "batch_size": 1,
         "num_workers": 1,
-        "prefetch_factor": 2,
+        "prefetch_factor": 3,
         "collate_fn": {
             "_class_name": "dwm.datasets.common.CollateFnIgnoring",
             "keys": [
@@ -912,8 +911,8 @@
     },
     "preview_dataloader": {
         "batch_size": 1,
-        "num_workers": 1,
-        "prefetch_factor": 1,
+        "num_workers": 0,
+        "prefetch_factor": null,
         "shuffle": false,
         "drop_last": true,
         "collate_fn": {
@@ -922,7 +921,7 @@
                 "clip_text"
             ]
         },
-        "persistent_workers": true
+        "persistent_workers": false
     },
     "informations": {
         "fid": 13.13,

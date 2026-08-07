@@ -57,7 +57,7 @@ __pycache__/
 # large local models / migrated weights
 /lyhmigration/
 /lyhimigration/
-
+/ckpt/
 # large nuScenes 12Hz data
 /interp_12Hz_trainval/
 /nusc12hz/

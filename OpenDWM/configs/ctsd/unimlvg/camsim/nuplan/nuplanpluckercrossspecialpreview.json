@@ -171,7 +171,7 @@
                 "dist"
             ],
             "evaluation_item_count": 480,
-            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard1000/0plucker_special_noid_preview_paired_200",
+            "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplan2fps/plucker",
             "eval_frame_dataset_name": "nuplan",
             "eval_frame_manifest_name": "stflow_manifest.jsonl",
             "eval_frame_export_paired_real": true,
@@ -761,9 +761,9 @@
                     "sequence_length": 19,
                     "fps_stride_tuples": [
                         [
-                            6,
-                            1.2,
-                            0.1
+                            2,
+                            13,
+                            0.39
                         ]
                     ],
                     "sensor_channels": [
@@ -923,7 +923,7 @@
     },
     "preview_dataloader": {
         "batch_size": 1,
-        "num_workers": 1,
+        "num_workers": 4,
         "prefetch_factor": 1,
         "shuffle": false,
         "drop_last": true,
