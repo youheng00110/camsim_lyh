@@ -175,7 +175,7 @@
         "dist"
       ],
       "evaluation_item_count": 480,
-      "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard1000/pvonly_preview_paired_200",
+      "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuplanhard1000/urope",
       "eval_frame_dataset_name": "nuplan",
       "eval_frame_manifest_name": "stflow_manifest.jsonl",
       "eval_frame_export_paired_real": true,
@@ -936,8 +936,8 @@
   },
   "preview_dataloader": {
     "batch_size": 1,
-    "num_workers": 1,
-    "prefetch_factor": 1,
+    "num_workers": 0,
+    "prefetch_factor": null,
     "shuffle": false,
     "drop_last": true,
     "collate_fn": {
@@ -946,7 +946,7 @@
         "clip_text"
       ]
     },
-    "persistent_workers": true
+    "persistent_workers": false
   },
   "informations": {
     "fid": 13.13,

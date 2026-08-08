@@ -167,7 +167,6 @@
             ],
             "evaluation_item_count": 480,
             "eval_frame_export_path": "/inspire/qb-ilm/project/advanced-machine-learning/yanjunchi-24040/camsim_lyh/output/eval/nuscenesablation/nuscenesablationori3",
-            "eval_frame_dataset_name": "nuplan",
             "eval_frame_manifest_name": "stflow_manifest.jsonl",
             "eval_frame_export_source": "model",
             "eval_frame_export_paired_real": true,
@@ -253,9 +252,8 @@
         }
     },
     "training_dataset": {
-        "_class_name": "dwm.datasets.common.DatasetAdapter",
-        "default_height": 288,
-        "default_width": 512,
+        "_class_name": "dwm.datasets.commondwm.DatasetAdapter",
+
         "base_dataset": {
             "_class_name": "torch.utils.data.ConcatDataset",
             "datasets": [
@@ -717,7 +715,7 @@
                 "old_key": "image_description",
                 "new_key": "clip_text",
                 "transform": {
-                    "_class_name": "dwm.datasets.common.Copy"
+                    "_class_name": "dwm.datasets.commondwm.Copy"
                 },
                 "stack": false
             }
@@ -729,9 +727,7 @@
         ]
     },
     "validation_dataset": {
-        "_class_name": "dwm.datasets.common.DatasetAdapter",
-        "default_height": 288,
-        "default_width": 512,
+        "_class_name": "dwm.datasets.commondwm.DatasetAdapter",
         "base_dataset": {
             "_class_name": "torch.utils.data.ConcatDataset",
             "datasets": [
@@ -746,9 +742,9 @@
                     "sequence_length": 19,
                     "fps_stride_tuples": [
                         [
+                            2,
                             6,
-                            2.5,
-                            0.3
+                            0.39
                         ]
                     ],
                     "sensor_channels": [
@@ -812,8 +808,8 @@
                         {
                             "_class_name": "torchvision.transforms.Resize",
                             "size": [
-                                288,
-                                512
+                                256,
+                                448
                             ]
                         },
                         {
@@ -831,8 +827,8 @@
                         {
                             "_class_name": "torchvision.transforms.Resize",
                             "size": [
-                                288,
-                                512
+                                256,
+                                448
                             ]
                         },
                         {
@@ -850,8 +846,8 @@
                         {
                             "_class_name": "torchvision.transforms.Resize",
                             "size": [
-                                288,
-                                512
+                                256,
+                                448
                             ]
                         },
                         {
@@ -864,7 +860,7 @@
                 "old_key": "image_description",
                 "new_key": "clip_text",
                 "transform": {
-                    "_class_name": "dwm.datasets.common.Copy"
+                    "_class_name": "dwm.datasets.commondwm.Copy"
                 },
                 "stack": false
             }
@@ -880,7 +876,7 @@
         "num_workers": 4,
         "prefetch_factor": 1,
         "collate_fn": {
-            "_class_name": "dwm.datasets.common.CollateFnIgnoring",
+            "_class_name": "dwm.datasets.commondwm.CollateFnIgnoring",
             "keys": [
                 "clip_text"
             ]
@@ -892,7 +888,7 @@
         "num_workers": 1,
         "prefetch_factor": 2,
         "collate_fn": {
-            "_class_name": "dwm.datasets.common.CollateFnIgnoring",
+            "_class_name": "dwm.datasets.commondwm.CollateFnIgnoring",
             "keys": [
                 "clip_text"
             ]
@@ -906,7 +902,7 @@
         "shuffle": false,
         "drop_last": true,
         "collate_fn": {
-            "_class_name": "dwm.datasets.common.CollateFnIgnoring",
+            "_class_name": "dwm.datasets.commondwm.CollateFnIgnoring",
             "keys": [
                 "clip_text"
             ]
