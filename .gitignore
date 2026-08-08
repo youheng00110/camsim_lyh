@@ -1,5 +1,38 @@
 # 忽略克隆的 OpenDWM 仓库（整目录忽略）
+# checkpoints
+ckpt/
 
+# project archives
+*.tar.gz
+*.tar
+
+# stable diffusion weights
+lyhmigration/
+
+# nuplan large dataset
+interp_12Hz_trainval/
+
+# generated outputs
+output/
+outputs/
+output_song/
+
+# logs
+logs/
+*.log
+
+# python cache
+__pycache__/
+*.pyc
+
+# model weights
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# wheels
+*.whl
 *.png
 /sam3-eval/sam3-eval/configs_nuplan1000_box3d/logs/
 # 忽略 waymo_link 符号链接（无论指向文件还是目录）
@@ -75,7 +108,36 @@ __pycache__/
 /output/
 *.mp4
 events.out.tfevents.*
+# checkpoints
+ckpt/
+*.pt
+*.pth
+*.ckpt
+*.tar
+*.tar.gz
 
+# stable diffusion weights
+lyhmigration/
+*.safetensors
+
+# dataset json
+interp_12Hz_trainval/
+
+# generated output
+output/
+outputs/
+output_song/
+
+# logs
+logs/
+*.log
+
+# python cache
+__pycache__/
+*.pyc
+
+# wheels
+*.whl
 # python cache
 __pycache__/
 *.pyc
